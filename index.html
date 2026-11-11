@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloxd Particle Studio</title>
+<meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them and export code for a code block.">
+<link rel="icon" type="image/png" href="textures/glint.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="textures/glint.png" alt=""><span>Bloxd Particle Studio</span></div>
+  <div class="tools">
+    <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+    <span class="sep"></span>
+    <div class="seg" id="modes" role="group" aria-label="Tool">
+      <button data-mode="translate" title="Move (W)">Move</button>
+      <button data-mode="rotate" title="Rotate (E)">Rotate</button>
+      <button data-mode="scale" title="Resize (R)">Resize</button>
+    </div>
+    <label class="check" title="Snap to quarter blocks, 15 degrees"><input type="checkbox" id="snap"> Snap</label>
+    <span class="sep"></span>
+    <button id="play" title="Preview what happens when the block is clicked (Space)">Play</button>
+    <button id="focus" title="Center the view (F)">Center</button>
+    <label class="check" title="Daylight background"><input type="checkbox" id="sky"> Sky</label>
+  </div>
+  <div class="actions">
+    <span id="count" class="pill">0 particles</span>
+    <button id="new">New</button>
+    <button id="open" title="Open a saved scene file">Open</button>
+    <button id="save" title="Save the scene as a file">Save</button>
+    <button id="export" class="primary">Export code</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel" id="left">
+    <section>
+      <h2>Add</h2>
+      <button id="add-point" class="wide">+ Single particle</button>
+      <h3>Shapes <small>made of many particles</small></h3>
+      <div id="shapes" class="shape-grid"></div>
+    </section>
+    <section class="grow">
+      <h2>Scene</h2>
+      <ul id="objects" class="objects"></ul>
+      <p id="empty" class="muted">Nothing here yet. Add a particle or a shape.</p>
+    </section>
+  </aside>
+
+  <div class="stage">
+    <canvas id="view"></canvas>
+    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click a particle to select it</div>
+    <div class="playing" id="playing" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <div class="fatal" id="fatal" hidden></div>
+  </div>
+
+  <aside class="panel" id="inspector"></aside>
+</main>
+
+<dialog id="export-dialog">
+  <form method="dialog" class="dialog-head">
+    <h2>Export code</h2>
+    <button class="close" aria-label="Close">Close</button>
+  </form>
+  <div class="dialog-body">
+    <div class="export-options">
+      <label>For
+        <select id="ex-target">
+          <option value="block">Code block (plays when clicked)</option>
+          <option value="world">World Code (keeps redrawing)</option>
+        </select>
+      </label>
+      <label>Positions
+        <select id="ex-precision"></select>
+      </label>
+      <label title="Players further away than this do not get the particles. 0 = always show.">Hide beyond
+        <span class="unit"><input type="number" id="ex-hide" min="0" max="1000" step="8"> blocks</span>
+      </label>
+      <span class="world-pos" id="ex-world" hidden>Scene position in the world
+        <span class="unit">
+          <input type="number" id="ex-wx" step="1" aria-label="World X">
+          <input type="number" id="ex-wy" step="1" aria-label="World Y">
+          <input type="number" id="ex-wz" step="1" aria-label="World Z">
+        </span>
+      </span>
+    </div>
+    <div id="ex-status" class="status"></div>
+    <div id="ex-tabs" class="tabs"></div>
+    <textarea id="ex-code" readonly spellcheck="false" wrap="off"></textarea>
+    <div class="export-actions">
+      <button id="ex-copy" class="primary">Copy code</button>
+      <button id="ex-download">Download .js</button>
+      <span id="ex-meter" class="meter"></span>
+    </div>
+    <ol id="ex-steps" class="steps"></ol>
+  </div>
+</dialog>
+
+<input type="file" id="file" accept=".json,application/json" hidden>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
