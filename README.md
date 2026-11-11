@@ -13,11 +13,13 @@ This is an unofficial fan tool. It is not made, approved or supported by Bloxd.
 
 Pick whichever is easiest:
 
+- **Use it online:** <https://epicoo00000.github.io/Bloxd-Particle-studio/>
 - **Double-click `START-HERE.html`.** It is the whole studio in one file and
   works offline.
 - **Run it locally:** `npm start`, then open <http://localhost:8080>.
-- **Put it on the web:** upload the folder to any static host, such as GitHub
-  Pages. `index.html` is the start page.
+- **Host your own copy:** upload the folder to any static host. `index.html` is
+  the start page. On GitHub Pages, choose "Deploy from a branch", `main` and
+  `/ (root)`, and leave "Custom domain" empty.
 
 It needs a current browser with WebGL 2, which all current desktop browsers
 have. It was tested in Chromium, the engine of Chrome and Edge.
