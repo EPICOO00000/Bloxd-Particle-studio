@@ -1,0 +1,16 @@
+{
+  "name": "bloxd-particle-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small 3D studio for Bloxd particles: place and colour particles and shapes, then export code for a code block.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "build": "node tools/build.mjs",
+    "test": "node --test tests/core.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
