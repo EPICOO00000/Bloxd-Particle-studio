@@ -48,14 +48,14 @@ button.wide { width: 100%; }
 button.danger:hover { border-color: var(--bad); color: var(--bad); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-input[type="number"], input[type="text"], select {
+input[type="number"], input[type="text"], input[type="search"], select {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 6px;
   min-width: 0;
 }
-input[type="number"] { width: 100%; }
+input[type="number"], input[type="search"] { width: 100%; }
 input[type="range"] { width: 100%; min-width: 0; accent-color: var(--accent); }
 input[type="color"] {
   width: 44px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 6px;
@@ -82,7 +82,7 @@ input[type="color"] {
 .pill.bad { color: var(--bad); border-color: var(--bad); }
 
 /* ---------- layout ---------- */
-.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 264px minmax(0, 1fr) 304px; }
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 288px minmax(0, 1fr) 304px; }
 .panel { background: var(--panel); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
 #left { border-right: 1px solid var(--line); }
 #inspector { border-left: 1px solid var(--line); }
@@ -111,9 +111,19 @@ input[type="color"] {
 .fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--bg); }
 
 /* ---------- shape library ---------- */
-.shape-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.shape-grid button { padding: 4px 1px 3px; display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10.5px; line-height: 1.1; white-space: normal; }
-.shape-grid canvas { width: 40px; height: 40px; }
+.shape-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 6px 0; }
+.shape-tabs button { padding: 4px 2px; font-size: 12.5px; }
+/* The grid scrolls by itself, so the scene list below stays in reach however many shapes there are. */
+.shape-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-content: start;
+  max-height: min(322px, 46vh); overflow-y: auto; scrollbar-width: thin; padding: 2px; margin: 0 -2px;
+}
+.shape-grid button {
+  padding: 4px 1px 3px; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font-size: 10.5px; line-height: 1.1; white-space: normal; overflow-wrap: anywhere; min-width: 0;
+}
+.shape-grid canvas { width: 44px; height: 44px; }
+.shape-note { font-size: 12px; margin: 6px 0 0; }
 
 /* ---------- scene list ---------- */
 .objects { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -197,7 +207,8 @@ dialog::backdrop { background: #000a; }
   .layout { grid-template-columns: 1fr; grid-auto-rows: auto; }
   .stage { height: 56vh; order: -1; }
   #left, #inspector { border: 0; border-top: 1px solid var(--line); overflow: visible; }
-  .shape-grid { grid-template-columns: repeat(6, 1fr); }
+  .shape-tabs { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+  .shape-grid { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); max-height: 300px; }
   .actions { margin-left: 0; }
   /* full-width panels: keep the pictures and swatches a sensible size */
   .tex-grid { grid-template-columns: repeat(auto-fill, 52px); }

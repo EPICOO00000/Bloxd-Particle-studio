@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import * as THREE from '../vendor/three.module.min.js';
-import { SHAPES, shapePoints, defaultParams, MAX_COUNT } from '../js/shapes.js';
+import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from '../js/shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, HIDDEN_TEXELS, createObject, sanitizeScene, objectPoints, rotationMatrix,
   computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex,
@@ -22,12 +22,27 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 // ---------------------------------------------------------------- shapes
 
-const OWN_COUNT = new Set(['grid', 'lattice', 'torus']); // these pick the nearest tidy count
+// Shapes marked `tidy` (Filled square, Filled cube, Donut) pick the nearest count that fits their pattern.
 
-test('there are at least 20 shapes, each made of dozens of particles', () => {
-  assert.ok(SHAPES.length >= 20, `only ${SHAPES.length} shapes`);
+test('there are 224 shapes, each made of dozens of particles, in nine tabs', () => {
+  assert.equal(SHAPES.length, 224);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
-  for (const s of SHAPES) assert.ok(s.count >= 12, `${s.id} default count ${s.count}`);
+  assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
+  const tabs = CATEGORIES.map((c) => c.id);
+  assert.equal(tabs.length, 9);
+  for (const tab of tabs) assert.ok(SHAPES.some((s) => s.cat === tab), `tab ${tab} is empty`);
+  // the picker shows the shapes tab by tab, in this order
+  assert.deepEqual([...new Set(SHAPES.map((s) => s.cat))], tabs);
+  for (const s of SHAPES) {
+    assert.match(s.id, /^[a-z0-9-]+$/, `id ${s.id}`);
+    assert.ok(tabs.includes(s.cat), `${s.id} tab ${s.cat}`);
+    assert.ok(s.group === 'flat' || s.group === 'solid', `${s.id} group ${s.group}`);
+    assert.ok(Number.isInteger(s.count) && s.count >= 12 && s.count <= 300, `${s.id} default count ${s.count}`);
+    assert.ok(Number.isInteger(s.min) && s.min >= 1 && s.min <= s.count, `${s.id} min ${s.min}`);
+    for (const p of s.params || []) {
+      assert.ok(p.min < p.max && p.step > 0 && p.default >= p.min && p.default <= p.max, `${s.id} slider ${p.key}`);
+    }
+  }
 });
 
 test('every shape gives the requested number of distinct, finite points', () => {
@@ -35,11 +50,12 @@ test('every shape gives the requested number of distinct, finite points', () => 
     for (const n of [s.min, s.count, 37, 120, MAX_COUNT]) {
       const want = Math.max(s.min, n);
       const pts = shapePoints(s.id, want, defaultParams(s.id));
-      if (OWN_COUNT.has(s.id)) assert.ok(pts.length >= 4, `${s.id} n=${want}`);
+      if (s.tidy) assert.ok(pts.length >= 4, `${s.id} n=${want}`);
       else assert.equal(pts.length, want, `${s.id} n=${want}`);
       for (const p of pts) {
         assert.equal(p.length, 3);
         for (const v of p) assert.ok(Number.isFinite(v) && Math.abs(v) <= 1.0001, `${s.id} n=${want} value ${v}`);
+        if (s.group === 'flat') assert.equal(p[2], 0, `${s.id} is flat but has depth`);
       }
     }
     // no two particles on the same spot at the default count
@@ -51,14 +67,107 @@ test('every shape gives the requested number of distinct, finite points', () => 
 
 test('shape sliders stay valid across their whole range', () => {
   for (const s of SHAPES) {
+    const sets = [];
     for (const p of s.params || []) {
-      for (const v of [p.min, p.max, (p.min + p.max) / 2]) {
-        const pts = shapePoints(s.id, s.count, { ...defaultParams(s.id), [p.key]: v });
-        assert.ok(pts.length >= 3, `${s.id} ${p.key}=${v}`);
-        for (const q of pts) for (const c of q) assert.ok(Number.isFinite(c), `${s.id} ${p.key}=${v}`);
+      for (const v of [p.min, p.max, (p.min + p.max) / 2]) sets.push([`${p.key}=${v}`, { ...defaultParams(s.id), [p.key]: v }]);
+    }
+    if ((s.params || []).length > 1) {
+      sets.push(['all at their lowest', Object.fromEntries(s.params.map((p) => [p.key, p.min]))]);
+      sets.push(['all at their highest', Object.fromEntries(s.params.map((p) => [p.key, p.max]))]);
+    }
+    for (const [what, params] of sets) {
+      for (const n of [s.count, MAX_COUNT]) {
+        const pts = shapePoints(s.id, n, params);
+        assert.ok(pts.length >= 3, `${s.id} ${what}`);
+        for (const q of pts) for (const c of q) assert.ok(Number.isFinite(c) && Math.abs(c) <= 1.0001, `${s.id} ${what}: ${c}`);
       }
     }
   }
+});
+
+// Saved scenes and exported code only stay the same if the first 24 shapes keep
+// giving exactly the points they gave before the library grew. These fingerprints
+// were taken from that version: every slider at both ends, five particle counts.
+const FIRST_SHAPES = {
+  line: 'e1f1d363', circle: 'd8d09acb', disc: '2cda8dfd', arc: '679d365a', square: 'c33621e0', grid: '826b5d49',
+  triangle: '68d2d495', polygon: '02e66b7c', star: 'e6fc1091', heart: '54224b6f', cross: '86339717', rays: 'd1816a1b',
+  spiral: '17802333', wave: '4b99e6e9', sphere: '27a01572', dome: '4b651e3b', cube: 'ef9b75db', lattice: 'b08d1393',
+  cylinder: '253d681c', cone: '07deedf0', pyramid: 'e315c0c1', torus: 'acf3f893', helix: '080604ec', tornado: '5b96d1b2',
+};
+
+function fingerprint(shape) {
+  let hash = 2166136261;
+  const eat = (text) => {
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619) >>> 0;
+  };
+  const sets = [defaultParams(shape.id)];
+  for (const p of shape.params || []) for (const v of [p.min, p.max]) sets.push({ ...defaultParams(shape.id), [p.key]: v });
+  for (const params of sets) {
+    for (const n of [shape.min, shape.count, 37, 120, 600]) {
+      const pts = shapePoints(shape.id, n, params);
+      eat(`${pts.length}:`);
+      for (const p of pts) eat(`${p.map((v) => (Math.round(v * 1e6) / 1e6 || 0).toFixed(6)).join(',')};`);
+    }
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+test('the first 24 shapes are exactly what they were', () => {
+  for (const [id, expected] of Object.entries(FIRST_SHAPES)) {
+    const shape = SHAPES.find((s) => s.id === id);
+    assert.ok(shape, `${id} is gone`);
+    assert.equal(fingerprint(shape), expected, `${id} gives different points than before: old scenes would change`);
+  }
+});
+
+test('letters and pictures have no clumps of particles', () => {
+  const drawn = SHAPES.filter((s) => ['letters', 'numbers', 'symbols', 'nature', 'things'].includes(s.cat));
+  assert.equal(drawn.length, 121);
+  for (const s of drawn) {
+    const pts = shapePoints(s.id, s.count, defaultParams(s.id));
+    const nearest = pts.map((p, i) => Math.min(...pts.map((q, j) => (i === j ? Infinity : Math.hypot(p[0] - q[0], p[1] - q[1])))));
+    const usual = nearest.slice().sort((a, b) => a - b)[nearest.length >> 1];
+    assert.ok(Math.min(...nearest) >= 0.5 * usual, `${s.id}: two particles ${Math.min(...nearest).toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
+  }
+});
+
+test('the search box finds shapes by name, sign and other words', () => {
+  const ids = (text) => searchShapes(text).map((s) => s.id);
+  assert.deepEqual(ids(''), []);
+  assert.deepEqual(ids('   '), []);
+  assert.deepEqual(ids('no such shape'), []);
+  assert.equal(ids('a')[0], 'letter-a');
+  assert.equal(ids('7')[0], 'digit-7');
+  assert.deepEqual(ids('?'), ['sign-question']);
+  assert.equal(ids('STAR')[0], 'star');
+  assert.ok(ids('star').includes('pentagram'), 'search words count');
+  assert.deepEqual(ids('heart'), ['heart', 'fill-heart', 'heart3d']);
+  assert.deepEqual(ids('  music   note '), ['note', 'notes']);
+  assert.equal(ids('letter').length, 26);
+  assert.equal(ids('nature').length, SHAPES.filter((s) => s.cat === 'nature').length);
+  assert.ok(ids('x').length < 10, 'one letter only matches the start of a word');
+  // every shape can be found by its own name, and comes first
+  for (const s of SHAPES) assert.equal(ids(s.name)[0], s.id, `searching "${s.name}"`);
+});
+
+test('the README lists every shape', () => {
+  const readme = fs.readFileSync(new URL('README.md', root), 'utf8');
+  assert.ok(readme.includes(`one of the ${SHAPES.length} shapes`), 'the number of shapes in "Make something"');
+  assert.ok(readme.includes(`There are ${SHAPES.length} shapes in nine tabs`), 'the number of shapes under "Shapes"');
+  for (const c of CATEGORIES) {
+    const list = SHAPES.filter((s) => s.cat === c.id);
+    const row = readme.split('\n').find((line) => line.startsWith(`| ${c.name} | `));
+    assert.ok(row, `the table has no row for ${c.name}`);
+    const [, , count, names] = row.split('|').map((cell) => cell.trim());
+    assert.equal(Number(count), list.length, `how many shapes the ${c.name} tab has`);
+    if (c.id === 'letters') assert.equal(names, 'A to Z');
+    else if (c.id === 'numbers') {
+      assert.ok(names.startsWith('0 to 9'));
+      for (const s of list.filter((x) => x.id.startsWith('sign-'))) assert.ok(names.includes(s.label), `${s.name} is missing`);
+    } else assert.deepEqual(names.split(', '), list.map((s) => s.name), `the ${c.name} row`);
+  }
+  const withSliders = SHAPES.filter((s) => (s.params || []).length > 0).length;
+  assert.ok(readme.includes(`${withSliders} of them\nhave settings of their own`), `${withSliders} shapes have sliders of their own`);
 });
 
 test('junk shape input falls back safely', () => {

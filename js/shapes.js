@@ -3,104 +3,43 @@
 //
 // Local coordinates: shapes fit in about [-1, 1] on each axis (2 blocks across at
 // scale 1). Flat shapes lie in the XY plane (standing up, facing the camera).
+//
+// This file holds the first 24 shapes and puts the whole library together:
+//   shape-kit.js     the geometry tools every shape is built from
+//   shapes-geo.js    shapes made from formulas (basic, 3D, curves, effects)
+//   shapes-text.js   letters, numbers and signs
+//   shapes-icons.js  pictures drawn with strokes (symbols, nature, things)
 
-const TAU = Math.PI * 2;
-const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+import {
+  TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
+} from './shape-kit.js';
+import { GEO_SHAPES } from './shapes-geo.js';
+import { TEXT_SHAPES } from './shapes-text.js';
+import { ICON_SHAPES } from './shapes-icons.js';
 
-const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-const lerp = (a, b, t) => [
-  a[0] + (b[0] - a[0]) * t,
-  a[1] + (b[1] - a[1]) * t,
-  a[2] + (b[2] - a[2]) * t,
+export { resample };
+
+/** The tabs of the shape picker, in order. */
+export const CATEGORIES = [
+  { id: 'basic', name: 'Basic' },
+  { id: 'solid', name: '3D' },
+  { id: 'letters', name: 'Letters' },
+  { id: 'numbers', name: 'Numbers' },
+  { id: 'symbols', name: 'Symbols' },
+  { id: 'nature', name: 'Nature' },
+  { id: 'things', name: 'Things' },
+  { id: 'curves', name: 'Curves' },
+  { id: 'effects', name: 'Effects' },
 ];
 
-/** n points evenly spaced (by length) along a polyline. */
-export function resample(poly, n, closed = false) {
-  if (n <= 0 || !poly.length) return [];
-  const pts = closed ? [...poly, poly[0]] : poly;
-  if (n === 1 || pts.length === 1) return [pts[0].slice()];
-  const seg = [];
-  let total = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const l = dist(pts[i], pts[i + 1]);
-    seg.push(l);
-    total += l;
-  }
-  const step = total / (closed ? n : n - 1);
-  const out = [];
-  let si = 0;
-  let acc = 0;
-  for (let k = 0; k < n; k++) {
-    const d = Math.min(k * step, total);
-    while (si < seg.length - 1 && acc + seg[si] < d - 1e-9) acc += seg[si++];
-    const t = seg[si] > 0 ? (d - acc) / seg[si] : 0;
-    out.push(lerp(pts[si], pts[si + 1], Math.min(1, Math.max(0, t))));
-  }
-  return out;
-}
-
-/** Share `total` items between weights (largest remainder), exact sum. */
-function apportion(weights, total) {
-  const sum = weights.reduce((s, w) => s + w, 0) || 1;
-  const raw = weights.map((w) => (total * w) / sum);
-  const out = raw.map(Math.floor);
-  const left = total - out.reduce((s, x) => s + x, 0);
-  raw
-    .map((r, i) => [r - Math.floor(r), i])
-    .sort((a, b) => b[0] - a[0] || a[1] - b[1])
-    .slice(0, left)
-    .forEach(([, i]) => out[i]++);
-  return out;
-}
-
-/** Wireframe: every corner once, the rest spread evenly along the edges. */
-function wire(verts, edges, n) {
-  if (n <= verts.length) return verts.slice(0, Math.max(1, n)).map((v) => v.slice());
-  const lens = edges.map(([a, b]) => dist(verts[a], verts[b]));
-  const k = apportion(lens, n - verts.length);
-  const out = verts.map((v) => v.slice());
-  edges.forEach(([a, b], i) => {
-    for (let j = 1; j <= k[i]; j++) out.push(lerp(verts[a], verts[b], j / (k[i] + 1)));
-  });
-  return out;
-}
-
-const loopEdges = (count) => Array.from({ length: count }, (_, i) => [i, (i + 1) % count]);
-
-function polygon(sides, n, radius = 1, inner = null) {
-  const verts = [];
-  const count = inner ? sides * 2 : sides;
-  for (let i = 0; i < count; i++) {
-    const r = inner && i % 2 ? radius * inner : radius;
-    const a = (TAU * i) / count;
-    verts.push([Math.sin(a) * r, Math.cos(a) * r, 0]);
-  }
-  return wire(verts, loopEdges(count), n);
-}
-
-function curve(fn, n, closed = false, samples = 600) {
-  const poly = [];
-  const last = closed ? samples : samples + 1;
-  for (let i = 0; i < last; i++) poly.push(fn(i / samples));
-  return resample(poly, n, closed);
-}
-
-function ring(n, radius, y, phase = 0) {
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const a = phase + (TAU * i) / n;
-    out.push([Math.cos(a) * radius, y, Math.sin(a) * radius]);
-  }
-  return out;
-}
-
-const P = (key, label, min, max, step, def) => ({ key, label, min, max, step, default: def });
-
 /**
- * id, name, group ('flat' | 'solid'), count (default), min (fewest useful
- * particles), params (extra sliders), gen(n, params) -> [[x, y, z], ...]
+ * id, name, group ('flat' | 'solid': how the picker draws its little picture),
+ * cat (tab of the picker), count (default), min (fewest useful particles),
+ * params (extra sliders), gen(n, params) -> [[x, y, z], ...]
+ * Optional: label (short name under the picture), tags (extra search words),
+ * tidy (the shape rounds "How many" to a count that fits its pattern).
  */
-export const SHAPES = [
+const FIRST_SHAPES = [
   {
     id: 'line', name: 'Line', group: 'flat', count: 16, min: 2,
     gen: (n) => resample([[-1, 0, 0], [1, 0, 0]], n),
@@ -132,7 +71,7 @@ export const SHAPES = [
     gen: (n) => wire([[-1, 1, 0], [1, 1, 0], [1, -1, 0], [-1, -1, 0]], loopEdges(4), n),
   },
   {
-    id: 'grid', name: 'Filled square', group: 'flat', count: 49, min: 4,
+    id: 'grid', name: 'Filled square', group: 'flat', count: 49, min: 4, tidy: true,
     gen: (n) => {
       const k = Math.max(2, Math.round(Math.sqrt(n)));
       const out = [];
@@ -225,7 +164,7 @@ export const SHAPES = [
     },
   },
   {
-    id: 'lattice', name: 'Filled cube', group: 'solid', count: 64, min: 8,
+    id: 'lattice', name: 'Filled cube', group: 'solid', count: 64, min: 8, tidy: true,
     gen: (n) => {
       const k = Math.max(2, Math.round(Math.cbrt(n)));
       const at = (i) => -1 + (2 * i) / (k - 1);
@@ -262,7 +201,7 @@ export const SHAPES = [
       [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 4], [2, 4], [3, 4]], n),
   },
   {
-    id: 'torus', name: 'Donut', group: 'solid', count: 96, min: 9,
+    id: 'torus', name: 'Donut', group: 'solid', count: 96, min: 9, tidy: true,
     params: [P('tube', 'Thickness', 0.1, 0.5, 0.05, 0.3)],
     gen: (n, p) => {
       const r = p.tube;
@@ -301,7 +240,28 @@ export const SHAPES = [
   },
 ];
 
+// Other words people type when they look for one of the first shapes.
+const SEARCH_WORDS = {
+  circle: 'ring round', disc: 'filled circle dot', arc: 'curve bow', square: 'box', grid: 'filled square dots',
+  polygon: 'hexagon pentagon octagon', cross: 'cross add', rays: 'burst sunburst', spiral: 'swirl', wave: 'sine',
+  sphere: 'ball round', dome: 'half ball', cube: 'box block', lattice: 'filled cube grid', cylinder: 'tube pipe',
+  torus: 'donut ring', helix: 'spring coil', tornado: 'twister funnel',
+};
+
+for (const s of FIRST_SHAPES) {
+  s.cat = s.group === 'solid' ? 'solid' : 'basic';
+  if (SEARCH_WORDS[s.id]) s.tags = SEARCH_WORDS[s.id];
+}
+
+/** Every shape, grouped by tab in the order of CATEGORIES. */
+export const SHAPES = (() => {
+  const all = [...FIRST_SHAPES, ...GEO_SHAPES, ...TEXT_SHAPES, ...ICON_SHAPES];
+  return CATEGORIES.flatMap((c) => all.filter((s) => s.cat === c.id));
+})();
+
 export const SHAPE_BY_ID = Object.fromEntries(SHAPES.map((s) => [s.id, s]));
+
+const TAB_NAME = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.name.toLowerCase()]));
 
 /** Default values of a shape's extra sliders. */
 export function defaultParams(shapeId) {
@@ -311,6 +271,41 @@ export function defaultParams(shapeId) {
   return out;
 }
 
+/**
+ * Shapes that match what was typed into the search box, best match first.
+ * Every word has to appear in the name, the sign ("A", "7", "?"), the search
+ * words or the name of the tab.
+ */
+export function searchShapes(text) {
+  const words = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const typed = words.join(' ');
+  const found = [];
+  SHAPES.forEach((s, order) => {
+    const name = s.name.toLowerCase();
+    const label = (s.label || '').toLowerCase();
+    const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${TAB_NAME[s.cat]} ${s.id}`;
+    const parts = all.split(/[\s-]+/);
+    // a single letter has to start a word, or "a" would find nearly everything
+    if (!words.every((w) => (w.length > 1 ? all.includes(w) : parts.some((x) => x.startsWith(w))))) return;
+    let rank = 5;
+    if (label === typed || name === typed) rank = 0;
+    else if (name.startsWith(typed)) rank = 1;
+    else if (name.split(' ').some((w) => w.startsWith(typed))) rank = 2;
+    else if (name.includes(typed)) rank = 3;
+    else if (parts.some((w) => w.startsWith(typed))) rank = 4;
+    found.push([rank, order, s]);
+  });
+  return found.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((f) => f[2]);
+}
+
+export const MAX_COUNT = 600;
+
+// The same shape is asked for again and again (every frame while playing), so
+// the last results are kept. They are frozen: callers get the list to read.
+const recent = new Map();
+const RECENT_MAX = 300;
+
 /** Points of a shape. 'point' (a single particle) is the trivial shape. */
 export function shapePoints(shapeId, count, params = {}) {
   if (shapeId === 'point') return [[0, 0, 0]];
@@ -318,11 +313,19 @@ export function shapePoints(shapeId, count, params = {}) {
   if (!shape) return [[0, 0, 0]];
   const n = Math.max(shape.min, Math.min(MAX_COUNT, Math.round(Number(count) || shape.count)));
   const full = { ...defaultParams(shapeId) };
+  let key = `${shapeId}|${n}`;
   for (const p of shape.params || []) {
     const v = Number(params[p.key]);
     if (Number.isFinite(v)) full[p.key] = Math.min(p.max, Math.max(p.min, v));
+    key += `|${full[p.key]}`;
   }
-  return shape.gen(n, full);
+  let points = recent.get(key);
+  if (!points) {
+    points = shape.gen(n, full);
+    for (const p of points) Object.freeze(p);
+    Object.freeze(points);
+    recent.set(key, points);
+    if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value);
+  }
+  return points;
 }
-
-export const MAX_COUNT = 600;

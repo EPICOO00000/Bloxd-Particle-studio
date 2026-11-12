@@ -26,7 +26,8 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. **Add** a single particle or one of the 24 shapes from the left panel.
+1. **Add** a single particle or one of the 224 shapes from the left panel.
+   Pick a tab, or type in the search box.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
    Resize in the top bar.
 3. **Style** it on the right: texture, colour, size, how many particles.
@@ -41,13 +42,29 @@ and **Open** loads one, so you can keep several scenes or share them.
 
 ### Shapes
 
-Line, Circle, Disc, Arc, Square, Filled square, Triangle, Polygon, Star, Heart,
-Plus, Rays, Spiral, Wave, Sphere, Dome, Cube, Filled cube, Cylinder, Cone,
-Pyramid, Donut, Helix, Tornado.
+There are 224 shapes in nine tabs. Click a tab to see its shapes, or type in
+the search box above the tabs to look through all of them: a name ("star",
+"heart"), a letter, a number or a sign ("A", "7", "?"). Enter adds the first
+shape found.
 
-Every shape has a "How many" slider for the number of particles. Some have
-settings of their own, such as the number of points on a star or the turns of
-a helix.
+| Tab | How many | Shapes |
+|---|---|---|
+| Basic | 34 | Line, Circle, Disc, Arc, Square, Filled square, Triangle, Polygon, Star, Heart, Plus, Rays, Spiral, Wave, Rectangle, Rounded square, Diamond, Oval, Half circle, Pie slice, Double circle, Target, Right triangle, Double square, Zigzag, Square wave, Square spiral, Pill, Plus outline, Net, Filled polygon, Filled star, Filled heart, Filled ring |
+| 3D | 31 | Sphere, Dome, Cube, Filled cube, Cylinder, Cone, Pyramid, Donut, Helix, Tornado, Tetrahedron, Octahedron, Dodecahedron, Icosahedron, Football, Prism, Crystal, Gem, 3D star, Cube in a cube, Step pyramid, Hut, Star block, Globe, Ring ball, Filled ball, Capsule, Hourglass, Vase, Goblet, Flying saucer |
+| Letters | 26 | A to Z |
+| Numbers | 20 | 0 to 9, and the signs ! ? # @ & % $ € = ÷ |
+| Symbols | 25 | Arrow, Double arrow, Turn arrow, Chevrons, Tick, X mark, No sign, Peace sign, Yin yang, Smiley, Sad face, Skull, Lightning, Music note, Double note, Infinity, Spade, Club, Pentagram, Hexagram, Crosshair, Warning sign, Atom, Eye, Speech bubble |
+| Nature | 25 | Sun, Moon, Cloud, Drop, Snowflake, Flame, Leaf, Tree, Pine tree, Flower, Tulip, Clover, Mushroom, Cactus, Mountains, Rainbow, Fish, Bird, Butterfly, Cat, Paw print, Rabbit, Spider web, Bat, Planet |
+| Things | 25 | House, Castle, Key, Padlock, Sword, Shield, Crown, Flag, Bell, Gift, Balloon, Trophy, Jewel, Rocket, Sailing boat, Anchor, Umbrella, Light bulb, Candle, Potion, Pickaxe, Hammer, Bow and arrow, Apple, Ghost |
+| Curves | 17 | Rose, Lissajous, Spirograph, Petal ring, Wavy circle, Shell spiral, Spiral arms, Bounce path, Trefoil, Torus knot, Globe spiral, Ball seam, DNA, Twin helix, Slinky, Spring ring, Möbius strip |
+| Effects | 21 | Smoke, Firework, Fountain, Galaxy, Whirlpool, Portal, Halo, Ripple, Cyclone, Orbit rings, Scatter, 3D flame, Comet, Light pillar, Cage, Crown ring, Wave ring, Light cone, Spiral stairs, Puffy heart, Orbs |
+
+Every shape has a "How many" slider for the number of particles. 72 of them
+have settings of their own, such as the points of a star, the petals of a
+flower or the turns of a helix.
+
+To write a word, add its letters one after the other. Each new shape takes the
+next free place in a row, so the letters line up by themselves.
 
 ### Keys
 
@@ -147,14 +164,38 @@ npm run build    # rebuild START-HERE.html
 | Path | What it is |
 |---|---|
 | `index.html`, `css/style.css` | The page and its looks |
-| `js/shapes.js` | The 24 shapes: each returns a list of points |
+| `js/shapes.js` | The shape library: the first 24 shapes, the tabs and the search. Each shape returns a list of points |
+| `js/shape-kit.js` | The geometry tools the shapes are built from, and the small drawing language used for letters and pictures |
+| `js/shapes-geo.js` | Shapes made from formulas: more basic outlines, 3D shapes, curves and effects |
+| `js/shapes-text.js` | Letters, numbers and signs |
+| `js/shapes-icons.js` | Pictures: symbols, nature and things |
 | `js/scene.js` | Scene data, checks for loaded files, the preview maths |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
 | `js/viewport.js` | The 3D view (three.js) |
-| `js/app.js` | Buttons, panels, undo, saving, the export window |
+| `js/app.js` | Buttons, panels, the shape picker, undo, saving, the export window |
+| `js/assets.js` | Finds the pictures, as files or inside the single-file build |
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tools/` | Local server and the single-file build |
 | `textures/` | Particle pictures used for the preview |
+| `vendor/` | three.js, the 3D library |
+| `docs/` | The screenshot at the top of this page |
+
+### Add a shape of your own
+
+A picture is one line in `js/shapes-icons.js`: an id, a name and a drawing.
+
+```js
+['arrow', 'Arrow', 'M0,0 L0,10 M-3.5,6.5 L0,10 L3.5,6.5'],
+```
+
+`M` moves the pen and `L` draws a line to a point. The other commands (curves,
+arcs, circles, single dots, mirroring) are listed in `js/shape-kit.js` under
+"drawings". Use whatever size suits the picture: it is centred and scaled to
+fit, and particles are spread evenly along the strokes with one on every
+corner.
+
+Then run `npm test`, which checks every shape, and `npm run build`. The tests
+and the table above know how many shapes there are, so update both.
 
 ## Credits and licence
 
