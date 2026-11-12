@@ -41,7 +41,10 @@
       <h2>Add</h2>
       <button id="add-point" class="wide">+ Single particle</button>
       <h3>Shapes <small>made of many particles</small></h3>
-      <div id="shapes" class="shape-grid"></div>
+      <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
+      <div id="shape-tabs" class="shape-tabs" role="group" aria-label="Kinds of shape"></div>
+      <div id="shapes" class="shape-grid" role="group" aria-label="Shapes to add"></div>
+      <p id="shape-note" class="muted shape-note" aria-live="polite" hidden></p>
     </section>
     <section class="grow">
       <h2>Scene</h2>

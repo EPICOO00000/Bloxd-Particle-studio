@@ -1,7 +1,7 @@
 // Bloxd Particle Studio: the user interface. Scene state lives here; the maths
 // is in scene.js, the code generator in codegen.js and the 3D view in viewport.js.
 
-import { SHAPES, SHAPE_BY_ID, shapePoints, defaultParams, MAX_COUNT } from './shapes.js';
+import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from './shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, BLEND_MODES, LIFE_PER_SECOND, createObject, sanitizeScene,
   computeParticles, objectPoints, sceneDuration, newId,
@@ -697,23 +697,27 @@ async function openFile(file) {
 
 // ------------------------------------------------------------------ start
 
+/** The little picture on a shape's button: the shape itself, as it comes when you add it. */
 function shapeIcon(shape) {
-  const px = 80;
+  const px = 88;
   const canvas = h('canvas', { width: px, height: px });
   const ctx = canvas.getContext('2d');
-  const pts = shapePoints(shape.id, Math.min(shape.count, 60), defaultParams(shape.id));
+  const pts = shapePoints(shape.id, shape.count, defaultParams(shape.id));
+  const solid = shape.group === 'solid';
+  const reach = solid ? 31 : 38; // 3D shapes are drawn turned, so they need room for their corners
+  const dot = pts.length > 110 ? 3 : pts.length > 60 ? 4 : 5;
   const cy = Math.cos(0.6), sy = Math.sin(0.6), cx = Math.cos(0.45), sx = Math.sin(0.45);
   ctx.fillStyle = '#e8ecf5';
   for (const [x0, y0, z0] of pts) {
     let x = x0, y = y0;
-    if (shape.group === 'solid') {
+    if (solid) {
       const x1 = x0 * cy + z0 * sy;
       const z1 = -x0 * sy + z0 * cy;
       x = x1;
       y = y0 * cx - z1 * sx;
     }
     const dy = shape.id === 'dome' ? 0.35 : 0;
-    ctx.fillRect(px / 2 + x * 29 - 2.5, px / 2 - (y - dy) * 29 - 2.5, 5, 5);
+    ctx.fillRect(Math.round(px / 2 + x * reach - dot / 2), Math.round(px / 2 - (y - dy) * reach - dot / 2), dot, dot);
   }
   return canvas;
 }
@@ -727,11 +731,72 @@ function loadImage(src) {
   });
 }
 
+/**
+ * The shape library: tabs, a search box and a grid of buttons. Only the shapes
+ * on show are in the page; a button (and its picture) is made the first time
+ * it is needed and kept.
+ */
+function bindShapePicker() {
+  const search = $('#shape-search');
+  const tabs = $('#shape-tabs');
+  const grid = $('#shapes');
+  const note = $('#shape-note');
+  const made = new Map();
+  let tab = CATEGORIES[0].id;
+
+  const button = (s) => {
+    if (!made.has(s.id)) {
+      // a soft hyphen lets "Dodecahedron" break as "Dodeca-hedron" on a narrow button
+      const caption = (s.label || s.name).replace(/(\w{4})(hedron)/, '$1\u00AD$2');
+      made.set(s.id, h('button', {
+        title: `${s.name}: ${s.count} particles`, 'aria-label': `Add ${s.name}`, 'data-shape': s.id,
+        onclick: () => addObject(s.id),
+      }, shapeIcon(s), h('span', {}, caption)));
+    }
+    return made.get(s.id);
+  };
+
+  const show = () => {
+    const typed = search.value.trim();
+    const list = typed ? searchShapes(typed) : SHAPES.filter((s) => s.cat === tab);
+    for (const b of tabs.children) {
+      const on = !typed && b.dataset.tab === tab;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    grid.replaceChildren(...list.map(button));
+    grid.scrollTop = 0;
+    note.hidden = !typed;
+    if (typed) {
+      note.textContent = list.length
+        ? `${list.length} of ${SHAPES.length} shapes. Enter adds the first one.`
+        : `No shape matches \u201c${typed.slice(0, 30)}\u201d. Try a shorter word or pick a kind above.`;
+    }
+  };
+
+  tabs.replaceChildren(...CATEGORIES.map((c) => {
+    const size = SHAPES.filter((s) => s.cat === c.id).length;
+    return h('button', {
+      'data-tab': c.id, title: `${size} shapes`,
+      onclick: () => { tab = c.id; search.value = ''; show(); },
+    }, c.name);
+  }));
+  search.placeholder = `Search ${SHAPES.length} shapes`;
+  search.oninput = show;
+  search.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      const first = searchShapes(search.value)[0];
+      if (first) addObject(first.id);
+    } else if (e.key === 'Escape' && search.value) {
+      search.value = '';
+      show();
+    }
+  };
+  show();
+}
+
 function bindUi() {
-  $('#shapes').replaceChildren(...SHAPES.map((s) => h('button', {
-    title: `Add a ${s.name.toLowerCase()} made of ${s.count} particles`, 'data-shape': s.id,
-    onclick: () => addObject(s.id),
-  }, shapeIcon(s), s.name)));
+  bindShapePicker();
   $('#add-point').onclick = () => addObject('point');
   $('#undo').onclick = undo;
   $('#redo').onclick = redo;
