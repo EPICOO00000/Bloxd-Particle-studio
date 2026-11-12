@@ -4,10 +4,12 @@
 import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from './shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, BLEND_MODES, LIFE_PER_SECOND, createObject, sanitizeScene,
-  computeParticles, objectPoints, sceneDuration, newId,
+  computeParticles, posedPoints, sceneDuration, newId, poseAtTime,
 } from './scene.js';
+import { spanOf, poseAt, markAt, planOf, EASES, MAX_KEYS, MIN_KEY_GAP, MAX_START } from './motion.js';
 import { generateCode, LIMITS, PRECISIONS } from './codegen.js';
 import { createViewport } from './viewport.js';
+import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
 
 const STORE = 'bloxd-particle-studio.v1';
@@ -43,13 +45,17 @@ const state = {
   selected: null,
   mode: 'translate',
   playing: false,
-  playTime: 0,
+  time: 0, // the time marker of the timeline, in seconds after the click
+  ease: 'smooth', // how a new key is reached
+  loop: false, // Play starts again at the end
   sky: false,
   snap: false,
   style: { texture: 'glint', color: '#ffd24a' }, // look of the next new object
   export: { target: 'block', precision: 100, hideDist: 0, worldPos: [0, 0, 0], part: 0 },
 };
 let viewport = null;
+let timeline = null;
+let keyPressed = false; // the last press was on a key of the timeline: Delete then removes that key, never the object
 const images = {};
 const history = [];
 const future = [];
@@ -156,10 +162,15 @@ function updateHistoryButtons() {
 let statsTimer = 0;
 
 function refresh() {
+  renderTimeline();
   if (!viewport) return;
   const obj = selectedObject();
-  if (!state.playing) viewport.setParticles(computeParticles(state.objects));
-  viewport.setSelection(obj && !obj.hidden ? obj : null, !state.playing);
+  // Not playing, time marker at the start: everything where it starts, fully
+  // visible, to build with. Anywhere else: that moment, with the objects that
+  // are not there then drawn see-through so they can still be picked.
+  if (!state.playing) viewport.setParticles(computeParticles(state.objects, state.time > 0 ? state.time : null, { ghosts: true }));
+  // the gizmo sits where the object is at that moment
+  viewport.setSelection(obj && !obj.hidden ? { id: obj.id, shape: obj.shape, ...poseNow(obj) } : null, !state.playing);
   clearTimeout(statsTimer);
   statsTimer = setTimeout(updateStats, 120);
 }
@@ -244,6 +255,7 @@ function addObject(shape) {
   while (taken()) pos[0] += shape === 'point' ? 0.5 : 2.5; // never hide a new object inside an old one
   const obj = createObject(shape, { pos, texture: state.style.texture, color: state.style.color });
   obj.name = uniqueName(obj.name);
+  if (state.time > spanOf(obj).end) state.time = 0; // at the time marker it would be gone already
   state.objects.push(obj);
   state.selected = obj.id;
   commit();
@@ -265,13 +277,16 @@ function duplicateObject() {
   const copy = clone(src);
   copy.id = newId();
   copy.name = uniqueName(src.name);
-  copy.pos = [round(src.pos[0] + 1), src.pos[1], src.pos[2]];
+  for (const place of [copy, ...copy.keys]) place.pos = [round(place.pos[0] + 1), place.pos[1], place.pos[2]];
   state.objects.splice(state.objects.indexOf(src) + 1, 0, copy);
   state.selected = copy.id;
   commit();
   renderInspector();
   refresh();
 }
+
+/** Every place a particle is put: the objects where they start and at each of their keys. */
+const allPoints = () => state.objects.filter((o) => !o.hidden).flatMap((o) => [o, ...o.keys].flatMap((pose) => posedPoints(o, pose)));
 
 /** Live edit of the selected object (sliders, typing, gizmo). */
 function edit(change) {
@@ -390,7 +405,8 @@ function renderInspector() {
         h('li', {}, h('b', {}, 'Export code'), ', paste it into a code block in Bloxd and click the block.')),
       h('p', { class: 'note' }, 'The crate in the middle is your code block. Everything appears in the game exactly where you see it around the block. One grid square is one block.'),
       h('p', { class: 'note' }, 'The X, Y and Z lines point the same way as the X, Y and Z of the coordinates in the game. Y is up.'),
-      h('p', { class: 'note' }, 'Keys: W move, E rotate, R resize, Ctrl+D duplicate, Delete, Ctrl+Z undo, F center, Space play.'),
+      h('p', { class: 'note' }, 'The timeline at the bottom is for timing. Drag the bar of an object to make it appear later. To make it move: click the object, click on the row of numbers at a later time, press Add key and move the object.'),
+      h('p', { class: 'note' }, 'Keyboard: W move, E rotate, R resize, Ctrl+D duplicate, Delete, Ctrl+Z undo, F center, Space play, K add key, Esc back to the start.'),
     );
     return;
   }
@@ -473,31 +489,44 @@ function renderInspector() {
       get: (o) => o.params[p.key] ?? p.default, set: (o, v) => { o.params[p.key] = v; }, min: p.min, max: p.max, step: p.step, label: p.label,
     }))) : null);
 
-  // place
+  // place: shown and changed at the time marker (the object itself, or the key there)
+  const placeNote = h('p', { class: 'note' });
+  fields.push({
+    sync: () => {
+      const o = selectedObject();
+      if (!o) return;
+      placeNote.textContent = placeHint(o);
+      placeNote.hidden = !o.keys.length;
+    },
+  });
   const place = h('div', { class: 'group' }, h('h2', {}, 'Place'),
-    row('Position', xyz((o) => o.pos, (o, i, v) => { o.pos[i] = v; }, 0.25, 'Position')),
+    row('Position', xyz((o) => poseNow(o).pos, (o, i, v) => setPose(o, (k) => { k.pos[i] = v; }), 0.25, 'Position')),
     h('p', { class: 'note' }, 'Blocks from the corner of the code block. Y is up.'),
-    isShape ? row('Rotation', xyz((o) => o.rot, (o, i, v) => { o.rot[i] = v; }, 15, 'Rotation')) : null,
+    isShape ? row('Rotation', xyz((o) => poseNow(o).rot, (o, i, v) => setPose(o, (k) => { k.rot[i] = v; }), 15, 'Rotation')) : null,
     isShape ? row('Scale', sliderPair({
-      get: (o) => Math.max(...o.scale.map(Math.abs)),
-      set: (o, v) => {
-        const now = Math.max(...o.scale.map(Math.abs));
-        o.scale = now > 0 ? o.scale.map((s) => round((s / now) * v, 4)) : [v, v, v];
-      },
+      get: (o) => Math.max(...poseNow(o).scale.map(Math.abs)),
+      set: (o, v) => setPose(o, (k) => {
+        const now = Math.max(...k.scale.map(Math.abs));
+        k.scale = now > 0 ? k.scale.map((s) => round((s / now) * v, 4)) : [v, v, v];
+      }),
       min: 0.1, max: 6, step: 0.05, numMax: 100, label: 'Scale',
     })) : null,
-    isShape ? row('Stretch', xyz((o) => o.scale, (o, i, v) => { o.scale[i] = v; }, 0.1, 'Scale')) : null,
+    isShape ? row('Stretch', xyz((o) => poseNow(o).scale, (o, i, v) => setPose(o, (k) => { k.scale[i] = v; }), 0.1, 'Scale')) : null,
     isShape ? h('div', { class: 'buttons' },
-      h('button', { onclick: () => { edit((o) => { o.rot = [90, 0, 0]; }); commit(); } }, 'Lay flat'),
-      h('button', { onclick: () => { edit((o) => { o.rot = [0, 0, 0]; }); commit(); } }, 'Stand up'),
-      h('button', { onclick: () => { edit((o) => { o.rot = [0, 0, 0]; o.scale = [1, 1, 1]; }); commit(); } }, 'Reset')) : null);
+      h('button', { onclick: () => { edit((o) => setPose(o, (k) => { k.rot = [90, 0, 0]; })); commit(); } }, 'Lay flat'),
+      h('button', { onclick: () => { edit((o) => setPose(o, (k) => { k.rot = [0, 0, 0]; })); commit(); } }, 'Stand up'),
+      h('button', { onclick: () => { edit((o) => setPose(o, (k) => { k.rot = [0, 0, 0]; k.scale = [1, 1, 1]; })); commit(); } }, 'Reset')) : null,
+    placeNote);
 
   // life + look
   const lifeNote = h('p', { class: 'note' });
   fields.push({
     sync: () => {
       const o = selectedObject();
-      if (o) lifeNote.textContent = `Stays about ${round(o.life / LIFE_PER_SECOND, 1)} seconds in the game.`;
+      if (!o) return;
+      const { start, end } = spanOf(o);
+      const byKeys = o.keys.length && o.keys[o.keys.length - 1].t > o.life / LIFE_PER_SECOND;
+      lifeNote.textContent = `Stays about ${round(end - start, 1)} seconds in the game${byKeys ? ': until its last key' : ''}.`;
     },
   });
   const blend = h('select', {
@@ -506,10 +535,38 @@ function renderInspector() {
   }, BLEND_MODES.map((b) => h('option', { value: b.id }, `${b.name} (${b.id})`)));
   fields.push({ sync: () => { const o = selectedObject(); if (o) blend.value = String(o.blend); } });
   const life = h('div', { class: 'group' }, h('h2', {}, 'Life'),
+    row('Appears', h('div', { class: 'seconds' },
+      numberInput({ get: (o) => o.start, set: (o, v) => { o.start = round(v, 3); }, min: 0, max: MAX_START, step: 0.1, label: 'Appears after seconds', title: 'How long after the click on the code block it appears. The same as dragging its bar on the timeline.' }),
+      h('span', { class: 'note' }, 'seconds after the click'))),
     row('Lifetime', numberInput({ get: (o) => o.life, set: (o, v) => { o.life = v; }, min: 0.05, max: 1000, step: 0.5, label: 'Lifetime' })),
     lifeNote,
+    row('Beginning', checkbox('fade in', (o) => o.fadeIn, (o, on) => { o.fadeIn = on; })),
     row('Ending', checkbox('fade out', (o) => o.fade, (o, on) => { o.fade = on; })),
     row('Blend', blend));
+
+  // keys: made on the timeline; here is what they cost and how the object turns
+  const keysNote = h('p', { class: 'note' });
+  const clearKeys = h('button', {
+    class: 'danger',
+    onclick: () => { edit((o) => { o.keys = []; }); commit(); },
+  }, 'Remove all keys');
+  const turnNote = h('p', { class: 'note' });
+  fields.push({
+    sync: () => {
+      const o = selectedObject();
+      if (!o) return;
+      clearKeys.disabled = !o.keys.length;
+      keysNote.textContent = keysHint(o);
+      turnNote.textContent = o.spin
+        ? 'It turns from the Rotation numbers of one key to those of the next. For a full turn, type 360 in a key.'
+        : 'It turns the short way round to the next key. Tick this to make full turns.';
+    },
+  });
+  const keys = h('div', { class: 'group' }, h('h2', {}, 'Keys'),
+    keysNote,
+    isShape ? row('Turning', checkbox('by the angles as typed', (o) => o.spin, (o, on) => { o.spin = on; })) : null,
+    isShape ? turnNote : null,
+    h('div', { class: 'buttons' }, clearKeys));
 
   // motion
   const motion = h('div', { class: 'group' }, h('h2', {}, 'Motion'),
@@ -517,42 +574,215 @@ function renderInspector() {
     row('Scatter', numberInput({ get: (o) => o.spread, set: (o, v) => { o.spread = v; }, min: 0, max: 100, step: 0.1, label: 'Scatter', title: 'Random extra speed in every direction' })),
     isShape ? row('Grow', numberInput({ get: (o) => o.expand, set: (o, v) => { o.expand = v; }, min: -100, max: 100, step: 0.1, label: 'Grow', title: 'Particles fly away from the middle of the shape (negative: towards it)' })) : null,
     row('Gravity', numberInput({ get: (o) => o.gravity, set: (o, v) => { o.gravity = v; }, min: -500, max: 500, step: 0.5, label: 'Gravity', title: 'Negative falls, positive floats up' })),
-    h('p', { class: 'note' }, 'All 0 = the particles stand still. Press Play to see the motion.'));
+    h('p', { class: 'note' }, 'All 0 = the particles stand still. Press Play to see the motion. With keys, this motion starts after the last key.'));
 
-  panel.replaceChildren(head, texture, colour, particles, place, life, motion);
+  panel.replaceChildren(head, texture, colour, particles, place, life, keys, motion);
   syncInspector();
+}
+
+// ------------------------------------------------------------------ time
+
+const duration = () => sceneDuration(state.objects);
+
+/** Where an object is at the time marker: { pos, rot, scale }. */
+const poseNow = (obj) => poseAtTime(obj, state.time);
+
+/** What the time marker points at for an object, and so what a change of its place changes (see markAt). */
+const markOf = (obj) => markAt(obj, state.time);
+
+/** A new key `t` seconds after the object appears, with the place the object has at that time anyway. */
+function insertKey(obj, t) {
+  const pose = poseAt(obj, t);
+  const key = {
+    t: round(t, 3), pos: pose.pos.map((v) => round(v)), rot: pose.rot.map((v) => round(v, 2) + 0),
+    scale: pose.scale.map((v) => round(v, 4)), ease: state.ease,
+  };
+  obj.keys.push(key);
+  obj.keys.sort((x, y) => x.t - y.t);
+  return key;
+}
+
+/** Change the place of an object at the time marker: see markOf() for what that changes. */
+function setPose(obj, change) {
+  const mark = markOf(obj);
+  const { start } = spanOf(obj);
+  if (mark.at === 'full') {
+    toast(`${obj.name} has ${MAX_KEYS} keys, the most an object can have. Go to one of them to change it.`, 'warn');
+    return;
+  }
+  if (mark.at === 'object') change(obj);
+  else if (mark.at === 'start') {
+    if (state.time > start) state.time = start; // a moment after the start: too close for a key of its own
+    change(obj);
+  } else if (mark.at === 'between') change(insertKey(obj, state.time - start));
+  else {
+    if (mark.at === 'key') state.time = round(start + obj.keys[mark.index].t, 3);
+    change(obj.keys[mark.index]);
+  }
+}
+
+/** The same in words, for the timeline and the Place settings. */
+function placeHint(obj) {
+  const mark = markOf(obj);
+  const { start } = spanOf(obj);
+  const of = `${obj.keys.length}`;
+  switch (mark.at) {
+    case 'object': return '';
+    case 'start': return state.time < start ? 'It is not there yet at this time. This is where it starts.' : 'This is where it starts.';
+    case 'key': return `This is key ${mark.index + 1} of ${of}.`;
+    case 'last': return `It is gone at this time. This is where it was last, key ${mark.index + 1} of ${of}.`;
+    case 'between': return 'Between keys: moving it now makes a new key here.';
+    default: return `Between keys. It has ${MAX_KEYS} keys, the most an object can have: go to one of them to change it.`;
+  }
+}
+
+/** What the keys of an object cost in the game, in words. */
+function keysHint(obj) {
+  if (!obj.keys.length) return 'No keys: it stays in one place. To make it move, put the time marker of the timeline at a later moment, press Add key and move it.';
+  const points = obj.shape === 'point' ? 1 : shapePoints(obj.shape, obj.count, obj.params).length;
+  const plan = planOf(obj);
+  const n = (points * plan.pieces.length).toLocaleString('en');
+  const cost = `${obj.keys.length} key${obj.keys.length === 1 ? '' : 's'}. The game cannot move a particle around a corner, so every stretch of the way gets particles of its own: ${n} for this object.`;
+  if (plan.rough === 'quick') return `${cost} One of its turns is too quick: the shape will cut corners. Give that turn more time.`;
+  if (plan.rough === 'big') return `${cost} One of its turns is too big: the shape will cut corners. Add a key halfway.`;
+  return cost;
+}
+
+/** Put the time marker somewhere. `tolerance`: seconds within which it sticks to a key, a start or an end. */
+function seek(time, tolerance = 0, exact = false) {
+  if (state.playing) pause();
+  const t = Math.max(0, Math.min(Number(time) || 0, MAX_START + 6000));
+  const marks = [0, duration()];
+  const obj = selectedObject();
+  if (obj) {
+    const { start, end } = spanOf(obj);
+    marks.push(start, end, ...obj.keys.map((k) => start + k.t));
+  }
+  const hit = marks.filter((m) => Math.abs(m - t) <= tolerance + 1e-9).sort((x, y) => Math.abs(x - t) - Math.abs(y - t))[0];
+  state.time = round(hit !== undefined ? hit : exact ? t : Math.round(t / 0.05) * 0.05, 3);
+  refresh();
+  syncInspector();
+}
+
+/** Why no key can be added at the time marker, or '' when one can. */
+function noKeyReason(obj) {
+  if (!obj) return 'Select an object first: a key belongs to one object.';
+  const { start } = spanOf(obj);
+  if (state.time < start) return `${obj.name} is not there yet at this time. Move the time marker to the right.`;
+  if (state.time - start < MIN_KEY_GAP - 1e-9) return 'This is where it starts. Move the time marker to the right, to the moment it should be somewhere else.';
+  // an object without keys can get its first one anywhere after its start, also after it is gone
+  const mark = obj.keys.length ? markOf(obj) : { at: 'between' };
+  if (mark.at === 'start') return 'This is where it starts. Move the time marker to the right, to the moment it should be somewhere else.';
+  if (mark.at === 'key') return 'There is already a key here. Just move the object.';
+  if (obj.keys.length >= MAX_KEYS) return `An object can have ${MAX_KEYS} keys at most.`;
+  return '';
+}
+
+function addKeyHere() {
+  const obj = selectedObject();
+  const reason = noKeyReason(obj);
+  if (reason) return toast(reason);
+  if (state.playing) pause();
+  insertKey(obj, state.time - spanOf(obj).start);
+  commit();
+  refresh();
+  syncInspector();
+  return toast(`Key added at ${round(state.time, 2)} s. Now move, turn or resize ${obj.name}: that is where it will be at that time.`);
+}
+
+/** Remove the key under the time marker. Returns false when there is none. */
+function deleteKeyHere() {
+  const obj = selectedObject();
+  const mark = obj ? markOf(obj) : null;
+  if (!mark || mark.at !== 'key') return false;
+  obj.keys.splice(mark.index, 1);
+  commit();
+  refresh();
+  syncInspector();
+  return true;
+}
+
+function renderTimeline() {
+  if (!timeline) return;
+  timeline.render({ objects: state.objects, selected: state.selected, time: state.time, duration: duration() });
+  updateTimeBar();
+}
+
+/** The controls above the timeline rows, and the label over the 3D view. */
+function updateTimeBar() {
+  const total = duration();
+  const at = $('#tl-at');
+  if (document.activeElement !== at) at.value = round(state.time, 2);
+  $('#tl-total').textContent = `/ ${round(total, 1)} s`;
+  const obj = selectedObject();
+  const mark = obj ? markOf(obj) : null;
+  const onKey = !!mark && mark.at === 'key';
+  const reason = noKeyReason(obj);
+  $('#tl-key').disabled = !!reason;
+  $('#tl-key').title = reason || 'Remember where the selected object is at this time (K)';
+  $('#tl-del').disabled = !onKey;
+  const ease = $('#tl-ease');
+  if (document.activeElement !== ease) ease.value = onKey ? obj.keys[mark.index].ease : state.ease;
+  let hint = 'Drag a bar to change when an object appears. Click an object to make it move.';
+  if (obj && obj.keys.length) hint = `${obj.name}: ${placeHint(obj)}`;
+  else if (obj && !reason) hint = `Press Add key, then move ${obj.name}: that is where it will be at ${round(state.time, 2)} s.`;
+  else if (obj) hint = `To make ${obj.name} move: click a later time on the numbers, press Add key, move it.`;
+  $('#tl-hint').textContent = hint;
+  $('#tl-hint').title = hint;
+  const label = $('#playing');
+  label.hidden = !state.playing && state.time === 0;
+  if (state.playing) label.textContent = `Playing ${Math.min(state.time, total).toFixed(1)} / ${total.toFixed(1)} s`;
+  else label.textContent = `${round(state.time, 2)} s after the click · Esc: back to the start`;
 }
 
 // ------------------------------------------------------------------ play
 
-function stopPlaying() {
+function updatePlayButtons() {
+  for (const b of [$('#play'), $('#tl-play')]) {
+    b.textContent = state.playing ? 'Pause' : 'Play';
+    b.classList.toggle('on', state.playing);
+  }
+}
+
+/** Stop playing and stay at this moment. */
+function pause() {
   if (!state.playing) return;
   state.playing = false;
-  $('#play').textContent = 'Play';
-  $('#play').classList.remove('on');
-  $('#playing').hidden = true;
+  updatePlayButtons();
   refresh();
+  syncInspector();
+}
+const stopPlaying = pause;
+
+/** Back to the moment of the click. */
+function rewind() {
+  state.playing = false;
+  state.time = 0;
+  updatePlayButtons();
+  refresh();
+  syncInspector();
 }
 
 function togglePlay() {
-  if (state.playing) return stopPlaying();
+  if (state.playing) return pause();
   if (!state.objects.some((o) => !o.hidden)) return undefined;
+  if (state.time >= duration() - 0.01) state.time = 0;
   state.playing = true;
-  state.playTime = 0;
-  $('#play').textContent = 'Stop';
-  $('#play').classList.add('on');
-  $('#playing').hidden = false;
+  updatePlayButtons();
   refresh();
   return undefined;
 }
 
 function onFrame(dt) {
   if (!state.playing) return;
-  state.playTime += dt;
-  const total = sceneDuration(state.objects);
-  if (state.playTime > total + 0.4) return stopPlaying();
-  viewport.setParticles(computeParticles(state.objects, state.playTime));
-  $('#playing').textContent = `Playing ${Math.min(state.playTime, total).toFixed(1)} / ${total.toFixed(1)} s`;
+  state.time += dt;
+  if (state.time > duration() + 0.4) { // a short empty moment at the end, as in the game
+    if (!state.loop) return rewind();
+    state.time = 0;
+  }
+  viewport.setParticles(computeParticles(state.objects, state.time));
+  timeline.setTime(state.time, true);
+  updateTimeBar();
   return undefined;
 }
 
@@ -687,11 +917,13 @@ async function openFile(file) {
   state.objects = objects;
   applyExportOptions(raw.export);
   state.selected = null;
-  stopPlaying();
+  state.playing = false;
+  state.time = 0;
+  updatePlayButtons();
   commit();
   renderInspector();
   refresh();
-  if (viewport) viewport.focus(state.objects.filter((o) => !o.hidden).flatMap(objectPoints));
+  if (viewport) viewport.focus(allPoints());
   toast(`Opened "${file.name}".${hadScene ? ' Undo brings the old scene back.' : ''}`);
 }
 
@@ -795,13 +1027,82 @@ function bindShapePicker() {
   show();
 }
 
+function bindTimeline() {
+  const byId = (id) => state.objects.find((o) => o.id === id);
+  const changed = (done) => {
+    if (done) commit();
+    refresh();
+    syncInspector();
+  };
+  timeline = createTimeline($('#timeline'), {
+    seek,
+    select,
+    start: (id, seconds, done) => {
+      const o = byId(id);
+      if (!o) return;
+      if (!done) o.start = round(Math.min(MAX_START, Math.max(0, seconds)), 3);
+      changed(done);
+    },
+    end: (id, seconds, done) => {
+      const o = byId(id);
+      if (!o) return;
+      if (!done) o.life = Math.min(1000, Math.max(0.05, round((seconds - o.start) * LIFE_PER_SECOND, 3)));
+      changed(done);
+    },
+    key: (id, index, seconds, done) => {
+      const o = byId(id);
+      if (!o || !o.keys[index]) return;
+      if (!done) {
+        // stays between its neighbours
+        const lo = (index ? o.keys[index - 1].t : 0) + MIN_KEY_GAP;
+        const hi = index < o.keys.length - 1 ? o.keys[index + 1].t - MIN_KEY_GAP : 6000;
+        o.keys[index].t = round(Math.min(hi, Math.max(lo, seconds - o.start)), 3);
+        state.time = round(o.start + o.keys[index].t, 3);
+      }
+      changed(done);
+    },
+  });
+  // After a click the keyboard goes back to the shortcuts (Space plays, it does not press the button again).
+  const press = (id, action) => { $(id).onclick = () => { action(); $(id).blur(); }; };
+  press('#tl-home', rewind);
+  press('#tl-play', togglePlay);
+  press('#tl-key', addKeyHere);
+  press('#tl-del', deleteKeyHere);
+  press('#tl-zoom-in', () => timeline.zoomBy(2));
+  press('#tl-zoom-out', () => timeline.zoomBy(0.5));
+  $('#tl-loop').onchange = () => { state.loop = $('#tl-loop').checked; $('#tl-loop').blur(); };
+  const at = $('#tl-at');
+  selectOnEntry(at);
+  at.oninput = () => { if (at.value !== '' && Number.isFinite(Number(at.value))) seek(Number(at.value), 0, true); };
+  at.onchange = () => { at.value = round(state.time, 2); };
+  const ease = $('#tl-ease');
+  ease.replaceChildren(...EASES.map((e) => h('option', { value: e.id }, e.name)));
+  ease.onchange = () => {
+    // on a key: that key. Anywhere else: the choice for the keys made from now on.
+    const obj = selectedObject();
+    const mark = obj ? markOf(obj) : null;
+    if (mark && mark.at === 'key') {
+      obj.keys[mark.index].ease = ease.value;
+      commit();
+      refresh();
+    } else state.ease = ease.value;
+    ease.blur();
+  };
+  document.addEventListener('pointerdown', (e) => {
+    keyPressed = e.target instanceof Element && !!e.target.closest('.tl-key:not(.first)');
+  }, true);
+  window.addEventListener('resize', renderTimeline);
+  renderTimeline();
+}
+
 function bindUi() {
   bindShapePicker();
   $('#add-point').onclick = () => addObject('point');
   $('#undo').onclick = undo;
   $('#redo').onclick = redo;
   $('#play').onclick = togglePlay;
-  $('#focus').onclick = () => viewport && viewport.focus(state.objects.filter((o) => !o.hidden).flatMap(objectPoints));
+  bindTimeline();
+  $('#focus').onclick = () => viewport && viewport.focus(allPoints());
   $('#export').onclick = openExport;
   $('#snap').checked = state.snap;
   $('#snap').onchange = () => { state.snap = $('#snap').checked; if (viewport) viewport.setSnap(state.snap); store(); };
@@ -819,7 +1120,9 @@ function bindUi() {
     const hadScene = state.objects.length > 0;
     state.objects = [];
     state.selected = null;
-    stopPlaying();
+    state.playing = false;
+    state.time = 0;
+    updatePlayButtons();
     commit();
     renderInspector();
     refresh();
@@ -855,13 +1158,23 @@ function bindUi() {
     else if (mod && key === 'y') { e.preventDefault(); redo(); }
     else if (mod && key === 'd') { e.preventDefault(); duplicateObject(); }
     else if (mod || e.altKey) return;
-    else if (key === 'delete' || key === 'backspace') { if (state.selected) { e.preventDefault(); removeObject(state.selected); } }
+    else if (key === 'delete' || key === 'backspace') {
+      if (keyPressed) {
+        e.preventDefault();
+        if (!deleteKeyHere()) toast('No key under the time marker. To delete the whole object, click it first.');
+      } else if (state.selected) { e.preventDefault(); removeObject(state.selected); }
+    }
     else if (key === 'w') setMode('translate');
     else if (key === 'e') setMode('rotate');
     else if (key === 'r') setMode('scale');
     else if (key === 'f') $('#focus').click();
     else if (key === ' ') { e.preventDefault(); togglePlay(); }
-    else if (key === 'escape') { if (state.playing) stopPlaying(); else select(null); }
+    else if (key === 'k') addKeyHere();
+    else if (key === 'home') rewind();
+    else if (key === 'arrowleft' || key === 'arrowright') {
+      e.preventDefault();
+      seek(state.time + (key === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 0.05), 0, true);
+    } else if (key === 'escape') { if (state.playing || state.time > 0) rewind(); else select(null); }
   });
 }
 
@@ -881,13 +1194,13 @@ async function start() {
   try {
     viewport = createViewport($('#view'), images, TEXTURES, {
       onPick: (id) => { if (!state.playing) select(id); },
-      onTransform: (t) => edit((o) => {
-        o.pos = t.pos.map((v) => round(Math.min(500, Math.max(-500, v))));
-        if (o.shape !== 'point') {
-          o.rot = t.rot.map((v) => round(v, 2) + 0); // + 0 turns -0 into 0
-          o.scale = t.scale.map((v) => round(Math.min(100, Math.max(-100, v))));
-        }
-      }),
+      // Only what the drag changes is written. (The angles the gizmo reports are
+      // the same rotation, but not the same numbers: a typed 360 would come back as 0.)
+      onTransform: (t) => edit((o) => setPose(o, (k) => {
+        if (t.mode === 'translate' || o.shape === 'point') k.pos = t.pos.map((v) => round(Math.min(500, Math.max(-500, v))));
+        else if (t.mode === 'rotate') k.rot = t.rot.map((v) => round(v, 2) + 0); // + 0 turns -0 into 0
+        else k.scale = t.scale.map((v) => round(Math.min(100, Math.max(-100, v))));
+      })),
       onTransformEnd: commit,
       onFrame,
     });
@@ -904,7 +1217,7 @@ async function start() {
   updateStats();
   // Handy in the console and for tests. After changing studio.state by hand, call studio.redraw().
   window.studio = {
-    state, viewport, generateCode, select, addObject,
+    state, viewport, timeline, generateCode, select, addObject, seek,
     redraw: () => { commit(); renderInspector(); refresh(); },
   };
 }

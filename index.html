@@ -22,7 +22,7 @@
     </div>
     <label class="check" title="Snap to quarter blocks, 15 degrees"><input type="checkbox" id="snap"> Snap</label>
     <span class="sep"></span>
-    <button id="play" title="Preview what happens when the block is clicked (Space)">Play</button>
+    <button id="play" title="Play what happens when the block is clicked (Space)">Play</button>
     <button id="focus" title="Center the view (F)">Center</button>
     <label class="check" title="Daylight background"><input type="checkbox" id="sky"> Sky</label>
   </div>
@@ -63,6 +63,36 @@
 
   <aside class="panel" id="inspector"></aside>
 </main>
+
+<section class="timeline" id="timeline" aria-label="Timeline">
+  <div class="tl-bar">
+    <button id="tl-home" title="Back to the start (Esc)">Start</button>
+    <button id="tl-play" title="Play or pause (Space)">Play</button>
+    <label class="tl-time" title="Seconds after the code block is clicked">Time
+      <input type="number" id="tl-at" min="0" step="0.1" aria-label="Time in seconds">
+      <span id="tl-total">/ 0 s</span>
+    </label>
+    <label class="check" title="Play again and again"><input type="checkbox" id="tl-loop"> Loop</label>
+    <span class="sep"></span>
+    <button id="tl-key" title="The selected object should be somewhere else at this time (K)">+ Add key</button>
+    <label class="tl-ease" title="How the object travels to this key">Gets there
+      <select id="tl-ease" aria-label="How the object travels to the key"></select>
+    </label>
+    <button id="tl-del" class="danger" title="Remove the key at the time marker">Delete key</button>
+    <span id="tl-hint" class="tl-hint" aria-live="polite"></span>
+    <span class="seg tl-zoom" role="group" aria-label="Zoom the timeline">
+      <button id="tl-zoom-out" title="Show more time">&minus;</button>
+      <button id="tl-zoom-in" title="Show less time, larger">+</button>
+    </span>
+  </div>
+  <div class="tl-scroll" id="tl-scroll">
+    <div class="tl-canvas" id="tl-canvas">
+      <div class="tl-ruler" id="tl-ruler"></div>
+      <div class="tl-rows" id="tl-rows"></div>
+      <div class="tl-head" id="tl-head"></div>
+    </div>
+  </div>
+</section>
 
 <dialog id="export-dialog">
   <form method="dialog" class="dialog-head">

@@ -7,13 +7,18 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import * as THREE from '../vendor/three.module.min.js';
 import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from '../js/shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, HIDDEN_TEXELS, createObject, sanitizeScene, objectPoints, rotationMatrix,
-  computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex,
+  computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex, localPoints, posedPoints, poseAtTime, GHOST,
 } from '../js/scene.js';
+import {
+  planOf, piecesOf, poseAt, keyAt, markAt, spanOf, isPlain, EASES, MAX_KEYS, MIN_KEY_GAP, MAX_START, SWITCH,
+} from '../js/motion.js';
 import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
+import { createParticle, frameAge } from './babylon-sim.mjs';
 import { sourceFiles, sourceHash } from '../tools/sources.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -382,7 +387,15 @@ function checkCall(o) {
     }
   }
   assert.equal(o.colorGradients[0].timeFraction, 0);
-  assert.deepEqual(o.velocityGradients, [{ timeFraction: 0, factor: 1, factor2: 1 }]);
+  assert.ok(Array.isArray(o.velocityGradients) && o.velocityGradients.length >= 1);
+  last = -1;
+  for (const g of o.velocityGradients) {
+    assert.deepEqual(Object.keys(g).sort(), ['factor', 'factor2', 'timeFraction']);
+    assert.ok(g.timeFraction > last && g.timeFraction >= 0 && g.timeFraction <= 1);
+    last = g.timeFraction;
+    assert.ok(g.factor >= 0 && g.factor <= 1 && g.factor === g.factor2, `speed factor ${g.factor}`);
+  }
+  assert.equal(o.velocityGradients[0].timeFraction, 0);
   if ('hideDist' in o) assert.ok(o.hideDist > 0);
 }
 
@@ -420,6 +433,7 @@ function verifyExport(objects, options = {}) {
   assert.equal(calls.length, expected.length);
   assert.equal(result.particles, expected.length);
   calls.forEach(checkCall);
+  for (const c of calls) assert.deepEqual(c.velocityGradients, [{ timeFraction: 0, factor: 1, factor2: 1 }]);
   // positions: same multiset (objects with one style are merged, order inside a style is kept)
   const key = (p) => p.map((v, k) => Math.round((v - base[k]) * q)).join(',');
   const want = new Map();
@@ -591,7 +605,519 @@ test('generated code is stable (same scene, same code)', () => {
   assert.equal(generateCode(objects).parts[0].code, generateCode(objects).parts[0].code);
 });
 
+// ---------------------------------------------------------------- time
+
+const key = (t, o = {}) => ({ t, pos: [0.5, 2, 0.5], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth', ...o });
+/** A scene object that went through loading, as the app has them. */
+const timed = (o) => sanitizeScene({ objects: [createObject(o.shape || 'circle', { id: 'x', count: 12, pos: [0.5, 2, 0.5], ...o })] }).objects[0];
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+test('time: an object is where its keys say, and travels between them', () => {
+  const obj = timed({
+    start: 2, life: 3, pos: [0, 1, 0],
+    keys: [key(1, { pos: [4, 1, 0], ease: 'linear' }), key(2, { pos: [4, 5, 0], rot: [0, 0, 90], scale: [2, 2, 2] }), key(4, { pos: [0, 5, 0], rot: [0, 0, 90], scale: [2, 2, 2], ease: 'jump' })],
+  });
+  assert.deepEqual(poseAt(obj, 0).pos, [0, 1, 0]);
+  assert.deepEqual(poseAt(obj, 0.5).pos, [2, 1, 0], 'steady: half the way after half the time');
+  assert.deepEqual(poseAt(obj, 1).pos, [4, 1, 0]);
+  const mid = poseAt(obj, 1.5); // smooth: half the way in the middle, and turned half
+  assert.ok(near(mid.pos[1], 3) && near(mid.rot[2], 45, 1e-9) && near(mid.scale[0], 1.5));
+  assert.ok(poseAt(obj, 1.25).pos[1] < 2, 'smooth starts slowly');
+  assert.deepEqual(poseAt(obj, 3.9).pos, [4, 5, 0], 'a jump stays put until its time');
+  assert.deepEqual(poseAt(obj, 4).pos, [0, 5, 0]);
+  assert.deepEqual(poseAt(obj, 99).pos, [0, 5, 0]);
+  // the eases
+  const at = (ease, f) => poseAt(timed({ pos: [0, 0, 0], keys: [key(1, { pos: [1, 0, 0], ease })] }), f).pos[0];
+  assert.deepEqual(EASES.map((e) => e.id), ['smooth', 'linear', 'in', 'out', 'jump']);
+  assert.ok(near(at('linear', 0.25), 0.25) && near(at('in', 0.5), 0.25) && near(at('out', 0.5), 0.75) && near(at('smooth', 0.25), 0.125));
+  // it is there from its start until its lifetime or its last key, whichever is later
+  assert.deepEqual(spanOf(obj), { start: 2, end: 2 + 3 / LIFE_PER_SECOND });
+  assert.deepEqual(spanOf({ ...obj, life: 0.6 }), { start: 2, end: 6 });
+  assert.ok(near(sceneDuration([obj, createObject('point', { life: 1.2 })]), 7));
+  assert.deepEqual(poseAtTime(obj, 0).pos, [0, 1, 0], 'before it appears: where it starts');
+  assert.deepEqual(poseAtTime(obj, 3).pos, [4, 1, 0]);
+  assert.deepEqual(poseAtTime(obj, 50).pos, [0, 5, 0], 'after it is gone: where it ended');
+  // which key is under the time marker
+  assert.equal(keyAt(obj, 2), 'start');
+  assert.equal(keyAt(obj, 3), 0);
+  assert.equal(keyAt(obj, 4.003), 1);
+  assert.equal(keyAt(obj, 3.5), null);
+  assert.equal(keyAt(createObject('circle'), 0), null, 'no keys: nothing to be on');
+  // the short way round, or by the angles as written
+  const turn = (spin) => poseAt(timed({ rot: [0, 0, 0], spin, keys: [key(1, { rot: [0, 0, 270], ease: 'linear' })] }), 0.5).rot[2];
+  assert.ok(near(turn(false), -45, 1e-9) && near(turn(true), 135, 1e-9));
+});
+
+test('time: what a change of place changes depends on where the time marker is', () => {
+  // appears at 2 s, stays 10 s, keys 1 s and 2 s after it appeared
+  const obj = timed({ shape: 'heart', start: 2, keys: [key(1, { pos: [3, 2, 0] }), key(2, { pos: [3, 5, 0] })] });
+  const at = (time, o = obj) => markAt(o, time);
+  assert.deepEqual(at(0, createObject('circle')), { at: 'object' }, 'no keys: the object itself');
+  assert.deepEqual(at(7, createObject('circle', { start: 3 })), { at: 'object' }, 'at any time');
+  assert.deepEqual(at(0), { at: 'start' }, 'not there yet: where it starts');
+  assert.deepEqual(at(2), { at: 'start' });
+  assert.deepEqual(at(2.09), { at: 'start' }, 'too close to the start for a key of its own');
+  assert.deepEqual(at(2.5), { at: 'between' }, 'a change here makes a key');
+  assert.deepEqual(at(3), { at: 'key', index: 0 });
+  assert.deepEqual(at(2.95), { at: 'key', index: 0 }, 'just before a key counts as on it');
+  assert.deepEqual(at(3.05), { at: 'key', index: 0 }, 'and just after it');
+  assert.deepEqual(at(3.5), { at: 'between' });
+  assert.deepEqual(at(4), { at: 'key', index: 1 });
+  assert.deepEqual(at(8), { at: 'between' }, 'after its last key it is still there');
+  assert.deepEqual(at(12), { at: 'between' }, 'the moment it goes');
+  assert.deepEqual(at(12.5), { at: 'last', index: 1 }, 'gone: the key it ended on');
+  // wherever a key could not be made, the marker counts as on something else
+  for (let time = 0; time <= 13; time += 0.01) {
+    const mark = at(time);
+    if (mark.at !== 'between') continue;
+    const t = time - obj.start;
+    assert.ok(t >= MIN_KEY_GAP - 1e-9 && obj.keys.every((k) => Math.abs(k.t - t) >= MIN_KEY_GAP - 1e-9), `a key fits at ${time.toFixed(2)} s`);
+  }
+  // an object that ends on its last key
+  const short = timed({ shape: 'heart', life: 0.6, keys: [key(3, { pos: [1, 1, 1] })] });
+  assert.deepEqual(markAt(short, 3), { at: 'key', index: 0 });
+  assert.deepEqual(markAt(short, 3.05), { at: 'key', index: 0 });
+  assert.deepEqual(markAt(short, 5), { at: 'last', index: 0 });
+  // all the keys it can have
+  const full = timed({ shape: 'heart', keys: Array.from({ length: MAX_KEYS }, (_, i) => key(1 + i, { pos: [i, 0, 0] })) });
+  assert.deepEqual(markAt(full, 1.5), { at: 'full' });
+  assert.deepEqual(markAt(full, 2), { at: 'key', index: 1 });
+});
+
+test('time: a turn that cannot be cut finely enough says what would help', () => {
+  const turn = (o, t, rot) => planOf(timed({ shape: 'heart', ...o, keys: [key(t, { rot, scale: o.scale || [1, 1, 1] })] }));
+  const fine = turn({}, 2, [0, 0, 90]);
+  assert.equal(fine.rough, '');
+  assert.ok(fine.pieces.length >= 3, 'a turn is flown as several straight stretches');
+  // a big shape, a full turn, 0.4 seconds: there is no time for enough stretches
+  assert.equal(turn({ scale: [3, 3, 3], spin: true }, 0.4, [0, 360, 0]).rough, 'quick');
+  // a huge shape, two full turns, plenty of time: more stretches than one move may have
+  const big = turn({ scale: [30, 30, 30], spin: true }, 60, [0, 720, 0]);
+  assert.equal(big.rough, 'big');
+  // a key halfway does help there
+  const halves = planOf(timed({ shape: 'heart', scale: [30, 30, 30], spin: true, keys: [key(30, { rot: [0, 360, 0], scale: [30, 30, 30], ease: 'linear' }), key(60, { rot: [0, 720, 0], scale: [30, 30, 30], ease: 'linear' })] }));
+  assert.equal(halves.rough, '');
+  assert.ok(halves.pieces.length > big.pieces.length);
+  // and more time helps the quick one
+  assert.equal(turn({ scale: [3, 3, 3], spin: true }, 4, [0, 360, 0]).rough, '');
+  // moving or resizing without a turn never needs stretches
+  assert.equal(planOf(timed({ shape: 'heart', keys: [key(0.1, { pos: [50, 2, 0.5], scale: [20, 20, 20] })] })).rough, '');
+});
+
+test('time: loading keeps timing and repairs what is broken', () => {
+  const [a, b, c] = sanitizeScene({
+    objects: [
+      {
+        shape: 'circle', start: -3, fadeIn: 1, spin: 'yes',
+        keys: [
+          { t: 2, pos: [1, 2, 3], rot: [0, 90, 0], scale: [2, 2, 2], ease: 'nope' },
+          { t: 0.5, pos: ['x', 1, 1] }, { t: 0.55 }, { t: 0.04 }, { t: 'soon' }, null, 7,
+          { t: 2.05, ease: 'jump' }, { t: 9, ease: 'out', scale: [1e9, 1, 1] },
+        ],
+      },
+      { shape: 'point', start: 1e9, keys: [{ t: 1, pos: [1, 1, 1], rot: [9, 9, 9], scale: [5, 5, 5] }] },
+      { shape: 'circle', keys: Array.from({ length: 40 }, (_, i) => ({ t: 1 + i })) },
+    ],
+  }).objects;
+  assert.equal(a.start, 0);
+  assert.equal(a.fadeIn, true);
+  assert.equal(a.spin, true);
+  assert.deepEqual(a.keys.map((k) => k.t), [0.5, 2, 9], 'in order of time; keys too close to the start or to another are dropped');
+  assert.deepEqual(a.keys[0], { t: 0.5, pos: [0.5, 1, 1], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth' });
+  assert.equal(a.keys[1].ease, 'smooth');
+  assert.deepEqual([a.keys[2].ease, a.keys[2].scale], ['out', [100, 1, 1]]);
+  assert.equal(b.start, MAX_START);
+  assert.deepEqual([b.keys[0].pos, b.keys[0].rot, b.keys[0].scale], [[1, 1, 1], [0, 0, 0], [1, 1, 1]], 'a single particle only moves');
+  assert.equal(c.keys.length, MAX_KEYS);
+  assert.ok(MIN_KEY_GAP > 0);
+  const scene = { version: 1, objects: [a, b, c] };
+  assert.deepEqual(sanitizeScene(JSON.parse(JSON.stringify(scene))), scene, 'sanitize is stable');
+  // a scene from before there was timing loads as it was
+  const old = createObject('heart', { id: 'old' });
+  for (const k of ['start', 'fadeIn', 'keys', 'spin']) delete old[k];
+  const loaded = sanitizeScene({ objects: [old] }).objects[0];
+  assert.deepEqual(loaded, createObject('heart', { id: 'old' }));
+  assert.ok(isPlain(loaded) && !isPlain(a) && !isPlain({ ...loaded, start: 1 }) && !isPlain({ ...loaded, fadeIn: true }));
+});
+
+test('time: scenes without timing export exactly the code they always did', () => {
+  // Fingerprints of the code this scene gave before timing existed.
+  const scene = () => SHAPES.slice(0, 40).map((sh, i) => createObject(sh.id, {
+    id: `o${i}`, pos: [i % 5 * 3 - 6, 1 + Math.floor(i / 5) * 3, (i % 3) * 2.5 - 2], rot: [i * 17, i * 31, i * 7],
+    scale: [1 + (i % 3) * 0.5, 1, 0.75], texture: TEXTURES[i % TEXTURES.length], color: rgbToHex([i * 10 % 256, 255 - i * 6, (i * 53) % 256]),
+    fade: i % 4 === 0, color2: i % 5 === 0 ? '#ffffff' : null, size2: i % 6 === 0 ? 0.8 : null, blend: i % 5,
+    move: i % 7 === 0 ? [1, 2, -3] : [0, 0, 0], spread: i % 9 === 0 ? 0.5 : 0, expand: i % 11 === 0 ? 1.5 : 0,
+    gravity: i % 13 === 0 ? -9.8 : 0, life: 1 + (i % 8), hidden: i % 17 === 0,
+  }));
+  const print = (options) => {
+    const r = generateCode(scene(), options);
+    return [r.parts.length, r.particles, crypto.createHash('sha1').update(r.parts.map((part) => part.code).join('\n@@\n')).digest('hex').slice(0, 16)];
+  };
+  assert.deepEqual(print({}), [3, 1868, '228c903837f0f9c8']);
+  assert.deepEqual(print({ precision: 10, hideDist: 64 }), [2, 1868, '2ca637cebb26e16d']);
+  assert.deepEqual(print({ target: 'world', worldPos: [100, 50, -200] }), [1, 1868, 'c05ff232be85a28e']);
+  // and the preview of such a scene is the old one too: the picture at the click is the still picture
+  const still = computeParticles(scene());
+  const first = computeParticles(scene(), 0);
+  assert.equal(first.length, still.length);
+  still.forEach((p, i) => assert.ok(dist(p.pos, first[i].pos) < 1e-12 && p.alpha === first[i].alpha));
+});
+
+const ORIGIN = [10, 20, -30];
+
+/** Run every part of an export the way stacked code blocks run, and collect the calls. */
+function runExport(objects, options = {}) {
+  const result = generateCode(objects, options);
+  const calls = [];
+  result.parts.forEach((part, i) => {
+    checkLimits(part, `part ${i + 1}/${result.parts.length}`);
+    const got = runPart(part.code, [ORIGIN[0], ORIGIN[1] + i, ORIGIN[2]]);
+    assert.equal(got.length, part.particles, `part ${i + 1} particle count`);
+    calls.push(...got);
+  });
+  calls.forEach(checkCall);
+  assert.equal(calls.length, result.particles);
+  return { result, calls };
+}
+
+/** How much of a particle of the stand-in engine is seen (0 to 1), the way its blend mode draws it. */
+function strength(particle, call) {
+  if (call.blendMode !== 0) return particle.color[3];
+  const full = Math.max(1, ...call.colorGradients.map((g) => Math.max(...g.minColor.slice(0, 3)))); // mode 0 ignores alpha
+  return (Math.max(...particle.color.slice(0, 3)) * 255) / full;
+}
+
+/**
+ * Export one object with timing, play the code in the stand-in for the game's
+ * particle engine (tests/babylon-sim.mjs) and compare what is seen, frame by
+ * frame, with what the keys say. `steps(frame, age)` gives the length of each
+ * frame as particle age (default: a steady frame rate).
+ */
+function playInEngine(obj, { fps = 60, steps = null, exported = null } = {}) {
+  const { result, calls } = exported || runExport([obj]);
+  const plan = planOf(obj);
+  const points = localPoints(obj);
+  const K = plan.pieces.length;
+  assert.equal(calls.length, points.length * K, 'one particle per point and piece');
+  const h = frameAge(fps);
+  const ages = [0];
+  while (ages[ages.length - 1] < plan.a1 + 0.1) {
+    const a = ages[ages.length - 1];
+    ages.push(a + (steps ? steps(ages.length, a) : h));
+  }
+  const flies = obj.move.some((v) => v) || obj.expand || obj.gravity || obj.spread;
+  const fades = obj.fade || obj.fadeIn;
+  const end = obj.start + (plan.a1 - plan.a0) / LIFE_PER_SECOND;
+  const placed = new Map(); // the whole shape at a time, worked out once
+  const place = (time, i) => {
+    const t = Math.round(Math.min(Math.max(time, obj.start), end - 1e-6) * 1e7) / 1e7;
+    if (!placed.has(t)) placed.set(t, posedPoints(obj, poseAtTime(obj, t)).map((p) => p.map((v, j) => v + ORIGIN[j])));
+    return placed.get(t)[i];
+  };
+  const stat = { result, calls, pieces: K, off: 0, restOff: 0, fastest: 0, gaps: 0, doubles: 0, early: 0, late: 0, seenFrames: 0 };
+  for (const c of calls) stat.fastest = Math.max(stat.fastest, Math.hypot(...c.dir1) * c.maxEmitPower);
+  points.forEach((l, i) => {
+    const seen = new Array(ages.length).fill(0);
+    for (let k = 0; k < K; k++) {
+      const call = calls[i * K + k];
+      const p = createParticle(call, () => 0.5);
+      for (let f = 0; f < ages.length; f++) {
+        if (f > 0 && !p.update(ages[f] - ages[f - 1])) break;
+        const s = strength(p, call);
+        seen[f] += s;
+        if (s <= 0.5 || flies) continue;
+        // against the keys (a jump may show a blink early or late: take the nearer side)
+        const t = p.age / LIFE_PER_SECOND;
+        const d = Math.min(dist(p.position, place(t - 0.002, i)), dist(p.position, place(t + 0.002, i)));
+        stat.off = Math.max(stat.off, d);
+        if (dist(place(t - 0.1, i), place(t + 0.1, i)) < 1e-9) stat.restOff = Math.max(stat.restOff, d);
+      }
+    }
+    ages.forEach((a, f) => {
+      if (a < plan.a0 - SWITCH - 1e-9) stat.early = Math.max(stat.early, seen[f]);
+      else if (a >= plan.a1 + (ages[f] - ages[f - 1] || h)) stat.late = Math.max(stat.late, seen[f]);
+      else if (a >= plan.a0 + 1e-6 && a < plan.a1 - 1e-6 && !fades) {
+        stat.seenFrames++;
+        if (seen[f] < 0.999) stat.gaps++;
+        if (seen[f] > 1.001) stat.doubles++;
+      }
+    });
+  });
+  return stat;
+}
+
+const TIMED_CASES = {
+  'appears later': { start: 2 },
+  'appears later, flies off': { start: 1.5, move: [1, 2, 0], gravity: -3, expand: 0.5 },
+  'moves and stays': { keys: [key(2.05, { pos: [0.5, 5, 0.5] })] },
+  'waits, moves, stays': { start: 1, keys: [key(1.03), key(2.11, { pos: [3.5, 5, 0.5] })] },
+  'steady': { start: 1, keys: [key(1.03), key(2.11, { pos: [3.5, 5, 0.5], ease: 'linear' })] },
+  'speeds up': { start: 1, keys: [key(1.03), key(2.11, { pos: [3.5, 5, 0.5], ease: 'in' })] },
+  'slows down': { start: 1, keys: [key(1.03), key(2.11, { pos: [3.5, 5, 0.5], ease: 'out' })] },
+  'slows down, unseen before': { start: 1, life: 0.6, keys: [key(1.03, { pos: [3.5, 5, 0.5], ease: 'out' })] },
+  'a path': {
+    start: 1,
+    keys: [key(1.03, { pos: [0.5, 5, 0.5], ease: 'linear' }), key(2.11, { pos: [4, 5, 0.5] }), key(3.07, { pos: [4, 2, 0.5], ease: 'linear' })],
+  },
+  'jumps': { keys: [key(1.03, { pos: [0.5, 5, 0.5], ease: 'jump' }), key(2.57, { pos: [4, 5, 0.5], ease: 'jump' })] },
+  // times that fall exactly on frames at 60, 30 and 20 frames per second
+  'on the beat': { start: 1, keys: [key(1, { pos: [0.5, 5, 0.5], ease: 'jump' }), key(2, { pos: [4, 5, 0.5], rot: [0, 0, 90] }), key(3, { pos: [4, 2, 0.5], ease: 'linear' })] },
+  'grows': { keys: [key(2.05, { scale: [2, 2, 2] })] },
+  'turns': { start: 1, keys: [key(2.05, { rot: [0, 90, 0] })] },
+  'turns and moves': { keys: [key(3.03, { rot: [0, 180, 0], pos: [3, 3, 0.5], ease: 'linear' })] },
+  'a full turn': { start: 0.7, spin: true, life: 2.4, keys: [key(4.01, { rot: [0, 0, 360], ease: 'linear' })] },
+  'a cube tumbles': {
+    shape: 'cube', count: 30, rot: [10, 20, 30], scale: [1.5, 1, 0.5],
+    keys: [key(2.05, { rot: [100, -40, 75], scale: [1, 2, 1], pos: [2, 3, -1] })],
+  },
+  'one particle': { shape: 'point', keys: [key(1.03, { pos: [3, 2, 0.5] }), key(2.11, { pos: [3, 5, 0.5], ease: 'jump' })] },
+  'moves, then scatters': { spread: 1, gravity: -2, keys: [key(1.53, { pos: [0.5, 6, 0.5], ease: 'out' })] },
+};
+
+test('time: exported code plays as the keys say, at any frame rate and in any blend mode', () => {
+  for (const [name, fields] of Object.entries(TIMED_CASES)) {
+    for (const [blend, rates] of [[1, [144, 60, 30, 20, 12]], [2, [60, 20]], [0, [60]], [3, [30]]]) {
+      const obj = timed({ ...fields, blend });
+      for (const fps of rates) {
+        const label = `${name}, blend ${blend}, ${fps} fps`;
+        const s = playInEngine(obj, { fps });
+        assert.equal(s.early, 0, `${label}: seen before its time`);
+        assert.equal(s.late, 0, `${label}: seen after its time`);
+        assert.ok(s.seenFrames > 0, label);
+        // exactly one particle shows every point of the shape at every moment
+        assert.equal(s.gaps, 0, `${label}: a point was not shown in ${s.gaps} frames`);
+        assert.ok(s.doubles <= s.pieces * 12, `${label}: a point was shown twice in ${s.doubles} frames`);
+        // standing still: exact. On the way: on the path, at most one frame ahead,
+        // and a turn within the 0.06 block a path of straight stretches is allowed.
+        assert.ok(s.restOff <= 0.011, `${label}: ${s.restOff.toFixed(4)} off while standing`);
+        // (Seen standing before a "Slow down" move, it cannot be at full speed at once: half a SWITCH behind.)
+        const ahead = s.fastest * frameAge(fps);
+        const behind = name === 'slows down' ? (s.fastest * SWITCH) / 2 : 0;
+        assert.ok(s.off <= 0.065 + ahead * 1.02 + behind, `${label}: ${s.off.toFixed(3)} off the path (one frame is ${ahead.toFixed(3)})`);
+      }
+    }
+  }
+});
+
+test('time: a frame that takes very long never leaves a gap, and nothing ends in the wrong place', () => {
+  const cases = ['appears later', 'waits, moves, stays', 'steady', 'slows down', 'a path', 'jumps', 'turns', 'a full turn'];
+  for (const name of cases) {
+    for (const blend of [1, 2]) {
+      const obj = timed({ ...TIMED_CASES[name], blend, count: 5 });
+      const plan = planOf(obj);
+      const exported = runExport([obj]);
+      for (const long of blend === 1 ? [0.03, 0.09, 0.6] : [0.3]) { // 50 ms to 1 s, the longest step the engine takes
+        for (let at = 0; at < plan.a1; at += plan.a1 / 13) {
+          const h = frameAge(60);
+          const s = playInEngine(obj, { exported, steps: (f, age) => (age <= at && age + h > at ? long : h) });
+          const label = `${name}, blend ${blend}, a ${Math.round(long / 0.0006)} ms frame at ${(at / LIFE_PER_SECOND).toFixed(2)} s`;
+          assert.equal(s.gaps, 0, `${label}: a point was not shown in ${s.gaps} frames`);
+          assert.equal(s.early + s.late, 0, `${label}: seen outside its time`);
+          assert.ok(s.restOff <= 0.011, `${label}: ${s.restOff.toFixed(4)} off while standing`);
+        }
+      }
+    }
+  }
+});
+
+test('time: fades in and out, also while it moves', () => {
+  const obj = timed({ start: 1, life: 3, fade: true, fadeIn: true, keys: [key(2.5, { pos: [3, 2, 0.5], rot: [0, 0, 180] })] });
+  const plan = planOf(obj);
+  const life = plan.a1 - plan.a0;
+  assert.ok(plan.pieces.length >= 4);
+  for (const blend of [1, 2, 0]) {
+    for (const fps of [60, 30, 20]) {
+      const o = { ...obj, blend };
+      const { calls } = runExport([o]);
+      const K = plan.pieces.length;
+      const h = frameAge(fps);
+      const mine = calls.slice(0, K).map((c) => ({ c, p: createParticle(c, () => 0.5) }));
+      for (let f = 1; f * h < plan.a1 + 0.1; f++) {
+        let seen = 0;
+        for (const { c, p } of mine) if (p.update(h)) seen += strength(p, c);
+        const a = f * h;
+        const want = a < plan.a0 || a >= plan.a1 ? 0 : Math.min(1, (a - plan.a0) / (0.2 * life), (plan.a1 - a) / (0.2 * life));
+        // never fainter than the fade says; for a moment (one piece handing over
+        // to the next) it may show double
+        assert.ok(seen >= want - 0.08 - (2 * h) / (0.2 * life), `blend ${blend}, ${fps} fps, age ${a.toFixed(2)}: ${seen.toFixed(2)} seen, ${want.toFixed(2)} wanted`);
+        assert.ok(seen <= 2 * want + 0.08 + (2 * h) / (0.2 * life), `blend ${blend}, ${fps} fps, age ${a.toFixed(2)}: ${seen.toFixed(2)} seen, ${want.toFixed(2)} wanted`);
+      }
+    }
+  }
+  // blend mode 0 ignores alpha: the code darkens the colour instead and leaves alpha alone
+  const { calls } = runExport([{ ...obj, blend: 0, color: '#ff8040' }]);
+  for (const c of calls) {
+    assert.ok(c.colorGradients.every((g) => g.minColor[3] === 1));
+    assert.ok(c.colorGradients.some((g) => g.minColor.slice(0, 3).join() === '0,0,0'), 'black while unseen');
+  }
+});
+
+test('time: every point keeps one colour and one size through all its pieces', () => {
+  const obj = timed({
+    color: '#102030', color2: '#f0e0d0', size: 0.2, size2: 0.9, texture: 'soul_0', start: 0.5,
+    keys: [key(1, { rot: [0, 0, 90] }), key(2, { pos: [3, 2, 0.5], ease: 'jump' })],
+  });
+  const { calls, result } = runExport([obj], { hideDist: 48 });
+  const K = piecesOf(obj);
+  assert.ok(K >= 4);
+  assert.equal(result.particles, obj.count * K);
+  const colours = new Set();
+  for (let i = 0; i < obj.count; i++) {
+    const mine = calls.slice(i * K, (i + 1) * K);
+    const rgb = mine[0].colorGradients[0].minColor.slice(0, 3);
+    colours.add(rgb.join());
+    const k = (rgb[0] - 16) / (240 - 16);
+    assert.ok(k >= 0 && k <= 1 && near(rgb[1], 32 + 192 * k, 1) && near(rgb[2], 48 + 160 * k, 1), `${rgb} is not between the two colours`);
+    for (const c of mine) {
+      for (const g of c.colorGradients) assert.deepEqual([g.minColor.slice(0, 3), g.maxColor.slice(0, 3)], [rgb, rgb]);
+      assert.equal(c.minSize, c.maxSize);
+      assert.equal(c.minSize, mine[0].minSize);
+      assert.ok(c.minSize >= 0.2 && c.minSize <= 0.9);
+      assert.deepEqual([c.texture, c.blendMode, c.hideDist, c.manualEmitCount], ['soul_0', 1, 48, 1]);
+    }
+  }
+  assert.ok(colours.size > 5, 'points get different colours');
+  assert.ok(new Set(calls.map((c) => c.minSize)).size > 5, 'points get different sizes');
+});
+
+test('time: plain and timed objects share a scene; World Code waits for the whole show', () => {
+  const plain = createObject('circle', { id: 'p', pos: [0.5, 1.5, 0.5], life: 3, color: '#00ff00' });
+  const late = timed({ shape: 'heart', count: 20, start: 4, life: 1.2, color: '#ff0000' });
+  const mover = timed({ shape: 'point', color: '#0000ff', keys: [key(9, { pos: [5, 2, 0.5] })] });
+  const { result, calls } = runExport([plain, late, mover, { ...late, id: 'h', hidden: true }]);
+  assert.equal(result.particles, plain.count + 20 + 2);
+  assert.ok(near(result.seconds, 10), 'until the last object is gone');
+  const of = (rgb) => calls.filter((c) => c.colorGradients[0].minColor.slice(0, 3).join() === rgb);
+  // the plain object is written the short way, its particles are there from the start
+  assert.equal(of('0,255,0').length, plain.count);
+  for (const c of of('0,255,0')) assert.deepEqual([c.colorGradients.length, c.minLifeTime], [1, 3]);
+  // the late one waits unseen, then is there for its lifetime
+  for (const c of of('255,0,0')) {
+    assert.equal(c.minLifeTime, 3.6);
+    assert.deepEqual(c.colorGradients.map((g) => g.minColor[3]), [0, 0, 1]);
+    assert.ok(near(c.colorGradients[2].timeFraction, 2.4 / 3.6, 2e-6) && c.colorGradients[2].timeFraction <= 2.4 / 3.6);
+    assert.ok(c.colorGradients[1].timeFraction < c.colorGradients[2].timeFraction);
+  }
+  const code = result.parts[0].code;
+  assert.ok(/^P\(/m.test(code) && /^T\(/m.test(code));
+  // only plain objects: no helper for timing in the code; only timed ones: none for plain
+  assert.ok(!generateCode([plain]).parts[0].code.includes('const T ='));
+  assert.ok(!generateCode([late]).parts[0].code.includes('const P ='));
+  // World Code redraws when everything is over
+  const world = generateCode([plain, late, mover], { target: 'world' });
+  assert.ok(world.parts[0].code.includes('const PS_EVERY = 10000'));
+  const drawn = [];
+  const sandbox = { api: { playParticleEffect: (o) => drawn.push(o) } };
+  vm.runInNewContext(world.parts[0].code, sandbox);
+  sandbox.tick(50);
+  assert.equal(drawn.length, result.particles);
+  assert.equal(Object.keys(sandbox).filter((k) => !['api', 'tick'].includes(k)).length, 0, 'no other globals leak');
+});
+
+test('time: a big object with many keys is split so that every code block fits', () => {
+  const keys = Array.from({ length: MAX_KEYS }, (_, i) => key(1 + i * 1.5, {
+    pos: [i % 2 ? 4 : -4, 2 + i, i], rot: [i * 97, i * 55, i * 140], scale: [4, 4, 4], ease: i % 3 === 0 ? 'linear' : 'smooth',
+  }));
+  const obj = timed({ shape: 'sphere', count: 600, scale: [4, 4, 4], keys, spin: true });
+  const K = piecesOf(obj);
+  assert.ok(K > 60, `${K} pieces`);
+  const { result, calls } = runExport([obj]);
+  assert.ok(result.parts.length > 3);
+  assert.equal(result.particles, 600 * K);
+  assert.equal(calls.length, 600 * K);
+  // every point of the shape got every piece exactly once
+  const lifetimes = new Map();
+  for (const c of calls) lifetimes.set(c.minLifeTime, (lifetimes.get(c.minLifeTime) || 0) + 1);
+  assert.equal(lifetimes.size, K);
+  for (const n of lifetimes.values()) assert.equal(n, 600);
+  result.parts.forEach((part, i) => assert.ok(part.code.includes(`code block ${i + 1} of ${result.parts.length}`)));
+  // coarser positions and World Code work too
+  runExport([obj], { precision: 10 });
+  assert.equal(generateCode([obj], { target: 'world' }).parts.length, 1);
+});
+
+test('time: the preview shows what the exported code does', () => {
+  for (const name of ['waits, moves, stays', 'a path', 'turns and moves', 'a full turn', 'jumps', 'appears later, flies off']) {
+    const obj = timed({ ...TIMED_CASES[name], spread: 0 });
+    const { calls } = runExport([obj]);
+    const K = piecesOf(obj);
+    const h = frameAge(240); // small steps: the preview has no frames
+    const engine = calls.map((c) => ({ c, p: createParticle(c, () => 0.5), alive: true }));
+    const total = spanOf(obj).end * LIFE_PER_SECOND;
+    let checked = 0;
+    for (let f = 1; f * h < total + 0.05; f++) {
+      for (const e of engine) e.alive = e.alive && e.p.update(h);
+      if (f % 31) continue;
+      const shown = computeParticles([obj], (f * h) / LIFE_PER_SECOND);
+      const inGame = engine.filter((e) => e.alive && e.p.color[3] > 0.5);
+      if (Math.abs(inGame.length - shown.length) > 0) continue; // the very frame of a hand-over
+      for (const p of shown) {
+        const twin = engine.filter((e, j) => Math.floor(j / K) === p.index && e.alive && e.p.color[3] > 0.5)[0];
+        assert.ok(twin, `${name}: point ${p.index} is not in the game at frame ${f}`);
+        const d = dist(p.pos.map((v, j) => v + ORIGIN[j]), twin.p.position);
+        // the game is up to one frame ahead, and its pull lags half a frame behind
+        const step = Math.hypot(...twin.c.dir1) * h;
+        const pull = 0.5 * Math.abs(obj.gravity) * f * h * h;
+        assert.ok(d < 0.012 + 1.1 * step + pull, `${name}: preview and game are ${d.toFixed(3)} apart at frame ${f}`);
+        checked++;
+      }
+    }
+    assert.ok(checked > obj.count * 20, `${name}: ${checked} comparisons`);
+  }
+  // while editing, an object that is not there is drawn see-through where it starts or ended
+  const obj = timed({ start: 2, life: 1.2, keys: [key(1, { pos: [5, 2, 0.5] })] });
+  assert.equal(computeParticles([obj], 1).length, 0);
+  const before = computeParticles([obj], 1, { ghosts: true });
+  assert.equal(before.length, obj.count);
+  assert.ok(before.every((p) => p.ghost && p.alpha === GHOST));
+  assert.ok(dist(before[0].pos, objectPoints(obj)[0]) < 1e-12);
+  const after = computeParticles([obj], 60, { ghosts: true });
+  assert.ok(near(after[0].pos[0] - before[0].pos[0], 4.5), 'after it is gone: at its last key');
+  const during = computeParticles([obj], 2.5, { ghosts: true });
+  assert.ok(during.every((p) => !p.ghost && p.alpha === 1));
+});
+
 // ---------------------------------------------------------------- single-file build
+
+test('the page fits together: every import exists, and so does every element the code asks for', () => {
+  const dir = new URL('js/', root);
+  const source = Object.fromEntries(fs.readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => [f, fs.readFileSync(new URL(f, dir), 'utf8')]));
+  const exportsOf = (src) => {
+    const names = new Set();
+    for (const m of src.matchAll(/^export\s+(?:async\s+)?(?:const|let|function\*?|class)\s+([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
+    for (const m of src.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+      for (const part of m[1].split(',')) if (part.trim()) names.add(part.trim().split(/\s+as\s+/).pop());
+    }
+    return names;
+  };
+  let imports = 0;
+  for (const [file, src] of Object.entries(source)) {
+    for (const m of src.matchAll(/^import\s*\{([^}]*)\}\s*from\s*'\.\/([\w.-]+)'/gm)) {
+      assert.ok(source[m[2]], `${file} imports ./${m[2]}, which is not there`);
+      const have = exportsOf(source[m[2]]);
+      for (const part of m[1].split(',')) {
+        const name = part.trim().split(/\s+as\s+/)[0];
+        if (!name) continue;
+        imports++;
+        assert.ok(have.has(name), `${file} imports "${name}" from ${m[2]}, which does not export it`);
+      }
+    }
+  }
+  assert.ok(imports > 60, `${imports} imports checked`);
+  const html = fs.readFileSync(new URL('index.html', root), 'utf8');
+  const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
+  let asked = 0;
+  for (const file of ['app.js', 'timeline.js']) {
+    for (const m of source[file].matchAll(/(?:\$|querySelector)\('#([\w-]+)'\)/g)) {
+      asked++;
+      assert.ok(ids.has(m[1]), `${file} asks for #${m[1]}, which index.html does not have`);
+    }
+  }
+  assert.ok(asked > 60, `${asked} elements checked`);
+  // the timeline's name column has one width, known to the script and the style sheet
+  const css = fs.readFileSync(new URL('css/style.css', root), 'utf8');
+  assert.equal(Number(/const NAMES = (\d+);/.exec(source['timeline.js'])[1]), Number(/--names: (\d+)px/.exec(css)[1]));
+});
 
 test('START-HERE.html is built from the current sources', () => {
   const dir = fileURLToPath(root);

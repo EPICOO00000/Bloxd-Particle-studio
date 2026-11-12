@@ -195,7 +195,8 @@ function label(text, color) {
  * canvas    : <canvas>
  * images    : { textureName: HTMLImageElement }, plus images.code_block
  * names     : texture names (atlas order)
- * callbacks : onPick(id | null), onTransform({ pos, rot, scale }), onTransformEnd(), onFrame(seconds)
+ * callbacks : onPick(id | null), onTransform({ mode, pos, rot, scale }), onTransformEnd(), onFrame(seconds)
+ *             (mode: 'translate', 'rotate' or 'scale' says which of the three the drag changes)
  */
 export function createViewport(canvas, images, names, callbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -310,9 +311,8 @@ export function createViewport(canvas, images, names, callbacks) {
   // The little handle in the middle always wins when the pointer is on it. (Without
   // this an arrow that points at the camera covers it and gets grabbed instead.)
   const hover = gizmo.pointerHover.bind(gizmo);
-  gizmo.pointerHover = (pointer) => {
-    hover(pointer);
-    if (!pointer || gizmo.dragging || !gizmo.object || gizmo.mode === 'rotate') return;
+  const middleWins = (pointer) => {
+    if (!pointer || gizmo.mode === 'rotate') return;
     const centre = new THREE.Vector3().copy(proxy.position).project(camera);
     if (centre.z < -1 || centre.z > 1) return;
     const w = canvas.clientWidth || 1;
@@ -320,6 +320,15 @@ export function createViewport(canvas, images, names, callbacks) {
     const unitPx = (gizmoUnit() / (2 * camera.position.distanceTo(proxy.position) * Math.tan((Math.PI * camera.fov) / 360))) * h;
     const reach = Math.max(9, unitPx * 0.085);
     if (Math.hypot(((pointer.x - centre.x) * w) / 2, ((pointer.y - centre.y) * h) / 2) <= reach) gizmo.axis = 'XYZ';
+  };
+  gizmo.pointerHover = (pointer) => {
+    hover(pointer);
+    if (gizmo.dragging || !gizmo.object) return;
+    middleWins(pointer);
+    // three.js only brings the handles and the plane a drag runs in up to date
+    // when a frame is drawn. A press can come before that (a slow device, or the
+    // object was just moved), and the drag then runs in the wrong plane.
+    gizmo.getHelper().updateMatrixWorld(true);
   };
 
   // Resizing. three.js divides by the spot where the handle was grabbed, which
@@ -359,6 +368,7 @@ export function createViewport(canvas, images, names, callbacks) {
   gizmo.addEventListener('objectChange', () => {
     if (gizmo.mode === 'scale') steadyScale();
     callbacks.onTransform({
+      mode: gizmo.mode,
       pos: toBloxd(proxy.position.toArray()),
       rot: [proxy.rotation.x * DEG, proxy.rotation.y * DEG, proxy.rotation.z * DEG],
       scale: proxy.scale.toArray(),
