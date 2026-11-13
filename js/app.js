@@ -45,6 +45,7 @@ const state = {
   sky: false,
   snap: false,
   pivot: false, // moving a group moves only its pivot, not what is in it
+  dragging: false, // a row of the scene list is being dragged
   clip: null, // the keys remembered by Copy keys
   move: { id: 'flap', settings: {} }, // the ready-made move on show, and what was typed for each
   style: { texture: 'glint', color: '#ffd24a' }, // look of the next new object
@@ -295,12 +296,15 @@ function renderList() {
       'data-id': node.id, draggable: true, style: `padding-left:${6 + depth * 14}px`,
       onclick: (e) => select(node.id, howClicked(e)),
       ondragstart: (e) => {
+        // (a browser gives up a drag whose row is rebuilt or pushed away under the mouse:
+        //  selecting only marks the rows, and the note below the list comes a moment later)
         if (!state.selection.includes(node.id)) select(node.id);
         e.dataTransfer.setData('text/plain', node.id);
         e.dataTransfer.effectAllowed = 'move';
-        $('#drop-out').hidden = !selectedNodes().some((n) => n.parent);
+        state.dragging = true;
+        setTimeout(() => { if (state.dragging) $('#drop-out').hidden = !selectedNodes().some((n) => n.parent); }, 0);
       },
-      ondragend: () => { $('#drop-out').hidden = true; },
+      ondragend: endDrag,
     },
     group
       ? h('button', {
@@ -326,12 +330,28 @@ function renderList() {
       li.addEventListener('drop', (e) => {
         e.preventDefault();
         li.classList.remove('drop');
+        endDrag();
         intoGroup(node.id);
       });
     }
     return li;
   }));
   $('#empty').hidden = state.objects.length > 0;
+  endDrag(); // (a list that is built anew has nothing dragged in it)
+  markRows();
+}
+
+/** Nothing from the list is being dragged any more. */
+function endDrag() {
+  state.dragging = false;
+  $('#drop-out').hidden = true;
+  $('#drop-out').classList.remove('drop');
+}
+
+/** Show what is selected in the list as it stands, without building it anew. */
+function markRows() {
+  const chosen = new Set(state.selection);
+  for (const li of $('#objects').children) li.classList.toggle('selected', chosen.has(li.dataset.id));
   $('#group').disabled = !state.selection.length;
   showSelectedRow();
 }
@@ -359,7 +379,7 @@ function refold(change) {
   store();
 }
 
-/** What is selected is never out of sight: the groups around it open. */
+/** What is selected is never out of sight: the groups around it open. Returns whether one did. */
 function reveal() {
   const tr = tree();
   const shut = new Set();
@@ -368,6 +388,7 @@ function reveal() {
     if (node) for (const group of tr.chainOf(node)) if (group.open === false) shut.add(group);
   }
   if (shut.size) refold(() => { for (const group of shut) group.open = true; });
+  return shut.size > 0;
 }
 
 // ------------------------------------------------------------------ scene edits
@@ -388,8 +409,9 @@ function select(id, { add = false, range = false } = {}) {
   else state.selection = [id];
   if (state.selection.join() === before) return;
   state.pivot = false;
-  reveal();
-  renderList();
+  // (the rows stay the elements they are, so a click or a drag that began on one goes on)
+  if (reveal()) renderList();
+  else markRows();
   renderInspector();
   refresh();
 }
@@ -1734,8 +1756,7 @@ function bindUi() {
   out.addEventListener('dragleave', () => out.classList.remove('drop'));
   out.addEventListener('drop', (e) => {
     e.preventDefault();
-    out.classList.remove('drop');
-    out.hidden = true;
+    endDrag();
     intoGroup(null);
   });
 
