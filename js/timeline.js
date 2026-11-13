@@ -1,14 +1,15 @@
-// The timeline under the 3D view: one row per object, time runs to the right.
-// A row shows when the object is there (the bar) and its keys (the diamonds).
+// The timeline under the 3D view: one row per object or group, time runs to
+// the right. A row shows when the thing is there (the bar), its keys (the
+// diamonds) and, when it repeats, its later plays (the faint bars). Rows follow
+// the scene list: what is in a group sits under it, and a closed group hides it.
 // This file only draws and reports what the pointer does; app.js owns the
-// scene and decides what changes.
+// scene, works out the rows and decides what changes.
 
-import { spanOf, keyAt, NEAR_KEY } from './motion.js';
-
-const NAMES = 120; // width of the name column in pixels (the CSS has it as --names)
+const NAMES = 150; // width of the name column in pixels (the CSS has it as --names)
 const PAD = 12; // room between the names and second 0, so a diamond at 0 is not cut in half
 const SNAP = 0.05; // dragging moves in steps of this many seconds
 const STEPS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600]; // ruler: seconds between marks
+const MAX_ECHOES = 24; // later plays drawn per row
 
 const el = (className, parent, tag = 'div') => {
   const node = document.createElement(tag);
@@ -20,13 +21,18 @@ const el = (className, parent, tag = 'div') => {
 /**
  * root : the #timeline element
  * on   : {
- *   seek(time, tolerance)        the time marker was put somewhere (tolerance: seconds that count as "on a key")
- *   select(id)
- *   start(id, seconds, done)     the bar was dragged: the object appears at another time
- *   end(id, seconds, done)       the end of the bar was dragged
+ *   seek(time, tolerance)         the time marker was put somewhere (tolerance: seconds that count as "on a key")
+ *   select(id, { add, range })    add: Ctrl was held, range: Shift
+ *   fold(id)                      the arrow of a group was clicked
+ *   start(id, seconds, done)      the bar was dragged: it appears at another time
+ *   end(id, seconds, done)        the end of the bar was dragged
  *   key(id, index, seconds, done) a key was dragged; seconds is on the timeline
  * }
  * `done` is false while dragging and true once when the pointer is let go.
+ *
+ * render(model): model = { rows, primary, time, duration }, a row being
+ *   { id, name, depth, group, open, hidden, selected, start, end, keys: [seconds], here ('start', a key number or null),
+ *     fadeIn, fade, echoes: [seconds at which later plays start], lasts (seconds of one play) }
  */
 export function createTimeline(root, on) {
   const scroll = root.querySelector('#tl-scroll');
@@ -34,18 +40,19 @@ export function createTimeline(root, on) {
   const ruler = root.querySelector('#tl-ruler');
   const rowsEl = root.querySelector('#tl-rows');
   const head = root.querySelector('#tl-head');
-  const rows = new Map(); // object id -> { row, shape, name, span, end, first, keys: [] }
-  let model = { objects: [], selected: null, time: 0, duration: 0 };
+  const rows = new Map(); // id -> { row, data, name, arrow, label, span, end, first, keys: [], echoes: [] }
+  let model = { rows: [], primary: null, time: 0, duration: 0 };
   let zoom = 1;
   let pps = 60; // pixels per second
   let rulerKey = '';
   let held = false; // a drag is going on: the scale stays as it is, so things follow the pointer
-  let shown = null; // the selected object whose row was last scrolled into sight
+  let shown = null; // the selected row that was last scrolled into sight
 
   const x = (t) => NAMES + PAD + t * pps;
   const timeAt = (clientX) => Math.max(0, (clientX - canvas.getBoundingClientRect().left - NAMES - PAD) / pps);
   const snap = (t) => Math.round(t / SNAP) * SNAP;
   const seek = (e) => on.seek(timeAt(e.clientX), 7 / pps);
+  const how = (e) => ({ add: e.ctrlKey || e.metaKey, range: e.shiftKey });
 
   /** Follow the pointer from a press until it is let go. */
   function drag(e, target, { move, up }) {
@@ -79,49 +86,49 @@ export function createTimeline(root, on) {
     drag(e, ruler, { move: seek, up: () => {} });
   });
 
-  function makeRow(obj) {
+  function makeRow(id) {
     const row = el('tl-row', rowsEl);
-    const r = { row, shape: '', name: el('tl-name', row, 'span'), span: el('tl-span', row), end: el('tl-end', row), first: null, keys: [] };
-    const id = obj.id;
-    const mine = () => model.objects.find((o) => o.id === id);
-    r.name.addEventListener('click', () => on.select(id));
+    const name = el('tl-name', row, 'span');
+    const r = {
+      row, data: null, name, arrow: el('tl-fold', name, 'span'), label: el('tl-label', name, 'span'),
+      span: el('tl-span', row), end: el('tl-end', row), first: null, keys: [], echoes: [],
+    };
+    // (while Ctrl or Shift is held a press only changes what is selected)
+    const pick = (e) => { on.select(id, how(e)); return !e.ctrlKey && !e.metaKey && !e.shiftKey; };
+    r.arrow.addEventListener('click', (e) => { e.stopPropagation(); on.fold(id); });
+    name.addEventListener('click', (e) => on.select(id, how(e)));
     row.addEventListener('pointerdown', (e) => {
       if (e.target !== row) return;
-      on.select(id);
+      if (!pick(e)) return;
       seek(e);
       drag(e, row, { move: seek, up: () => {} });
     });
     r.span.addEventListener('pointerdown', (e) => {
-      on.select(id);
-      const from = spanOf(mine()).start;
+      if (!pick(e)) return;
+      const from = r.data.start;
       drag(e, r.span, {
         move: (ev, dt) => on.start(id, Math.max(0, snap(from + dt)), false),
-        up: (ev, moved) => (moved ? on.start(id, spanOf(mine()).start, true) : seek(ev)),
+        up: (ev, moved) => (moved ? on.start(id, r.data.start, true) : seek(ev)),
       });
     });
     r.end.title = 'Drag: how long it stays';
     r.end.addEventListener('pointerdown', (e) => {
-      on.select(id);
-      const from = spanOf(mine()).end;
+      if (!pick(e)) return;
+      const from = r.data.end;
       drag(e, r.end, {
         move: (ev, dt) => on.end(id, snap(from + dt), false),
-        up: (ev, moved) => { if (moved) on.end(id, spanOf(mine()).end, true); },
+        up: (ev, moved) => { if (moved) on.end(id, r.data.end, true); },
       });
     });
-    r.span.title = 'Drag: when it appears';
     return r;
   }
 
   function makeKey(r, id, index) {
     const key = el(index < 0 ? 'tl-key first' : 'tl-key', r.row); // not a button: the keyboard stays with the shortcuts
-    const mine = () => model.objects.find((o) => o.id === id);
-    const timeOf = () => {
-      const o = mine();
-      return spanOf(o).start + (index < 0 ? 0 : o.keys[index].t);
-    };
+    const timeOf = () => (index < 0 ? r.data.start : r.data.keys[index]);
     key.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
-      on.select(id);
+      on.select(id, {});
       on.seek(timeOf(), 0);
       if (index < 0) return;
       const from = timeOf();
@@ -151,7 +158,6 @@ export function createTimeline(root, on) {
   scroll.addEventListener('scroll', showHead);
 
   const api = {
-    /** model: { objects, selected, time, duration } */
     render(next) {
       model = next;
       // room for the whole show and a little more, so things can be dragged later
@@ -162,41 +168,51 @@ export function createTimeline(root, on) {
       drawRuler(extent);
 
       const seen = new Set();
-      model.objects.forEach((obj, order) => {
-        seen.add(obj.id);
-        let r = rows.get(obj.id);
+      model.rows.forEach((data, order) => {
+        seen.add(data.id);
+        let r = rows.get(data.id);
         if (!r) {
-          r = makeRow(obj);
-          rows.set(obj.id, r);
+          r = makeRow(data.id);
+          rows.set(data.id, r);
         }
+        r.data = data;
         if (rowsEl.children[order] !== r.row) rowsEl.insertBefore(r.row, rowsEl.children[order] || null);
         // rebuild the diamonds only when their number changes, so a drag keeps hold of its diamond
-        if (r.keys.length !== obj.keys.length || (r.first === null) !== (obj.keys.length === 0)) {
+        if (r.keys.length !== data.keys.length || (r.first === null) !== (data.keys.length === 0)) {
           for (const k of r.keys) k.remove();
           if (r.first) r.first.remove();
-          r.first = obj.keys.length ? makeKey(r, obj.id, -1) : null;
-          r.keys = obj.keys.map((k, i) => makeKey(r, obj.id, i));
+          r.first = data.keys.length ? makeKey(r, data.id, -1) : null;
+          r.keys = data.keys.map((k, i) => makeKey(r, data.id, i));
         }
-        const { start, end } = spanOf(obj);
-        // the key under the time marker; close to a key counts, as no other key can be made there
-        const here = model.selected === obj.id ? keyAt(obj, model.time, NEAR_KEY) : null;
-        r.row.className = `tl-row${model.selected === obj.id ? ' selected' : ''}${obj.hidden ? ' hidden' : ''}`;
-        r.row.dataset.id = obj.id;
-        if (r.name.textContent !== obj.name) r.name.textContent = obj.name;
-        r.name.title = obj.name;
-        r.span.className = `tl-span${obj.fadeIn ? ' fade-in' : ''}${obj.fade ? ' fade-out' : ''}`;
-        r.span.style.left = `${x(start)}px`;
-        r.span.style.width = `${Math.max(4, (end - start) * pps)}px`;
-        r.end.style.left = `${x(end)}px`;
+        const echoes = data.echoes.slice(0, MAX_ECHOES);
+        while (r.echoes.length > echoes.length) r.echoes.pop().remove();
+        while (r.echoes.length < echoes.length) r.echoes.push(el('tl-echo', r.row));
+        r.row.className = `tl-row${data.selected ? ' selected' : ''}${data.hidden ? ' hidden' : ''}${data.group ? ' group' : ''}`;
+        r.row.dataset.id = data.id;
+        r.name.style.paddingLeft = `${6 + data.depth * 12}px`;
+        r.name.title = data.name;
+        r.arrow.className = `tl-fold${data.group ? ' chev' : ''}${data.group && data.open ? ' open' : ''}`;
+        r.arrow.title = data.group ? (data.open ? 'Close this group' : 'Open this group') : '';
+        if (r.label.textContent !== data.name) r.label.textContent = data.name;
+        r.span.className = `tl-span${data.fadeIn ? ' fade-in' : ''}${data.fade ? ' fade-out' : ''}`;
+        r.span.style.left = `${x(data.start)}px`;
+        r.span.style.width = `${Math.max(4, (data.end - data.start) * pps)}px`;
+        r.span.title = data.group ? 'Drag: when the group starts. Everything in it comes along.' : 'Drag: when it appears';
+        r.end.hidden = !!data.group;
+        r.end.style.left = `${x(data.end)}px`;
+        echoes.forEach((at, i) => {
+          r.echoes[i].style.left = `${x(at)}px`;
+          r.echoes[i].style.width = `${Math.max(3, data.lasts * pps)}px`;
+        });
         if (r.first) {
-          r.first.style.left = `${x(start)}px`;
-          r.first.classList.toggle('on', here === 'start');
-          r.first.title = `Where ${obj.name} starts`;
+          r.first.style.left = `${x(data.start)}px`;
+          r.first.classList.toggle('on', data.here === 'start');
+          r.first.title = `Where ${data.name} starts`;
         }
-        obj.keys.forEach((k, i) => {
-          r.keys[i].style.left = `${x(start + k.t)}px`;
-          r.keys[i].classList.toggle('on', here === i);
-          r.keys[i].title = `Key ${i + 1} at ${Number((start + k.t).toFixed(2))} s. Drag: another time. Delete: remove it.`;
+        data.keys.forEach((at, i) => {
+          r.keys[i].style.left = `${x(at)}px`;
+          r.keys[i].classList.toggle('on', data.here === i);
+          r.keys[i].title = `Key ${i + 1} at ${Number(at.toFixed(2))} s. Drag: another time. Delete: remove it.`;
         });
       });
       for (const [id, r] of rows) {
@@ -206,8 +222,8 @@ export function createTimeline(root, on) {
         }
       }
       // a newly selected object: bring its row into sight (the ruler covers the top of the list)
-      if (model.selected !== shown) {
-        shown = model.selected;
+      if (model.primary !== shown) {
+        shown = model.primary;
         const r = rows.get(shown);
         if (r) {
           const top = r.row.offsetTop - ruler.offsetHeight;

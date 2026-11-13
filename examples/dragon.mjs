@@ -17,8 +17,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sanitizeScene, computeParticles } from '../js/scene.js';
+import { sanitizeScene, computeParticles, isGroup } from '../js/scene.js';
 import { LIFE_PER_SECOND } from '../js/motion.js';
+import { groupNodes } from '../js/edits.js';
 
 // ---------------------------------------------------------------- settings
 
@@ -381,7 +382,37 @@ export function buildDragon() {
     }
   });
 
-  return { objects: sanitizeScene({ objects }).objects, headDown, headEnd };
+  return { objects: inFolders(sanitizeScene({ objects }).objects), headDown, headEnd };
+}
+
+/**
+ * The parts in folders: groups that do nothing themselves. They keep the scene
+ * list short, and the whole dragon can be moved, turned or resized as one.
+ */
+function inFolders(objects) {
+  let list = objects;
+  let made = 0;
+  const folder = (name, pick, open = false) => {
+    const result = groupNodes(list, list.filter(pick).map((o) => o.id), name);
+    list = result.objects;
+    const group = list.find((o) => o.id === result.id);
+    const id = `dragon-group-${++made}`;
+    for (const o of list) if (o.parent === group.id) o.parent = id;
+    Object.assign(group, { id, open });
+    return id;
+  };
+  const named = (re) => (o) => !isGroup(o) && !o.parent && re.test(o.name);
+  const parts = [
+    folder('Body', named(/^(Chest|Belly|Neck|Throat|Back)/)),
+    folder('Tail', named(/^Tail/)),
+    folder('Legs', named(/^(Thigh|Shin|Foot|Claws|Upper arm|Forearm)/)),
+    folder('Right wing', named(/^Wing.*right$/)),
+    folder('Left wing', named(/^Wing.*left$/)),
+    folder('Head', named(/^(Skull|Upper jaw|Brow|Eyes|Horns|Lower jaw|Chin)/)),
+  ];
+  folder('Dragon', (o) => parts.includes(o.id), true);
+  folder('Fire', named(/^Fire/));
+  return sanitizeScene({ objects: list }).objects;
 }
 
 // ---------------------------------------------------------------- the file

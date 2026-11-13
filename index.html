@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bloxd Particle Studio</title>
-<meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them and export code for a code block.">
+<meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -29,6 +29,10 @@
   <div class="actions">
     <span id="count" class="pill">0 particles</span>
     <button id="new">New</button>
+    <span class="menu-wrap">
+      <button id="examples" aria-haspopup="menu" aria-expanded="false" title="Ready scenes to look at and take apart">Examples</button>
+      <div id="examples-menu" class="menu" role="menu" hidden></div>
+    </span>
     <button id="open" title="Open a saved scene file">Open</button>
     <button id="save" title="Save the scene as a file">Save</button>
     <button id="export" class="primary">Export code</button>
@@ -37,25 +41,37 @@
 
 <main class="layout">
   <aside class="panel" id="left">
-    <section>
-      <h2>Add</h2>
-      <button id="add-point" class="wide">+ Single particle</button>
-      <h3>Shapes <small>made of many particles</small></h3>
-      <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
-      <div id="shape-tabs" class="shape-tabs" role="group" aria-label="Kinds of shape"></div>
-      <div id="shapes" class="shape-grid" role="group" aria-label="Shapes to add"></div>
-      <p id="shape-note" class="muted shape-note" aria-live="polite" hidden></p>
+    <section class="cat" id="cat-add" data-cat="add">
+      <button class="cat-head" type="button">
+        <span class="chev" aria-hidden="true"></span><span class="cat-title">Add</span><span class="cat-sum">particles and shapes</span>
+      </button>
+      <div class="cat-body">
+        <button id="add-point" class="wide">+ Single particle</button>
+        <h3>Shapes <small>made of many particles</small></h3>
+        <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
+        <div id="shape-tabs" class="shape-tabs" role="group" aria-label="Kinds of shape"></div>
+        <div id="shapes" class="shape-grid" role="group" aria-label="Shapes to add"></div>
+        <p id="shape-note" class="muted shape-note" aria-live="polite" hidden></p>
+      </div>
     </section>
-    <section class="grow">
-      <h2>Scene</h2>
-      <ul id="objects" class="objects"></ul>
-      <p id="empty" class="muted">Nothing here yet. Add a particle or a shape.</p>
+    <section class="cat" id="cat-scene" data-cat="scene">
+      <div class="cat-bar">
+        <button class="cat-head" type="button">
+          <span class="chev" aria-hidden="true"></span><span class="cat-title">Scene</span>
+        </button>
+        <button id="group" title="Put what is selected into a group (Ctrl+G). Ctrl+click selects several." disabled>Group</button>
+      </div>
+      <div class="cat-body">
+        <ul id="objects" class="objects"></ul>
+        <p id="drop-out" class="drop-out" hidden>Drop here: out of its group</p>
+        <p id="empty" class="muted">Nothing here yet. Add a particle or a shape.</p>
+      </div>
     </section>
   </aside>
 
   <div class="stage">
     <canvas id="view"></canvas>
-    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click a particle to select it</div>
+    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click a particle to select it &middot; Ctrl+click for several</div>
     <div class="playing" id="playing" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <div class="fatal" id="fatal" hidden></div>

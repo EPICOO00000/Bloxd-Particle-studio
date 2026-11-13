@@ -33,7 +33,10 @@
 //   in the very frame in which the piece before it dies. The same goes for a
 //   steady speed. Only what cannot end on a last stop (a fade, an eased speed)
 //   uses ramps: long ones where nobody sees them (RUNUP), short ones followed
-//   by extra stops where they are seen (SWITCH, GUARDS).
+//   by extra stops where they are seen (SWITCH, GUARDS). A colour that changes
+//   at a key is such a case too: a piece that lasts a while and changes colour
+//   while it is seen (LONG_TINT) comes in over a short ramp (TINT_RAMP), and a
+//   shorter piece simply keeps the colour of its middle.
 //   All pieces of one move share one speed curve, so whatever a slow device
 //   does to it, it does to all of them alike and they still meet. And a
 //   particle that has travelled is only about where it should be on a slow

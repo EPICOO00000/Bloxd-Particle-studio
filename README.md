@@ -4,9 +4,10 @@ Build particle pictures for [Bloxd](https://bloxd.io) in a 3D view, then export
 the code for a code block. Place single particles or ready-made shapes made of
 many particles, pick a texture and a colour, and paste the result into your
 world. A timeline sets when each of them appears, where it moves and when it
-goes away.
+goes away. Groups move many objects as one, ready-made moves such as Flap, Spin
+and Orbit do the animating for you, and three examples show what is possible.
 
-![The studio: shapes on the left, the 3D view in the middle, settings on the right, the timeline below](docs/screenshot.png)
+![The studio: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
 
 This is an unofficial fan tool. It is not made, approved or supported by Bloxd.
 
@@ -28,7 +29,8 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 ## Make something
 
 1. **Add** a single particle or one of the 224 shapes from the left panel.
-   Pick a tab, or type in the search box.
+   Pick a tab, or type in the search box. Or start from one of the
+   [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
    Resize in the top bar.
 3. **Style** it on the right: texture, colour, size, how many particles.
@@ -39,6 +41,14 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 The crate in the middle is your code block. One grid square is one block, and
 everything shows up in the game where you see it around the crate.
+
+**Categories.** The settings on the right are sorted into categories: Look,
+Shape, Place, Time and repeat, Keys, Ready-made moves, Motion, Group and
+mirror. Click the name of a category to open or close it. A closed one still
+says in a few words what is in it, and the studio remembers which ones you keep
+open. "Add" and "Scene" on the left close the same way. The two share the
+height of the panel and the scene list scrolls by itself; close one and the
+other gets the whole panel.
 
 Your scene is kept in the browser between visits. **Save** writes it to a file
 and **Open** loads one, so you can keep several scenes or share them.
@@ -72,14 +82,14 @@ next free place in a row, so the letters line up by themselves.
 ### Timing
 
 The timeline at the bottom shows time from left to right, in seconds after the
-click on the code block. Every object has a row. Its bar starts when the object
-appears and ends when it is gone.
+click on the code block. Every object and every group has a row. Its bar starts
+when the object appears and ends when it is gone.
 
 | To | Do this |
 |---|---|
 | Make an object appear later | Drag its bar to the right. Or type the seconds in "Appears" on the right. |
 | Make it stay longer or shorter | Drag the right end of its bar. Or change "Lifetime". |
-| Make it fade in or out | Tick "fade in" or "fade out" under Life. |
+| Make it fade in or out | Tick "fade in" or "fade out" under "Time and repeat". |
 | Look at one moment | Click on the row of numbers above the bars. The red line is the time marker. |
 | See everything happen | Press Play. Escape goes back to the start. Tick Loop to see it again and again. |
 
@@ -92,7 +102,8 @@ appears and ends when it is gone.
 4. Move, rotate or resize the object. This is where it will be at that time.
 5. Press **Play**. The object travels from where it starts to the key.
 
-Add more keys for more stops, up to 12 for one object. "Gets there" sets how
+Groups get keys the same way. Add more keys for more stops, up to 12 for one
+object. "Gets there" sets how
 the object travels to the key under the time marker: Smooth, Steady, Speed up,
 Slow down or Jump.
 
@@ -115,36 +126,153 @@ a key, for example 360.
 
 After its last key an object stays where it is until its bar ends. If it has
 Motion settings (Move, Scatter, Grow, Gravity), they start after the last key.
+From then on it no longer follows its group: it is let go where the group is at
+that moment.
 
-### An example: the dragon
+### Groups
+
+A group holds objects, and other groups. Move, turn or resize the group and
+everything in it comes along. Give the group keys and they all move together:
+a wing made of ten bones flaps as one thing.
+
+| To | Do this |
+|---|---|
+| Select several objects | Ctrl+click them, in the 3D view or in the Scene list. Shift+click in the list takes everything in between. |
+| Make a group | Select the objects and press **Group** above the Scene list, or Ctrl+G. |
+| Put something into a group later | Drag it onto the group in the Scene list. Or choose the group under "Group and mirror". |
+| Take it out again | Drag it to "Drop here" below the list, or choose "(no group)". |
+| Take a group apart | Select it and press **Ungroup**. What was in it stays where it is. |
+| Tidy the lists | Click the little arrow of a group to close it. Its rows go away in the Scene list and on the timeline. |
+
+Nothing moves when you group, ungroup or drag things between groups: every
+object stays where it is at the start, and starts at the moment it did.
+
+In the 3D view a click on something in a group selects the group. Click again
+to get the thing itself. A closed group opens when something in it is selected,
+so what you work on always has its row in the list.
+
+**The pivot.** A group turns about one point and is resized from it: its pivot.
+It is where the arrows are. A new group has it in its middle. To put it
+somewhere else, for example at the shoulder of a wing, open Place, tick "Move
+only the pivot", drag the arrows there and untick it again.
+
+The Position of something in a group counts from the pivot of the group, and
+"Appears" counts from the moment the group starts.
+
+### Mirror copies
+
+Under "Group and mirror", **Mirror copy** makes a twin on the other side: X for
+left and right, Y for up and down, Z for front and back. The twin has the same
+keys, mirrored, so it moves like a mirror image. A "Left wing" is named "Right
+wing".
+
+The mirror stands in the pivot of the group the object is in. Build one wing
+inside the group of the body and its twin lands on the other side of the body.
+Outside a group the mirror stands in the middle of the code block, and Y turns
+the copy upside down where it is.
+
+### Repeat
+
+Under "Time and repeat", **Repeat** plays an object again and again: type how
+many times and how many seconds lie between two plays. "Back to back" starts
+each play when the one before it ends. The later plays show as thin bars on the
+timeline.
+
+A group repeats with everything in it. Things that fly off by themselves (see
+Motion) are let go again in every play: that makes fire, smoke, rain and
+fountains.
+
+Every play makes its particles again, so 10 plays cost 10 times the particles.
+The category says how many that is.
+
+### Ready-made moves
+
+Open "Ready-made moves", pick one, set how long one go takes and how often, and
+press **Apply**. The studio works out the keys.
+
+| Move | What it does |
+|---|---|
+| Flap | Swings out and back, like a wing. A group swings about its pivot. |
+| Pulse | Grows and shrinks back. |
+| Spin | Turns round and round at a steady pace. |
+| Orbit | Circles around a point next to it. This puts the object into a group that turns; move the pivot of that group to move the middle of the circle. |
+| Shake | Trembles on the spot. |
+| Bounce | Jumps up and falls back. |
+| Float | Drifts gently up and down. |
+| Rise and fade | Drifts up and fades away. With Repeat it keeps coming, like smoke. |
+
+A move starts from where the object is at the time marker and replaces what it
+did after that moment. So you can put the marker at 3 seconds and add a Bounce
+after a move you made by hand. The keys are ordinary keys: change them
+afterwards as you like.
+
+An object can have 12 keys. The category says how often a move fits. For more,
+use Repeat.
+
+### Colour and size at a key
+
+A key can also change the look. Click a diamond on the timeline, open Keys and
+tick "changes here" next to Colour or Size. The object then turns to that
+colour on its way to the key, and has that particle size when it gets there.
+A key without a tick keeps the look of the key before it.
+
+The colour changes smoothly. A particle keeps its size all its life in the
+game, so a change of size is shown in a few steps.
+
+### Copy keys, and stretch time
+
+**Copy keys** (under Keys) remembers what an object does. Select another
+object and press **Paste keys**: it makes the same moves, turns and changes of
+size, but from where it is. The keys go in at the time marker.
+
+To make something slower or faster, type another number in **Lasts** under
+"Time and repeat". Everything it does is stretched to fit, and a group
+stretches all that is in it. With nothing selected, "Whole show" on the right
+does the same for the whole scene. Keys cannot come closer than 0.1 seconds,
+so a stretch stops there.
+
+### Examples
 
 ![A dragon made of particles breathes fire at the ground in front of the code block](docs/dragon.png)
 
-`examples/dragon.json` is a finished scene to play and to take apart. A dragon
-76 blocks wide glides towards the code block with its wings spread, throws its
-head back, opens its jaws and breathes fire at the ground in front of the
-block. It lasts 10 seconds. Press **Open**, choose the file and press **Play**.
+The **Examples** button at the top opens finished scenes to play and to take
+apart. Undo brings your own scene back.
 
-It is made of 76 ordinary objects: arcs for the neck, the tail and the wing
-bones, zigzags for the teeth, claws and spikes, a ball of rings for the body
-and smoke clouds for the fire. Click any of them to change it. The wings, the
-tail and the head with its jaw move by keys.
+- **Dragon.** A dragon 76 blocks wide glides towards the code block with its
+  wings spread, throws its head back, opens its jaws and breathes fire at the
+  ground in front of the block. It lasts 10 seconds. It is made of 76 ordinary
+  objects in 8 folders (groups that do nothing but keep the list short): arcs
+  for the neck, the tail and the wing bones, zigzags for the teeth, claws and
+  spikes, a ball of rings for the body and smoke clouds for the fire. Select
+  the folder "Dragon" to move or resize the whole animal. The export is 1,211
+  particles in 3 stacked code blocks. That is twice what the studio calls a
+  lot, so it can lag on slower devices. The dragon appears 70 blocks from the
+  code block and 30 blocks up, on the side where Z grows.
+- **Campfire (313 particles, 4.7 seconds, one code block).** Flames rise from
+  the top of the code block, turn from yellow to red and shrink; sparks and
+  smoke fly off. It shows Repeat and keys that set colour and size. Everything
+  in it ends after the same 4.7 seconds. World Code starts a scene again when
+  it is over, so exported as World Code the fire burns on and on.
+- **Portal (311 particles, 6.2 seconds, one code block).** A ring that pulses
+  between two pillars, two sparks that circle it and dust that is pulled in.
+  It shows groups, a mirror copy (the right pillar and the left spark) and the
+  moves Pulse and Orbit.
 
-The export is 1,211 particles in 3 stacked code blocks. That is twice what the
-studio calls a lot, so it can lag on slower devices, and like everything here
-it has not been tried in the game. The dragon appears 70 blocks from the code
-block and 30 blocks up, on the side where Z grows.
-
-`examples/dragon.mjs` is the script that wrote the file. Change the numbers at
-its top and run `node examples/dragon.mjs`.
+`examples/build.mjs` is the script that wrote them, and `examples/dragon.mjs`
+the one for the dragon. Change the numbers at the top and run
+`node examples/build.mjs`. `examples/dragon.json` is the dragon as a scene file
+for **Open**.
 
 ### Keyboard and mouse
 
 | Key | Does |
 |---|---|
 | W, E, R | Move, Rotate, Resize |
-| Ctrl+D | Duplicate |
-| Delete or Backspace | Delete the object, or the key whose diamond was clicked last |
+| Ctrl+click | Select several. Shift+click in the lists: everything in between |
+| Ctrl+A | Select everything |
+| Ctrl+G, Ctrl+Shift+G | Group what is selected, take the group apart |
+| Ctrl+D | Duplicate, with all that is in it |
+| Delete or Backspace | Delete what is selected, or the key whose diamond was clicked last |
 | Ctrl+Z, Ctrl+Shift+Z (or Ctrl+Y) | Undo, Redo |
 | F | Center the view |
 | Space | Play or pause |
@@ -200,6 +328,10 @@ hand, because a world can only have one.
 | Grow | Shapes only. Particles fly away from the middle of the shape, or towards it below 0. |
 | Gravity | Below 0 the particles fall, above 0 they float up, faster and faster. |
 | Turning | Objects with keys only. Unticked, the object turns the short way round to the next key. Ticked, it turns by the Rotation numbers as typed, so 360 is a full turn. |
+| Repeat, Every | How many times it is played, and the seconds from one play to the next. |
+| Lasts | Seconds one play takes. Type another number to stretch everything it does. |
+| In group | The group it belongs to. Its Position then counts from the pivot of that group. |
+| Move only the pivot | Groups only. While ticked, moving the group moves the point it turns about and leaves what is in it where it is. |
 
 ## Good to know
 
@@ -220,7 +352,8 @@ hand, because a world can only have one.
   documents (`colorGradients`, `velocityGradients`) and the tests play it in a
   copy of the particle engine, but it has not run in Bloxd. Try a small timed
   scene in your world first. Scenes without timing export exactly the code
-  they did before the timeline existed.
+  they did before the timeline existed. Groups that move, repeats and colours
+  at keys are written with the same options, and have not run in Bloxd either.
 - **Keys cost particles.** A particle can only fly along a straight line. So
   every stretch between two keys gets particles of its own, and a turn gets
   several sets of them. An object with three keys needs about four times its
@@ -229,6 +362,20 @@ hand, because a world can only have one.
 - **Big, quick turns.** A turn is flown as short straight stretches. A large
   shape that turns far in a short time can look angular, and the Keys box then
   says so. Give the turn more time or add a key halfway.
+- **Groups that move cost particles too.** What is in a group that turns flies
+  the same kind of short straight stretches: from 8 for a full turn on a small
+  circle to about 20 on a big one. So one round of Orbit or Spin makes that
+  many particles for every point. Far from the pivot the path may be off by up
+  to 1% of that distance. A group that only slides at a steady pace is cheap.
+- **Repeats cost particles and code.** Every play is written out in the code.
+  A scene with many plays can need more than one code block.
+- **Colours that change.** A piece that changes colour while it is seen is
+  switched on over 75 milliseconds. On a device that draws fewer than 20
+  frames a second, a point can be faint for one frame at such a moment.
+- **Mirror copies and stretched groups.** A mirror copy has one size the other
+  way round (a negative Stretch). That is intended. Taking apart a group that
+  is stretched more along one side than another, with turned things in it, can
+  bend them slightly: a shape can be turned and stretched, but not slanted.
 - **A flash with Glow.** At a key, two sets of particles can show at once for
   a frame or two. With a Glow blend that moment is brighter.
 - **Long waits.** An object that appears after 30 seconds is made at the click
@@ -256,7 +403,12 @@ npm run build    # rebuild START-HERE.html
 
 `START-HERE.html` is built from the other files. After changing anything in
 `index.html`, `js/`, `css/`, `vendor/` or `textures/`, run `npm run build`;
-`npm test` fails while the file is out of date.
+`npm test` fails while the file is out of date. After changing an example, run
+`node examples/build.mjs` first.
+
+A scene is a flat list of objects. A group is an entry with the shape `group`,
+and what is in it names the group as its `parent`. `sceneTree()` in
+`js/scene.js` answers who is in what and when everything happens.
 
 | Path | What it is |
 |---|---|
@@ -266,19 +418,24 @@ npm run build    # rebuild START-HERE.html
 | `js/shapes-geo.js` | Shapes made from formulas: more basic outlines, 3D shapes, curves and effects |
 | `js/shapes-text.js` | Letters, numbers and signs |
 | `js/shapes-icons.js` | Pictures: symbols, nature and things |
-| `js/scene.js` | Scene data, checks for loaded files, the preview maths |
+| `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
 | `js/viewport.js` | The 3D view (three.js) |
 | `js/timeline.js` | The timeline: bars, diamonds, the time marker |
-| `js/app.js` | Buttons, panels, the shape picker, undo, saving, the export window |
+| `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, stretch time, copy and paste keys, move a pivot |
+| `js/moves.js` | The ready-made moves |
+| `js/examples-data.js` | The scenes behind the Examples button. Written by `examples/build.mjs` |
+| `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window |
+| `js/ui.js` | Small helpers for building the page, and the categories that open and close |
 | `js/assets.js` | Finds the pictures, as files or inside the single-file build |
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
+| `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second |
 | `tools/` | Local server and the single-file build |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |
-| `examples/` | A finished scene, the dragon, and the script that wrote it |
+| `examples/` | The scripts that write the examples, and the dragon as a scene file |
 | `docs/` | The pictures on this page |
 
 ### Add a shape of your own

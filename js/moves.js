@@ -26,7 +26,7 @@ const WAYS = [[1, 0.4, 0], [-0.3, 1, 0.5], [0.6, -0.5, -1], [-1, 0.2, 0.6], [0.4
 /**
  * The moves. `keys(ref, o, go)`: the keys of one go as [{ at (part of the go, 0 to 1), ...what changes, ease }],
  * `ref` being the place it starts from. `after`: keys that follow the last go. `once`: it has no "how often".
- * `whole`: one key does all the goes. `shaped`: it turns or resizes, which a single particle does not show.
+ * `shaped`: it turns or resizes, which a single particle does not show.
  */
 export const MOVES = [
   {
@@ -46,14 +46,14 @@ export const MOVES = [
     ],
   },
   {
-    id: 'spin', name: 'Spin', about: 'Turns round and round at a steady pace.',
-    seconds: 2, times: 2, maxTimes: 50, whole: true, shaped: true, fields: { axis: 1 },
-    keys: (ref, o) => [{ at: 1, rot: withAngle(ref.rot, o.axis, 360 * o.times), ease: 'linear' }],
+    id: 'spin', name: 'Spin', about: 'Turns round and round at a steady pace: one key for every full turn.',
+    seconds: 2, times: 2, maxTimes: 12, shaped: true, fields: { axis: 1 },
+    keys: (ref, o, go) => [{ at: 1, rot: withAngle(ref.rot, o.axis, 360 * (go + 1)), ease: 'linear' }],
     then: (node) => { node.spin = true; },
   },
   {
     id: 'orbit', name: 'Orbit', about: 'Circles around a point next to it. This puts it in a group that turns; move the pivot of that group to move the middle of the circle.',
-    seconds: 3, times: 2, maxTimes: 50, fields: { wide: 4, axis: 1 },
+    seconds: 3, times: 2, maxTimes: 10, fields: { wide: 4, axis: 1 },
   },
   {
     id: 'shake', name: 'Shake', about: 'Trembles on the spot.',
@@ -95,7 +95,7 @@ export const MOVE_BY_ID = Object.fromEntries(MOVES.map((m) => [m.id, m]));
 /** The settings of a move as the page shows them: [{ key, label, unit, min, max, step, value, options? }]. */
 export function moveFields(move) {
   // (keys are 0.1 seconds apart at least, and a go has two of them)
-  const least = move.once || move.whole || !move.keys ? 0.1 : 0.2;
+  const least = move.once || !move.keys || move.id === 'spin' ? 0.1 : 0.2;
   const out = [{ key: 'seconds', label: move.once ? 'Takes' : move.id === 'spin' ? 'One turn takes' : move.id === 'orbit' ? 'One round takes' : 'One go takes', unit: 'seconds', min: least, max: 600, step: 0.1, value: move.seconds }];
   if (!move.once) out.push({ key: 'times', label: move.id === 'spin' ? 'Turns' : move.id === 'orbit' ? 'Rounds' : 'How often', unit: 'times', min: 1, max: move.maxTimes || 6, step: 1, value: move.times });
   for (const [key, value] of Object.entries(move.fields)) {
@@ -126,7 +126,7 @@ export function mostTimes(node, move, at = 0) {
   const perGo = move.keys(ref, o, 0).length;
   const extra = move.after ? move.after(ref, o).length : 0;
   const free = MAX_KEYS - keptKeys(node, at) - extra;
-  if (move.once || move.whole) return free >= perGo ? move.maxTimes || 1 : 0;
+  if (move.once) return free >= perGo ? 1 : 0;
   return Math.max(0, Math.min(move.maxTimes || 6, Math.floor(free / perGo)));
 }
 
@@ -158,16 +158,11 @@ export function applyMove(objects, id, moveId, raw = {}, at = 0) {
   const hold = { pos: ref.pos.slice(), rot: ref.rot.slice(), scale: ref.scale.slice() };
   const push = (t, change) => node.keys.push({ t: round(t), ...hold, ...JSON.parse(JSON.stringify(change)) });
   let t = t0;
-  if (move.whole) {
-    // one key for all the goes
-    for (const { at: part, ...change } of move.keys(ref, o, 0)) push(t0 + part * o.seconds * o.times, change);
-  } else {
-    for (let go = 0; go < o.times; go++) {
-      for (const { at: part, ...change } of move.keys(ref, o, go)) push(t + part * o.seconds, change);
-      t += o.seconds;
-    }
-    for (const { dt, ...change } of move.after ? move.after(ref, o) : []) push(t += dt, change);
+  for (let go = 0; go < o.times; go++) {
+    for (const { at: part, ...change } of move.keys(ref, o, go)) push(t + part * o.seconds, change);
+    t += o.seconds;
   }
+  for (const { dt, ...change } of move.after ? move.after(ref, o) : []) push(t += dt, change);
   if (move.then) move.then(node, o, t0);
   return { ok: true, objects, message: `${move.name}: ${node.name} now has ${node.keys.length} key${node.keys.length === 1 ? '' : 's'}.` };
 }
@@ -182,14 +177,14 @@ function orbit(objects, node, o, at) {
   const off = o.axis === 0 ? [0, o.wide / 2, 0] : [o.wide / 2, 0, 0];
   const centre = node.pos.map((v, k) => round(v - off[k]));
   const t0 = at >= MIN_KEY_GAP ? round(at) : 0;
-  const turn = [0, 0, 0].map((v, k) => (k === o.axis ? 360 * o.times : 0));
   const still = { pos: centre, rot: [0, 0, 0], scale: [1, 1, 1] };
+  // a key for every round (the angles are taken as typed: 360, 720 ...)
+  const rounds = Array.from({ length: o.times }, (_, n) => ({
+    t: round(t0 + o.seconds * (n + 1)), ...still, rot: [0, 0, 0].map((v, k) => (k === o.axis ? 360 * (n + 1) : 0)), ease: 'linear',
+  }));
   const group = createGroup({
     name: uniqueName(objects, `${node.name} orbit`.slice(0, 40)), parent: node.parent, pos: centre, start: node.start, spin: true,
-    keys: [
-      ...(t0 > 0 ? [{ t: t0, ...still, ease: 'linear' }] : []),
-      { t: round(t0 + o.seconds * o.times), ...still, rot: turn, ease: 'linear' },
-    ],
+    keys: [...(t0 > 0 ? [{ t: t0, ...still, ease: 'linear' }] : []), ...rounds],
   });
   for (const p of [node, ...node.keys]) p.pos = p.pos.map((v, k) => round(v - centre[k]));
   node.start = 0;

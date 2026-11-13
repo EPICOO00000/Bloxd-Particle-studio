@@ -23,6 +23,8 @@ import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
 import { createParticle, frameAge } from './babylon-sim.mjs';
 import { sourceFiles, sourceHash } from '../tools/sources.mjs';
 import { dragonFile } from '../examples/dragon.mjs';
+import { examplesFile } from '../examples/build.mjs';
+import { EXAMPLES } from '../js/examples-data.js';
 import { fileURLToPath } from 'node:url';
 
 const root = new URL('..', import.meta.url);
@@ -1734,20 +1736,27 @@ const middle = (points) => points.reduce((sum, p) => sum.map((v, i) => v + p[i] 
 
 test('the dragon example is up to date, and its code plays the way the studio shows it', () => {
   const text = fs.readFileSync(new URL('examples/dragon.json', root), 'utf8');
-  assert.equal(text, dragonFile(), 'examples/dragon.json is out of date: run "node examples/dragon.mjs"');
+  assert.equal(text, dragonFile(), 'examples/dragon.json is out of date: run "node examples/build.mjs"');
   const file = JSON.parse(text);
-  const objects = sanitizeScene(file).objects;
-  assert.deepEqual(objects, file.objects, 'the studio changes the file when it opens it');
+  const all = sanitizeScene(file).objects;
+  assert.deepEqual(all, file.objects, 'the studio changes the file when it opens it');
+  // its parts are in folders: groups that do nothing themselves, so every part can be played on its own below
+  const folders = all.filter(isGroup);
+  assert.deepEqual(folders.map((g) => g.name), ['Dragon', 'Body', 'Tail', 'Legs', 'Right wing', 'Left wing', 'Head', 'Fire']);
+  for (const g of folders) assert.ok(!g.keys.length && g.start === 0 && g.repeat === 1 && String(g.rot) === '0,0,0' && String(g.scale) === '1,1,1', g.name);
+  const objects = all.filter((o) => !isGroup(o));
+  assert.ok(objects.every((o) => o.parent));
   for (const obj of objects) assert.equal(planOf(obj).rough, '', `${obj.name} turns too far too quickly`);
 
   // the whole scene fits its code blocks, and the README gives its real size
-  const { result } = runExport(objects);
+  const { result } = runExport(all);
   const readme = fs.readFileSync(new URL('README.md', root), 'utf8').replace(/\s+/g, ' ');
   for (const words of [
     `${objects.length} ordinary objects`,
+    `${folders.length} folders`,
     `${result.particles.toLocaleString('en-US')} particles`,
     `${result.parts.length} stacked code blocks`,
-    `${sceneDuration(objects)} seconds`,
+    `${sceneDuration(all)} seconds`,
   ]) assert.ok(readme.includes(words), `README: "${words}"`);
 
   // object by object: the exported code, played in the stand-in for the game's
@@ -1799,6 +1808,65 @@ test('the dragon example is up to date, and its code plays the way the studio sh
   }
 });
 
+test('the examples are up to date, fit their code blocks and play the way the studio shows them', () => {
+  assert.equal(fs.readFileSync(new URL('js/examples-data.js', root), 'utf8'), examplesFile(), 'js/examples-data.js is out of date: run "node examples/build.mjs"');
+  assert.deepEqual(EXAMPLES.map((e) => e.name), ['Dragon', 'Campfire', 'Portal']);
+  const readme = fs.readFileSync(new URL('README.md', root), 'utf8').replace(/\s+/g, ' ');
+  for (const example of EXAMPLES) {
+    const objects = sanitizeScene(example.scene).objects;
+    assert.deepEqual(objects, example.scene.objects, `${example.name}: the studio changes it when it opens it`);
+    assert.ok(example.about.length > 20 && example.about.length < 130, `${example.name}: a line of words for the menu`);
+    const tree = sceneTree(objects);
+    for (const leaf of tree.leaves()) for (const play of tree.playsOf(leaf)) assert.equal(planOf(leaf, play).rough, '', `${example.name}: ${leaf.name} cuts corners`);
+    const { result, calls } = runExport(objects);
+    const total = sceneDuration(objects);
+    if (example.id !== 'dragon') {
+      assert.equal(result.parts.length, 1, `${example.name} fits one code block`);
+      assert.ok(result.particles <= 400, `${example.name}: ${result.particles} particles`);
+      assert.ok(readme.includes(`${example.name} (${result.particles} particles, ${Number(total.toFixed(1))} seconds, one code block)`), `README: ${example.name} (${result.particles} particles, ${Number(total.toFixed(1))} seconds, one code block)`);
+    }
+    // the whole scene in the stand-in for the game against the preview: as many particles, in the same places
+    const h = frameAge(30);
+    const random = seeded(calls.length);
+    const engine = calls.map((c) => ({ c, p: createParticle(c, random), alive: true }));
+    const flies = objects.some((o) => o.spread > 0); // (those pick their own way: only where the whole cloud is can be compared)
+    let frames = 0;
+    let equal = 0;
+    for (let f = 1; (f * h) / LIFE_PER_SECOND < total + 0.3; f++) {
+      for (const e of engine) e.alive = e.alive && e.p.update(h);
+      const time = (f * h) / LIFE_PER_SECOND;
+      const inGame = engine.filter((e) => e.alive && e.p.color[3] > 0.5);
+      if (time > total + 0.1) { assert.equal(inGame.length, 0, `${example.name}: particles are left at ${time.toFixed(2)} s`); continue; }
+      if (f % 4 !== 1) continue;
+      const drawn = computeParticles(objects, time);
+      const shown = drawn.filter((p) => p.alpha > 0.5);
+      frames++;
+      // (the game may be a frame ahead of the preview, which matters for what is just fading in or out;
+      //  and where one piece takes over from the next, an object can show twice for a frame)
+      const least = drawn.filter((p) => p.alpha > 0.75).length;
+      const most = drawn.filter((p) => p.alpha > 0.25).length;
+      const slack = Math.max(8, shown.length * 0.08);
+      assert.ok(inGame.length >= least - slack && inGame.length <= most + slack, `${example.name}: ${inGame.length} particles in the game, ${least} to ${most} in the preview at ${time.toFixed(2)} s`);
+      if (shown.length !== inGame.length || !shown.length) continue; // something is just fading in, or it is the very frame of a hand-over
+      equal++;
+      const apart = dist(middle(inGame.map((e) => e.p.position)), middle(shown.map((p) => p.pos.map((v, j) => v + ORIGIN[j]))));
+      assert.ok(apart < (flies ? 0.5 : 0.08), `${example.name}: the picture is ${apart.toFixed(3)} blocks off at ${time.toFixed(2)} s`);
+      if (flies || shown.length > 150) continue;
+      const free = inGame.slice();
+      for (const p of shown) {
+        const want = p.pos.map((v, j) => v + ORIGIN[j]);
+        let best = 0;
+        free.forEach((e, k) => { if (dist(want, e.p.position) < dist(want, free[best].p.position)) best = k; });
+        const [twin] = free.splice(best, 1);
+        const step = Math.hypot(...twin.c.dir1) * twin.c.maxEmitPower * h;
+        assert.ok(dist(want, twin.p.position) < 0.012 + step * 1.1, `${example.name}: a particle is ${dist(want, twin.p.position).toFixed(3)} off at ${time.toFixed(2)} s`);
+      }
+    }
+    assert.ok(frames > 30 && equal > frames * 0.5, `${example.name}: ${equal} of ${frames} frames compared`);
+    assert.ok(engine.every((e) => !e.alive), `${example.name}: particles are left after the end`);
+  }
+});
+
 // ---------------------------------------------------------------- single-file build
 
 test('the page fits together: every import exists, and so does every element the code asks for', () => {
@@ -1829,7 +1897,7 @@ test('the page fits together: every import exists, and so does every element the
   const html = fs.readFileSync(new URL('index.html', root), 'utf8');
   const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   let asked = 0;
-  for (const file of ['app.js', 'timeline.js']) {
+  for (const file of ['app.js', 'timeline.js', 'ui.js']) {
     for (const m of source[file].matchAll(/(?:\$|querySelector)\('#([\w-]+)'\)/g)) {
       asked++;
       assert.ok(ids.has(m[1]), `${file} asks for #${m[1]}, which index.html does not have`);

@@ -437,9 +437,9 @@ test('moves: every ready-made move gives keys the studio keeps, from where the o
   assert.deepEqual(keys[6].pos, [2, 3, 1], 'back in its place at the end');
   keys.slice(0, 6).forEach((k) => assert.ok(Math.abs(dist(k.pos, [2, 3, 1]) - 0.5) < 0.002, 'half a block from its place'));
 
-  // spin: one key for all the turns
+  // spin: a key for every full turn, the angles as typed
   const spun = byId(applyMove(fresh(), 'o', 'spin', { seconds: 2, times: 3, axis: 1 }).objects, 'o');
-  assert.deepEqual(spun.keys.map((k) => [k.t, k.rot, k.ease]), [[6, [10, 1100, 30], 'linear']]);
+  assert.deepEqual(spun.keys.map((k) => [k.t, k.rot, k.ease]), [[2, [10, 380, 30], 'linear'], [4, [10, 740, 30], 'linear'], [6, [10, 1100, 30], 'linear']]);
   assert.equal(spun.spin, true);
   assert.ok(dist(poseAt(spun, 1).rot, [10, 200, 30]) < 1e-9, 'half a turn after a second');
 
@@ -456,7 +456,7 @@ test('moves: every ready-made move gives keys the studio keeps, from where the o
   assert.deepEqual(done.objects.map((x) => x.id), [done.group, 'o']);
   assert.equal(group.name, 'Ring orbit');
   assert.deepEqual([group.pos, o.pos, o.parent, group.spin], [[-1, 3, 1], [3, 0, 0], group.id, true]);
-  assert.deepEqual(group.keys.map((k) => [k.t, k.rot]), [[4, [0, 720, 0]]]);
+  assert.deepEqual(group.keys.map((k) => [k.t, k.rot]), [[2, [0, 360, 0]], [4, [0, 720, 0]]]);
   assert.ok(spanOf(o).end >= 4 - 1e-9, 'it lasts until the last round is over');
   same(picture(fresh()), picture(done.objects), 'the picture at the start stays');
   const middleAt = (t) => {
@@ -492,7 +492,8 @@ test('moves: a move starts at the time marker and knows what fits', () => {
   assert.equal(mostTimes(ring, MOVE_BY_ID.flap, 3), 4, 'three keys are kept');
   assert.equal(mostTimes(ring, MOVE_BY_ID.flap, 2.5), 4, 'two keys are kept and one holds the place');
   assert.equal(mostTimes(ring, MOVE_BY_ID.shake, 0), 5);
-  assert.equal(mostTimes(ring, MOVE_BY_ID.spin, 3), 50);
+  assert.equal(mostTimes(ring, MOVE_BY_ID.spin, 3), 9);
+  assert.equal(mostTimes(ring, MOVE_BY_ID.orbit, 3), 10);
   assert.equal(mostTimes(ring, MOVE_BY_ID.rise, 3), 1);
   const was = fresh();
   const no = applyMove(was, 'o', 'flap', { times: 6 }, 3);
@@ -502,7 +503,7 @@ test('moves: a move starts at the time marker and knows what fits', () => {
   const [full] = scene(createObject('circle', { id: 'f', keys: Array.from({ length: 12 }, (_, i) => key(0.5 + i * 0.5, { pos: [i, 0, 0] })) }));
   assert.equal(mostTimes(full, MOVE_BY_ID.spin, 6), 0);
   assert.match(applyMove([full], 'f', 'spin', {}, 6).message, /no keys left/);
-  assert.equal(mostTimes(full, MOVE_BY_ID.spin, 0), 50, 'from the start all its keys are replaced');
+  assert.equal(mostTimes(full, MOVE_BY_ID.spin, 0), 12, 'from the start all its keys are replaced');
 
   // settings out of range are brought back, nonsense gets the usual value
   o = byId(applyMove(fresh(), 'o', 'pulse', { seconds: 0.01, times: 99, amount: 'x' }).objects, 'o');
