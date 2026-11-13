@@ -148,6 +148,8 @@ input[type="color"] {
 .row .pair { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 6px; align-items: center; }
 .row .xyz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .row .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.row .seconds { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: center; }
+.row .seconds .note { margin: 0; }
 .axis { position: relative; }
 .axis::before { content: attr(data-axis); position: absolute; left: 6px; top: 50%; transform: translateY(-50%); font-size: 11px; font-weight: 700; pointer-events: none; }
 .axis[data-axis="X"]::before { color: #ff7b7b; }
@@ -201,15 +203,74 @@ dialog::backdrop { background: #000a; }
 .steps li { margin: 2px 0; }
 .steps b, .steps code { color: var(--text); }
 
+/* ---------- timeline: one row per object, time runs to the right ---------- */
+.timeline { flex: none; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line); }
+.tl-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex-wrap: wrap; }
+.tl-bar button { padding: 4px 9px; }
+.tl-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+.tl-bar input[type="number"] { width: 74px; color: var(--text); }
+.tl-bar select { color: var(--text); }
+#tl-total { min-width: 44px; }
+.tl-hint { flex: 1; min-width: 120px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-zoom button { width: 30px; padding: 4px 0; }
+.tl-scroll { position: relative; overflow: auto; height: 132px; background: var(--bg); border-top: 1px solid var(--line); }
+.tl-canvas { position: relative; min-height: 100%; --names: 120px; }
+.tl-ruler {
+  position: sticky; top: 0; z-index: 3; height: 22px; background: var(--panel-2); border-bottom: 1px solid var(--line);
+  cursor: ew-resize; touch-action: none; user-select: none;
+}
+.tl-ruler .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); padding-left: 4px; font-size: 11px; line-height: 21px; color: var(--muted); pointer-events: none; }
+.tl-ruler .tick.small { top: 14px; }
+.tl-ruler::before, .tl-row .tl-name {
+  position: sticky; left: 0; z-index: 2; width: var(--names); background: var(--panel-2); border-right: 1px solid var(--line);
+}
+.tl-ruler::before { content: "seconds"; display: block; box-sizing: border-box; height: 100%; padding: 0 8px; font-size: 11px; line-height: 21px; color: var(--muted); }
+.tl-row { position: relative; height: 26px; border-bottom: 1px solid #262d40; touch-action: pan-y; user-select: none; }
+.tl-row:hover { background: #1c2233; }
+.tl-row.selected { background: #232d45; }
+.tl-row.hidden { opacity: 0.45; }
+.tl-row .tl-name {
+  display: block; height: 100%; padding: 0 8px; line-height: 25px; font-size: 12px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tl-row.selected .tl-name { background: #2d3d5e; color: #fff; }
+.tl-span {
+  position: absolute; top: 5px; height: 16px; min-width: 4px; border-radius: 4px; cursor: grab;
+  background: #4a5878; border: 1px solid #6b7da6;
+}
+.tl-row.selected .tl-span { background: var(--accent-2); border-color: #9cc4ff; }
+.tl-span.fade-in { -webkit-mask-image: linear-gradient(to right, #0003, #000 20%); mask-image: linear-gradient(to right, #0003, #000 20%); }
+.tl-span.fade-out { -webkit-mask-image: linear-gradient(to right, #000 80%, #0003); mask-image: linear-gradient(to right, #000 80%, #0003); }
+.tl-span.fade-in.fade-out { -webkit-mask-image: linear-gradient(to right, #0003, #000 20%, #000 80%, #0003); mask-image: linear-gradient(to right, #0003, #000 20%, #000 80%, #0003); }
+.tl-end { position: absolute; top: 3px; width: 9px; height: 20px; margin-left: -5px; cursor: ew-resize; z-index: 1; }
+.tl-end::after { content: ""; position: absolute; left: 3px; top: 3px; bottom: 3px; width: 3px; border-radius: 2px; background: #c9d6f2; }
+.tl-key {
+  position: absolute; top: 7px; width: 12px; height: 12px; margin-left: -6px; padding: 0; border-radius: 2px; z-index: 1;
+  transform: rotate(45deg); background: #ffd24a; border: 1px solid #5c4a10; cursor: ew-resize;
+}
+.tl-key.first { background: #c9d6f2; border-color: #46506a; cursor: pointer; }
+.tl-key.on { background: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.tl-key:hover { border-color: #fff; }
+.tl-head { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid #ff6b6b; z-index: 4; pointer-events: none; }
+.tl-head::before {
+  content: ""; position: sticky; top: 0; display: block; width: 12px; height: 12px; margin-left: -7px;
+  background: #ff6b6b; border-radius: 2px 2px 7px 7px;
+}
+
 /* ---------- small screens ---------- */
 @media (max-width: 900px) {
   body { overflow: auto; }
-  .layout { grid-template-columns: 1fr; grid-auto-rows: auto; }
-  .stage { height: 56vh; order: -1; }
-  #left, #inspector { border: 0; border-top: 1px solid var(--line); overflow: visible; }
+  /* one column: the 3D view, the timeline right under it, then the two panels */
+  .layout { display: contents; }
+  .stage { order: 1; flex: none; height: 52vh; height: max(260px, 52dvh); }
+  .timeline { order: 2; }
+  #left { order: 3; }
+  #inspector { order: 4; }
+  #left, #inspector { flex: none; border: 0; border-top: 1px solid var(--line); overflow: visible; }
   .shape-tabs { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
   .shape-grid { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); max-height: 300px; }
   .actions { margin-left: 0; }
+  .tl-scroll { height: 106px; }
   /* full-width panels: keep the pictures and swatches a sensible size */
   .tex-grid { grid-template-columns: repeat(auto-fill, 52px); }
   .swatches { grid-template-columns: repeat(auto-fill, 32px); }

@@ -8,6 +8,12 @@
 //                 from coming out mirrored in the game.
 
 import { shapePoints, SHAPE_BY_ID, defaultParams } from './shapes.js';
+import {
+  LIFE_PER_SECOND, FADE_START, rotationMatrix, MAX_KEYS, MIN_KEY_GAP, MAX_START, isEase,
+  planOf, piecesAt, spanOf, poseAt, restPose, applyMatrix, isPlain,
+} from './motion.js';
+
+export { LIFE_PER_SECOND, FADE_START, rotationMatrix };
 
 /** Every `texture` string of the Bloxd Code API (docs: Particles). */
 export const TEXTURES = [
@@ -36,12 +42,6 @@ export const BLEND_MODES = [
   { id: 4, name: 'Multiply + add' },
 ];
 
-/**
- * The game advances particle time by 0.01 per frame at 60 fps (Babylon's default
- * updateSpeed), so 1 unit of minLifeTime/maxLifeTime lasts about 1/0.6 seconds.
- */
-export const LIFE_PER_SECOND = 0.6;
-
 export const DEFAULTS = {
   shape: 'point',
   count: 1,
@@ -62,6 +62,11 @@ export const DEFAULTS = {
   expand: 0,
   gravity: 0,
   hidden: false,
+  // time (js/motion.js)
+  start: 0, // seconds after the click until it appears
+  fadeIn: false,
+  keys: [], // [{ t, pos, rot, scale, ease }]: where it is `t` seconds after it appeared
+  spin: false, // turn by the angles as written (full turns) instead of the short way round
 };
 
 let idCounter = 0;
@@ -116,7 +121,34 @@ export function sanitizeObject(raw) {
   out.expand = clamp(num(o.expand, 0), -100, 100);
   out.gravity = clamp(num(o.gravity, 0), -500, 500);
   out.hidden = !!o.hidden;
+  out.start = clamp(num(o.start, 0), 0, MAX_START);
+  out.fadeIn = !!o.fadeIn;
+  out.spin = !!o.spin;
+  out.keys = sanitizeKeys(o.keys, out);
   return out;
+}
+
+/** Keys in order of time, far enough apart, with every field present. */
+export function sanitizeKeys(raw, obj) {
+  const list = (Array.isArray(raw) ? raw : [])
+    .filter((k) => k && typeof k === 'object' && Number.isFinite(Number(k.t)) && k.t !== null && k.t !== '')
+    .map((k) => ({
+      t: Math.round(clamp(Number(k.t), 0, 6000) * 1000) / 1000,
+      pos: vec3(k.pos, obj.pos).map((v) => clamp(v, -500, 500)),
+      rot: obj.shape === 'point' ? obj.rot.slice() : vec3(k.rot, obj.rot),
+      scale: obj.shape === 'point' ? obj.scale.slice() : vec3(k.scale, obj.scale).map((v) => clamp(v, -100, 100)),
+      ease: isEase(k.ease) ? k.ease : 'smooth',
+    }))
+    .sort((a, b) => a.t - b.t);
+  const keys = [];
+  let last = 0;
+  for (const k of list) {
+    if (keys.length >= MAX_KEYS) break;
+    if (k.t < last + MIN_KEY_GAP - 1e-9) continue; // too close to the start or to the key before
+    keys.push(k);
+    last = k.t;
+  }
+  return keys;
 }
 
 export function sanitizeScene(raw) {
@@ -133,20 +165,6 @@ export function sanitizeScene(raw) {
 export const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 export const rgbToHex = (rgb) => '#' + rgb.map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
 
-const RAD = Math.PI / 180;
-
-/** 3x3 rotation matrix (row-major), same convention as THREE.Euler order 'XYZ'. */
-export function rotationMatrix(rx, ry, rz) {
-  const a = Math.cos(rx * RAD), b = Math.sin(rx * RAD);
-  const c = Math.cos(ry * RAD), d = Math.sin(ry * RAD);
-  const e = Math.cos(rz * RAD), f = Math.sin(rz * RAD);
-  return [
-    c * e, -c * f, d,
-    a * f + b * e * d, a * e - b * f * d, -b * c,
-    b * f - a * e * d, b * e + a * f * d, a * c,
-  ];
-}
-
 export const toView = (p) => [p[0], p[1], -p[2]];
 export const toBloxd = toView; // the flip is its own inverse
 
@@ -155,11 +173,11 @@ export function localPoints(obj) {
   return shapePoints(obj.shape, obj.count, obj.params);
 }
 
-/** Where each particle of an object spawns, in Bloxd space. */
-export function objectPoints(obj) {
-  const m = rotationMatrix(obj.rot[0], obj.rot[1], obj.rot[2]);
-  const [sx, sy, sz] = obj.scale;
-  const [px, py, pz] = toView(obj.pos);
+/** Where each particle of an object is when the object stands at a pose ({ pos, rot, scale }), in Bloxd space. */
+export function posedPoints(obj, pose) {
+  const m = rotationMatrix(pose.rot[0], pose.rot[1], pose.rot[2]);
+  const [sx, sy, sz] = pose.scale;
+  const [px, py, pz] = toView(pose.pos);
   return localPoints(obj).map(([lx, ly, lz]) => {
     const x = lx * sx, y = ly * sy, z = lz * sz;
     return toBloxd([
@@ -169,6 +187,9 @@ export function objectPoints(obj) {
     ]);
   });
 }
+
+/** Where each particle of an object spawns, in Bloxd space. */
+export const objectPoints = (obj) => posedPoints(obj, obj);
 
 export const isMoving = (obj) => obj.move.some((v) => v !== 0) || obj.spread > 0 || obj.expand !== 0;
 
@@ -190,55 +211,87 @@ const hashString = (str) => {
   return h >>> 0;
 };
 
+/** How visible an object is drawn while it is not there (see `ghosts` below). */
+export const GHOST = 0.3;
+
 /**
- * The particles to draw. time === null gives the still "editing" picture;
- * a number plays the effect `time` real seconds after the code block was clicked.
- * Returns [{ id, index, pos (Bloxd), size, rgb, alpha, texture, blend }].
+ * The particles to draw.
+ *   time === null : the still picture, every object at its first place
+ *   a number      : what the game shows `time` real seconds after the click
+ * options.ghosts (with a number): for editing. An object that is not there at
+ * that time is drawn see-through where it starts (or where it ended), and no
+ * object is fainter than that, so everything can still be picked.
+ * Returns [{ id, index, pos (Bloxd), size, rgb, alpha, texture, blend, ghost? }].
  */
-export function computeParticles(objects, time = null) {
+export function computeParticles(objects, time = null, options = {}) {
   const out = [];
   for (const obj of objects) {
     if (obj.hidden) continue;
-    const points = objectPoints(obj);
+    let shown = null; // the pieces of its plan that are seen now
+    let pose = null; // or: the place it simply stands at
+    let ghost = false;
+    if (time === null) pose = obj;
+    else {
+      const plan = planOf(obj);
+      const age = time * LIFE_PER_SECOND;
+      shown = piecesAt(plan, age);
+      if (!shown.length) {
+        if (!options.ghosts) continue;
+        pose = restPose(obj, age >= plan.a1);
+        ghost = true;
+      }
+    }
+    const local = localPoints(obj);
+    const fixed = pose ? posedPoints(obj, pose) : null;
     const rnd = seeded(hashString(obj.id));
     const c1 = hexToRgb(obj.color);
     const c2 = obj.color2 ? hexToRgb(obj.color2) : c1;
-    const age = time === null ? 0 : time * LIFE_PER_SECOND;
-    for (let i = 0; i < points.length; i++) {
+    // Blend mode 0 ignores alpha in the game. An object with timing is hidden
+    // there by darkening its colour instead (black adds nothing).
+    const darken = obj.blend === 0 && (ghost || !isPlain(obj));
+    for (let i = 0; i < local.length; i++) {
       const mix = rnd(), sizeMix = rnd(), jx = rnd(), jy = rnd(), jz = rnd();
-      if (age >= obj.life) continue;
-      const p = points[i];
-      const pos = p.slice();
-      if (age > 0) {
-        const jitter = [jx, jy, jz];
-        for (let k = 0; k < 3; k++) {
-          const v = obj.move[k] + (jitter[k] * 2 - 1) * obj.spread + (p[k] - obj.pos[k]) * obj.expand;
-          pos[k] += v * age;
-        }
-        pos[1] += 0.5 * obj.gravity * age * age;
+      const size = obj.size2 === null ? obj.size : obj.size + (obj.size2 - obj.size) * sizeMix;
+      const rgb = c1.map((v, k) => v + (c2[k] - v) * mix);
+      const add = (pos, visible) => {
+        const alpha = options.ghosts && time !== null ? Math.max(visible, GHOST) : visible;
+        const item = {
+          id: obj.id, index: i, pos, size, rgb: darken ? rgb.map((v) => v * alpha) : rgb, alpha,
+          texture: obj.texture, blend: obj.blend,
+        };
+        if (ghost) item.ghost = true;
+        out.push(item);
+      };
+      if (fixed) {
+        add(fixed[i], ghost ? GHOST : 1);
+        continue;
       }
-      const fraction = age / obj.life;
-      out.push({
-        id: obj.id,
-        index: i,
-        pos,
-        size: obj.size2 === null ? obj.size : obj.size + (obj.size2 - obj.size) * sizeMix,
-        rgb: c1.map((v, k) => v + (c2[k] - v) * mix),
-        alpha: obj.fade && fraction > FADE_START ? 1 - (fraction - FADE_START) / (1 - FADE_START) : 1,
-        texture: obj.texture,
-        blend: obj.blend,
-      });
+      for (const { piece, u, w, visible } of shown) {
+        const pos = applyMatrix(piece.P, local[i]);
+        if (piece.V && u !== 0) {
+          const dir = applyMatrix(piece.V, local[i]);
+          const jitter = [jx, jy, jz];
+          for (let k = 0; k < 3; k++) pos[k] += (dir[k] + (jitter[k] * 2 - 1) * piece.spread) * u;
+        }
+        if (piece.g && w !== 0) for (let k = 0; k < 3; k++) pos[k] += piece.g[k] * w;
+        add(pos, visible);
+      }
     }
   }
   return out;
 }
 
-/** Fade-out starts at this fraction of the lifetime. */
-export const FADE_START = 0.8;
-
 /** How long the whole scene stays on screen, in real seconds. */
 export function sceneDuration(objects) {
-  let life = 0;
-  for (const o of objects) if (!o.hidden) life = Math.max(life, o.life);
-  return life / LIFE_PER_SECOND;
+  let end = 0;
+  for (const o of objects) if (!o.hidden) end = Math.max(end, spanOf(o).end);
+  return end;
+}
+
+/** Where an object is at a time on the timeline, as { pos, rot, scale }. */
+export function poseAtTime(obj, time) {
+  const { start, end } = spanOf(obj);
+  if (time <= start) return restPose(obj, false);
+  if (time >= end) return restPose(obj, true);
+  return poseAt(obj, time - start);
 }

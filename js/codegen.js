@@ -5,8 +5,14 @@
 // particle at an exact position (pos1 === pos2, manualEmitCount 1). The game
 // reads every field of the options on the client, so the generated code always
 // sends the complete set of fields from the official example.
+//
+// Objects without timing are written the short way: P(...) with one position
+// per particle. Objects with timing (they appear later, fade in or have keys)
+// are written as T(...): the points of the shape once, and a table of "pieces"
+// (js/motion.js) that says what the particles of every point do over time.
 
-import { objectPoints, hexToRgb, isMoving, LIFE_PER_SECOND, FADE_START } from './scene.js';
+import { objectPoints, localPoints, hexToRgb, isMoving, sceneDuration, FADE_START } from './scene.js';
+import { planOf, isPlain } from './motion.js';
 
 /** Limits of the in-game editor. */
 export const LIMITS = { chars: 16000, lines: 500, width: 80 };
@@ -91,7 +97,7 @@ function buildGroups(objects, opts) {
   const groups = [];
   const byKey = new Map();
   for (const obj of objects) {
-    if (obj.hidden) continue;
+    if (obj.hidden || !isPlain(obj)) continue;
     const style = styleOf(obj, opts.hideDist);
     const key = styleKey(style);
     let group = byKey.get(key);
@@ -142,7 +148,7 @@ function overridesOf(group, base) {
   return o;
 }
 
-function preludeLines({ base, precision, width, useExpand, useMixFade, anchor }) {
+function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, plain, timed }) {
   const q = precision;
   const entries = Object.keys(base).map((k) => `${k}: ${lit(base[k])},`);
   const lines = [
@@ -153,8 +159,10 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor })
     '}',
     'const G = (t, a, b, o) =>',
     '  ({ timeFraction: t, minColor: a.concat(o), maxColor: b.concat(o) })',
-    `const P = (texture, a, b, f, o, d${useExpand ? ', e' : ''}) => {`,
   ];
+  if (timed) lines.push(...timedHelperLines(timed));
+  if (!plain) return lines;
+  lines.push(`const P = (texture, a, b, f, o, d${useExpand ? ', e' : ''}) => {`);
   const position = `    const p = [X + d[i] / ${q}, Y + d[i + 1] / ${q}, Z + d[i + 2] / ${q}]`;
   if (useMixFade) {
     // The game picks a new random colour at every step of a gradient, so a
@@ -191,6 +199,153 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor })
   lines.push('    api.playParticleEffect(Object.assign({}, B, o, q))', '  }', '}');
   return lines;
 }
+
+// ---------------------------------------------------------------- objects with timing
+
+/**
+ * The helper for objects with timing.
+ *   T(texture, colour, second colour, options, q, points, pieces, darken)
+ * points : x, y, z of every point of the shape, times q
+ * pieces : [lifetime, place, direction, visibility, speed, scatter, gravity]
+ *          place and direction are 3x4 matrices (row by row) that turn a point
+ *          of the shape into a position and a velocity; visibility and speed
+ *          are lists of [fraction of the lifetime, value].
+ * Every point gets one game particle per piece. All of them are made at once;
+ * each stays unseen until its time has come.
+ */
+function timedHelperLines({ mix, sizes, darken }) {
+  const c = mix ? 'c' : 'a';
+  const lines = [
+    `const T = (texture, a, b, o, q, d, s${darken ? ', h' : ''}) => {`,
+    '  for (let i = 0; i < d.length; i += 3) {',
+  ];
+  // one colour and one size per point: all its pieces have to look the same
+  if (mix) lines.push('    const k = Math.random()', '    const c = a.map((v, j) => Math.round(v + (b[j] - v) * k))');
+  if (sizes) lines.push('    const z = o.minSize + (o.maxSize - o.minSize) * Math.random()');
+  if (darken) {
+    // blend mode 0 ignores alpha: there a particle is hidden by turning it black
+    lines.push(
+      '    const C = (t, x) => {',
+      `      const e = h ? ${c}.map((y) => Math.round(y * x)) : ${c}`,
+      '      return G(t, e, e, h ? 1 : x)',
+      '    }',
+    );
+  }
+  lines.push(
+    '    for (const [n, m, v, w, f, r, g] of s) {',
+    '      const at = (e) => [0, 4, 8].map((j) => e[j + 3] + (e[j] * d[i]',
+    '        + e[j + 1] * d[i + 1] + e[j + 2] * d[i + 2]) / q)',
+    '      const p = at(m).map((x, j) => x + [X, Y, Z][j])',
+    '      const u = v ? at(v) : [0, 1, 0]',
+    '      api.playParticleEffect(Object.assign({}, B, o, {',
+    `        texture, pos1: p, pos2: p,${sizes ? ' minSize: z, maxSize: z,' : ''}`,
+    '        dir1: u.map((x) => x - (r || 0)),',
+    '        dir2: u.map((x) => x + (r || 0)),',
+    '        minEmitPower: v ? 1 : 0, maxEmitPower: v ? 1 : 0,',
+    '        minLifeTime: n, maxLifeTime: n, gravity: [0, g || 0, 0],',
+    darken ? '        colorGradients: w.map(([t, x]) => C(t, x)),'
+      : `        colorGradients: w.map(([t, x]) => G(t, ${c}, ${c}, x)),`,
+    '        velocityGradients: (f || [[0, 1]]).map(([t, x]) =>',
+    '          ({ timeFraction: t, factor: x, factor2: x })),',
+    '      }))',
+    '    }',
+    '  }',
+    '}',
+  );
+  return lines;
+}
+
+/** A number as short as JavaScript allows: 0.5 is written .5 */
+const short = (v, digits) => {
+  const text = String(Number(Number(v).toFixed(digits)) + 0);
+  return text.replace(/^(-?)0\./, '$1.');
+};
+
+/** Nested arrays of ready-made number strings as tokens that can be packed into lines. */
+function tokensOf(v) {
+  if (!Array.isArray(v)) return [String(v)];
+  if (!v.length) return ['[]'];
+  const out = [];
+  v.forEach((child, i) => {
+    const t = tokensOf(child);
+    if (i < v.length - 1) t[t.length - 1] += ',';
+    out.push(...t);
+  });
+  out[0] = `[${out[0]}`;
+  out[out.length - 1] += ']';
+  return out;
+}
+
+/** Ages are written with four decimals, here and as lifetimes, so that pieces agree on them. */
+const ageOf = (age) => Number(age.toFixed(4));
+
+/**
+ * [age, value] stops as [fraction of the lifetime, value]. Fractions are cut
+ * off, never rounded up: a piece must be switched on no later than the piece
+ * before it dies. They stay strictly rising.
+ */
+function stopsOf(curve, life, digits) {
+  const out = curve.map(([age, value]) => [
+    Math.min(1, Math.floor((ageOf(age) / life) * 1e6 + 1e-6) / 1e6),
+    Number(Number(value).toFixed(digits)) + 0,
+  ]);
+  for (let i = out.length - 2; i >= 0; i--) {
+    if (out[i][0] >= out[i + 1][0]) out[i][0] = Math.max(0, Math.round(out[i + 1][0] * 1e6 - 1) / 1e6);
+  }
+  // (two stops at 0 can only come from a change in the very first moment: the later one counts)
+  while (out.length > 1 && out[1][0] <= 0) out.shift();
+  return out.map(([t, x]) => [short(t, 6), short(x, digits)]);
+}
+
+/** Everything the code needs to know about one object with timing. */
+function timedOf(obj, opts) {
+  const plan = planOf(obj);
+  const n = (v) => Number(fmt(v));
+  const size2 = obj.size2 === null ? obj.size : obj.size2;
+  const o = { minSize: n(Math.min(obj.size, size2)), maxSize: n(Math.max(obj.size, size2)), blendMode: obj.blend };
+  if (opts.hideDist) o.hideDist = opts.hideDist;
+  // points are stored as whole numbers: fine enough for the biggest the shape gets
+  const reach = Math.max(1, ...[obj, ...obj.keys].flatMap((k) => k.scale.map(Math.abs)));
+  const q = Math.ceil(opts.precision * reach);
+  const c1 = hexToRgb(obj.color);
+  const pieces = plan.pieces.map((piece) => {
+    const life = ageOf(piece.end);
+    const matrix = (m) => m.map((v, i) => short(v, i % 4 === 3 ? 3 : 4));
+    const tuple = [short(life, 4), matrix(piece.P)];
+    if (piece.V) {
+      const v = piece.V.slice();
+      if (piece.g) v[7] -= piece.g[1] * piece.ref; // the pull starts when the particle is made, not when it sets off
+      tuple.push(matrix(v), stopsOf(piece.visible, life, 3), stopsOf(piece.speed, life, 4));
+      if (piece.spread || piece.g) tuple.push(short(piece.spread, 3));
+      if (piece.g) tuple.push(short(piece.g[1], 3));
+    } else tuple.push('0', stopsOf(piece.visible, life, 3));
+    return tuple;
+  });
+  // Latest piece first. Should the game ever make the particles of one click
+  // over several frames, a piece then shows up a frame early (unnoticed, it is
+  // in the same place as the one before it) instead of a frame late (a blink).
+  pieces.reverse();
+  return {
+    texture: obj.texture, c1, c2: obj.color2 ? hexToRgb(obj.color2) : c1, o, q, darken: obj.blend === 0,
+    points: localPoints(obj).flatMap((l) => l.map((v) => Math.round(v * q) + 0)),
+    pieces,
+  };
+}
+
+/** Lines of one T(...) call for some of the points and some of the pieces of an object. */
+function timedCallLines(t, points, table, width) {
+  const head = [`T(${lit(t.texture)},`, `${lit(t.c1)},`, `${lit(t.c2)},`, `${lit(t.o)},`, `${t.q}, [`];
+  const lines = pack(head, width - 2).map((l, i) => (i ? '  ' : '') + l);
+  lines.push(...pack(points.map((v) => `${v},`), width, '', ''));
+  lines.push('], [', ...table, t.darken ? '], 1)' : '])');
+  return lines;
+}
+
+const tableLines = (pieces, width) => pack(pieces.flatMap((piece) => {
+  const tokens = tokensOf(piece);
+  tokens[tokens.length - 1] += ',';
+  return tokens;
+}), width, '', '');
 
 /** Lines of one P(...) call. `data` is a slice of the group's numbers. */
 function callLines(group, base, data, width) {
@@ -232,12 +387,54 @@ export function generateCode(objects, options = {}) {
   opts.hideDist = Number(opts.hideDist) > 0 ? Number(fmt(opts.hideDist)) : 0;
   const world = opts.target === 'world';
   const groups = buildGroups(objects, opts);
-  const particles = groups.reduce((n, g) => n + g.data.length / 3, 0);
+  const timed = objects.filter((o) => !o.hidden && !isPlain(o)).map((o) => timedOf(o, opts));
   const base = buildBase(groups);
   const useExpand = groups.some((g) => g.style.expand);
   const useMixFade = groups.some((g) => g.style.fade && String(g.style.c1) !== String(g.style.c2));
-  const life = objects.reduce((m, o) => (o.hidden ? m : Math.max(m, o.life)), 0);
-  const seconds = life / LIFE_PER_SECOND;
+  const helpers = {
+    plain: groups.length > 0 || !timed.length,
+    timed: timed.length ? {
+      mix: timed.some((t) => String(t.c1) !== String(t.c2)),
+      sizes: timed.some((t) => t.o.minSize !== t.o.maxSize),
+      darken: timed.some((t) => t.darken),
+    } : null,
+  };
+  const seconds = sceneDuration(objects);
+  // World Code has no line limit and is never split.
+  const budgetChars = world ? Infinity : opts.maxChars;
+  const budgetLines = world ? Infinity : opts.maxLines;
+
+  // What goes into the code, as "units" that can be cut between two particles
+  // (or, with timing, between two points of the shape).
+  const units = groups.map((g) => ({
+    atoms: g.data.length / 3,
+    per: 1,
+    lines: (from, take) => callLines(g, base, g.data.slice(from * 3, (from + take) * 3), opts.width),
+  }));
+  for (const t of timed) {
+    // A table of pieces that would fill most of a code block on its own is
+    // cut into runs; every run comes with the points again.
+    const runs = [];
+    let run = [];
+    for (const piece of t.pieces) {
+      const lines = tableLines([...run, piece], opts.width);
+      if (run.length && (sizeOf(lines) > budgetChars * 0.45 || lines.length > budgetLines * 0.45)) {
+        runs.push(run);
+        run = [];
+      }
+      run.push(piece);
+    }
+    runs.push(run);
+    for (const pieces of runs) {
+      const table = tableLines(pieces, opts.width);
+      units.push({
+        atoms: t.points.length / 3,
+        per: pieces.length,
+        lines: (from, take) => timedCallLines(t, t.points.slice(from * 3, (from + take) * 3), table, opts.width),
+      });
+    }
+  }
+  const particles = units.reduce((n, u) => n + u.atoms * u.per, 0);
   const footer = world
     ? ['}', 'let psWait = 0', 'tick = (ms) => {', '  psWait -= ms', '  if (psWait > 0) return',
       '  psWait = PS_EVERY', '  psDraw()', '}', '}']
@@ -270,15 +467,14 @@ export function generateCode(objects, options = {}) {
     const anchor = world ? 'const [X, Y, Z] = PS_POS'
       : index ? `const [X, Y, Z] = [thisPos[0], thisPos[1] - ${index}, thisPos[2]]`
         : 'const [X, Y, Z] = thisPos';
-    lines.push(...preludeLines({ base, precision: opts.precision, width: opts.width, useExpand, useMixFade, anchor }));
+    lines.push(...preludeLines({
+      base, precision: opts.precision, width: opts.width, useExpand, useMixFade, anchor, ...helpers,
+    }));
     if (world) lines.push('const psDraw = () => {');
     return lines;
   };
 
-  // Fill parts greedily; a group that does not fit continues in the next part.
-  // World Code has no line limit and is never split.
-  const budgetChars = world ? Infinity : opts.maxChars;
-  const budgetLines = world ? Infinity : opts.maxLines;
+  // Fill parts greedily; a unit that does not fit continues in the next part.
   const build = (total) => {
     const parts = [];
     let lines = makePrelude(0, total);
@@ -289,15 +485,15 @@ export function generateCode(objects, options = {}) {
       lines = makePrelude(parts.length, total);
       count = 0;
     };
-    for (const group of groups) {
-      let rest = group.data;
-      while (rest.length) {
+    for (const unit of units) {
+      let from = 0;
+      while (from < unit.atoms) {
         const fits = (take) => {
-          const extra = callLines(group, base, rest.slice(0, take * 3), opts.width);
+          const extra = unit.lines(from, take);
           return sizeOf(lines) + sizeOf(extra) + sizeOf(footer) <= budgetChars
             && lines.length + extra.length + footer.length <= budgetLines;
         };
-        const all = rest.length / 3;
+        const all = unit.atoms - from;
         let take = all;
         if (!fits(all)) {
           // largest number of particles that still fits (binary search)
@@ -312,10 +508,10 @@ export function generateCode(objects, options = {}) {
           if (count === 0) take = 1; // limits too small to be useful: emit anyway
           else { flush(); continue; }
         }
-        lines.push(...callLines(group, base, rest.slice(0, take * 3), opts.width));
-        count += take;
-        rest = rest.slice(take * 3);
-        if (rest.length) flush();
+        lines.push(...unit.lines(from, take));
+        count += take * unit.per;
+        from += take;
+        if (from < unit.atoms) flush();
       }
     }
     if (count || !parts.length) flush();
@@ -329,5 +525,5 @@ export function generateCode(objects, options = {}) {
     total = parts.length;
     parts = build(total);
   }
-  return { parts, particles, groups: groups.length, seconds };
+  return { parts, particles, groups: groups.length + timed.length, seconds };
 }
