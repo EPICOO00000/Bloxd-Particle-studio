@@ -13,9 +13,11 @@ import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, HIDDEN_TEXELS, createObject, sanitizeScene, objectPoints, rotationMatrix,
   computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex, localPoints, posedPoints, poseAtTime, GHOST,
+  createGroup, isGroup, sceneTree, stillPoints, MAX_DEPTH,
 } from '../js/scene.js';
 import {
-  planOf, piecesOf, poseAt, keyAt, markAt, spanOf, isPlain, EASES, MAX_KEYS, MIN_KEY_GAP, MAX_START, SWITCH,
+  planOf, piecesOf, poseAt, keyAt, markAt, spanOf, staySeconds, isPlain, EASES, MAX_KEYS, MIN_KEY_GAP, MAX_START, SWITCH,
+  MAX_REPEAT, MIN_EVERY, lookAt, viewMatrix, poseOfView,
 } from '../js/motion.js';
 import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
 import { createParticle, frameAge } from './babylon-sim.mjs';
@@ -1076,6 +1078,643 @@ test('time: the preview shows what the exported code does', () => {
   assert.ok(near(after[0].pos[0] - before[0].pos[0], 4.5), 'after it is gone: at its last key');
   const during = computeParticles([obj], 2.5, { ghosts: true });
   assert.ok(during.every((p) => !p.ghost && p.alpha === 1));
+});
+
+// ---------------------------------------------------------------- groups, repeats, colours and sizes at keys
+
+const scene = (...objects) => sanitizeScene({ objects }).objects;
+const groupAt = (o = {}) => createGroup({ id: 'g', name: 'Group', pos: [0.5, 4, 0.5], ...o });
+const gkey = (t, o = {}) => ({ t, pos: [0.5, 4, 0.5], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth', ...o });
+const inGroup = (o = {}) => createObject(o.shape || 'circle', { id: 'ring', name: 'Ring', count: 8, pos: [3, 0, 0], life: 3, parent: 'g', ...o });
+const ckey = (t, o = {}) => ({ t, pos: [3, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth', ...o });
+
+/**
+ * Where point `l` of an object is at a time, worked out by three.js with a
+ * hierarchy of its own (and Z flipped at the end): the yardstick for groups.
+ * lineage: one play of the object, from sceneTree().playsOf().
+ */
+function byThree(leaf, lineage, time, l) {
+  const chain = [...lineage.ancestors].reverse().concat([{ node: leaf, start: lineage.start }]);
+  const top = new THREE.Object3D();
+  let parent = top;
+  for (const { node, start } of chain) {
+    const pose = poseAt(node, time - start);
+    const o = new THREE.Object3D();
+    o.position.set(pose.pos[0], pose.pos[1], -pose.pos[2]);
+    o.rotation.set(...pose.rot.map((v) => (v * Math.PI) / 180), 'XYZ');
+    o.scale.set(...pose.scale);
+    parent.add(o);
+    parent = o;
+  }
+  top.updateMatrixWorld(true);
+  const v = new THREE.Vector3(...l).applyMatrix4(parent.matrixWorld);
+  return [v.x, v.y, -v.z];
+}
+
+/**
+ * Export a scene, play the code in the stand-in for the game's engine and
+ * compare every object with timing, frame by frame, with where three.js says
+ * it is. Returns one record per such object.
+ */
+function playScene(objects, { fps = 60, options = {} } = {}) {
+  const tree = sceneTree(objects);
+  const { result, calls } = runExport(objects, options);
+  const timedLeaves = tree.leaves().filter((o) => !tree.plain(o));
+  const piecesIn = (leaf) => tree.playsOf(leaf).reduce((n, lineage) => n + planOf(leaf, lineage).pieces.length, 0);
+  // (what follows counts on every object being one T(...) in the code: point after point, each with all its pieces)
+  assert.equal(result.parts.reduce((n, part) => n + (part.code.match(/^T\(/gm) || []).length, 0), timedLeaves.length);
+  // objects without timing come first in the code, then the others in the order of the list
+  let at = calls.length - timedLeaves.reduce((n, leaf) => n + localPoints(leaf).length * piecesIn(leaf), 0);
+  const h = frameAge(fps);
+  return timedLeaves.map((leaf) => {
+    const plays = tree.playsOf(leaf);
+    const plans = plays.map((lineage) => planOf(leaf, lineage));
+    // the code lists the pieces of all plays the other way round
+    const order = plans.flatMap((plan, n) => plan.pieces.map((piece) => ({ piece, n }))).reverse();
+    const K = order.length;
+    const points = localPoints(leaf);
+    const mine = calls.slice(at, at + points.length * K);
+    at += points.length * K;
+    const flies = leaf.move.some((v) => v) || leaf.spread > 0 || leaf.expand !== 0 || leaf.gravity !== 0;
+    const flightFrom = leaf.keys.length ? leaf.keys[leaf.keys.length - 1].t : 0;
+    const stat = { name: leaf.name, leaf, plays, plans, calls: mine, pieces: K, off: 0, offAt: 0, fastest: 0, gaps: 0, doubles: 0, early: 0, late: 0, frames: 0 };
+    for (const c of mine) stat.fastest = Math.max(stat.fastest, Math.hypot(...c.dir1) * c.maxEmitPower);
+    const end = Math.max(...plans.map((plan) => plan.a1));
+    points.forEach((l, i) => {
+      const engine = mine.slice(i * K, (i + 1) * K).map((c, k) => ({ c, p: createParticle(c, () => 0.5), n: order[k].n }));
+      for (let f = 1; f * h < end + 0.1; f++) {
+        const age = f * h;
+        let seen = 0;
+        for (const e of engine) {
+          if (!e.p.update(h)) continue;
+          const s = strength(e.p, e.c);
+          seen += s;
+          if (s <= 0.5) continue;
+          const lineage = plays[e.n];
+          const t = Math.min(e.p.age / LIFE_PER_SECOND, lineage.start + staySeconds(leaf) - 1e-6);
+          if (flies && t - lineage.start >= flightFrom - 1e-9) continue; // free flight has a test of its own
+          const d = Math.min(...[-0.002, 0.002].map((dt) => dist(e.p.position, byThree(leaf, lineage, t + dt, l).map((v, j) => v + ORIGIN[j]))));
+          if (d > stat.off) { stat.off = d; stat.offAt = t; }
+        }
+        const inside = plans.filter((plan) => age >= plan.a0 + 1e-6 && age < plan.a1 - 1e-6).length;
+        if (!plans.some((plan) => age >= plan.a0 - SWITCH - 1e-9 && age < plan.a1 + h)) stat[age < plans[0].a0 ? 'early' : 'late'] = Math.max(stat.early, seen);
+        else if (inside && !leaf.fade && !leaf.fadeIn) {
+          stat.frames++;
+          if (seen < inside - 0.001) stat.gaps++;
+          if (seen > inside + 0.001) stat.doubles++;
+        }
+      }
+    });
+    stat.result = result;
+    return stat;
+  });
+}
+
+test('groups: an object in a group that stands still is written where the group puts it', () => {
+  const objects = scene(
+    groupAt({ pos: [2, 3, -4], rot: [20, 35, -50], scale: [2, 1, 0.5] }),
+    createGroup({ id: 'inner', parent: 'g', pos: [1, 0, 2], rot: [0, 90, 10], scale: [1, 1.5, 1] }),
+    inGroup({ parent: 'inner', shape: 'star', count: 20, pos: [0.5, -1, 0.25], rot: [15, 0, 70], scale: [1, 2, 1], move: [1, 2, -0.5], expand: 0.5 }),
+    inGroup({ id: 'dot', shape: 'point', parent: 'g', pos: [1, 1, 1] }),
+  );
+  const tree = sceneTree(objects);
+  const [, , star, dot] = objects;
+  assert.ok(tree.plain(star) && tree.plain(dot), 'no timing anywhere: the short way of writing');
+  const { result, calls } = runExport(objects);
+  assert.ok(!result.parts[0].code.includes('const T ='), 'no helper for timing');
+  assert.equal(result.particles, 21);
+  const play = tree.playsOf(star)[0];
+  const want = localPoints(star).map((l) => byThree(star, play, 0, l));
+  stillPoints(tree, star).forEach((p, i) => assert.ok(dist(p, want[i]) < 1e-9, `point ${i}`));
+  const mine = calls.filter((c) => c.minEmitPower === 1);
+  assert.equal(mine.length, 20);
+  // Move points the way the groups are turned (and is as big as they are); Grow leaves the middle of the shape
+  const centre = byThree(star, play, 0, [0, 0, 0]);
+  const ahead = byThree(star, play, 0, [0, 0, 0]).map((v, j) => byThree({ ...star, pos: star.pos.map((x, k) => x + star.move[k]) }, play, 0, [0, 0, 0])[j] - v);
+  mine.forEach((c, i) => {
+    const p = c.pos1.map((v, j) => v - ORIGIN[j]);
+    assert.ok(dist(p, want[i]) < 0.009, `particle ${i} is ${dist(p, want[i]).toFixed(4)} off`); // (2 decimals in the code)
+    const dir = ahead.map((v, j) => v + (p[j] - centre[j]) * 0.5);
+    assert.ok(dist(c.dir1, dir) < 0.01 && dist(c.dir2, dir) < 0.01, `particle ${i} flies ${c.dir1}, wanted ${dir.map((v) => v.toFixed(3))}`);
+  });
+  const single = calls.find((c) => c.minEmitPower === 0);
+  assert.ok(dist(single.pos1.map((v, j) => v - ORIGIN[j]), byThree(dot, tree.playsOf(dot)[0], 0, [0, 0, 0])) < 0.009);
+  // the still picture and the picture at the click are the same, as without groups
+  const still = computeParticles(objects);
+  const first = computeParticles(objects, 0);
+  assert.equal(still.length, 21);
+  still.forEach((p, i) => assert.ok(dist(p.pos, first[i].pos) < 1e-9 && p.alpha === first[i].alpha));
+  // a hidden group hides what is in it
+  objects[0].hidden = true;
+  assert.equal(computeParticles(objects).length, 0);
+  assert.equal(generateCode(objects).particles, 0);
+});
+
+const GROUP_CASES = {
+  // name: [objects, how far off the true path a point may be (blocks, on top of one frame of travel)]
+  'object with keys in a group that stands still': [() => [groupAt({ rot: [0, 30, 20], scale: [2, 1, 1] }), inGroup({ keys: [ckey(2, { pos: [3, 2, 0], rot: [0, 0, 90] })] })], 0.08],
+  'group slides steadily': [() => [groupAt({ keys: [gkey(3, { pos: [6.5, 4, 0.5], ease: 'linear' })] }), inGroup()], 0.02],
+  'group slides smoothly': [() => [groupAt({ keys: [gkey(3, { pos: [6.5, 4, 0.5] })] }), inGroup()], 0.02],
+  'group turns': [() => [groupAt({ keys: [gkey(3, { rot: [0, 0, 90] })] }), inGroup()], 0.065],
+  'group turns, the object is far out': [() => [groupAt({ keys: [gkey(3, { rot: [0, 0, 90], ease: 'linear' })] }), inGroup({ pos: [20, 0, 0] })], 0.23],
+  'group slides steadily, object turns smoothly': [() => [groupAt({ keys: [gkey(3, { pos: [6.5, 4, 0.5], ease: 'linear' })] }), inGroup({ keys: [ckey(3, { rot: [0, 0, 120] })] })], 0.065],
+  'both have keys at different times': [() => [
+    groupAt({ keys: [gkey(1.5, { pos: [3.5, 4, 0.5], ease: 'out' }), gkey(2.9, { pos: [3.5, 6, 0.5], rot: [0, 90, 0], ease: 'in' })] }),
+    inGroup({ keys: [ckey(1, { pos: [3, 1, 0] }), ckey(2.2, { pos: [1, 1, 0], scale: [2, 2, 2], ease: 'linear' })] }),
+  ], 0.08],
+  'group jumps': [() => [groupAt({ keys: [gkey(1, { pos: [3.5, 4, 0.5], ease: 'jump' }), gkey(2, { pos: [3.5, 7, 0.5], ease: 'linear' })] }), inGroup()], 0.02],
+  'group makes a full turn': [() => [groupAt({ spin: true, keys: [gkey(4, { rot: [0, 360, 0], ease: 'linear' })] }), inGroup({ life: 2.4 })], 0.065],
+  'group appears later, the object later still': [() => [groupAt({ start: 1, keys: [gkey(2, { pos: [4.5, 4, 0.5], rot: [0, 0, 45] })] }), inGroup({ start: 0.5, life: 1.8 })], 0.065],
+  'one particle in a group that turns': [() => [groupAt({ keys: [gkey(2, { rot: [0, 180, 0], ease: 'linear' })] }), inGroup({ shape: 'point', pos: [4, 0, 0], life: 1.8 })], 0.065],
+  'mirrored group turns': [() => [groupAt({ scale: [-1, 1, 1], keys: [gkey(2, { scale: [-1, 1, 1], rot: [0, 0, 60] })] }), inGroup()], 0.065],
+  'a wing in a body that glides': [() => [
+    createGroup({ id: 'body', pos: [0, 30, 70], keys: [{ t: 5, pos: [0, 27.5, 62], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'linear' }] }),
+    createGroup({ id: 'g', parent: 'body', pos: [2.5, 6, 0], rot: [0, 0, -6], keys: [
+      { t: 3.2, pos: [2.5, 6, 0], rot: [0, 0, 10], scale: [1, 1, 1], ease: 'smooth' }, { t: 5, pos: [2.5, 6, 0], rot: [0, 0, -8], scale: [1, 1, 1], ease: 'linear' }] }),
+    inGroup({ shape: 'line', count: 11, pos: [18, 2, -3], scale: [19, 19, 19] }),
+  ], 0.42],
+};
+
+test('groups: objects in groups that move are where the groups put them, at any frame rate', () => {
+  for (const [name, [make, slack]] of Object.entries(GROUP_CASES)) {
+    for (const fps of [60, 30, 20]) {
+      const objects = scene(...make());
+      const stats = playScene(objects, { fps });
+      assert.equal(stats.length, 1, name);
+      const [s] = stats;
+      const label = `${name}, ${fps} fps`;
+      assert.equal(s.early, 0, `${label}: seen before its time`);
+      assert.equal(s.late, 0, `${label}: seen after its time`);
+      assert.ok(s.frames > 0, label);
+      assert.equal(s.gaps, 0, `${label}: a point was not shown in ${s.gaps} frames`);
+      assert.ok(s.doubles <= s.pieces * 12, `${label}: a point was shown twice in ${s.doubles} frames`);
+      const ahead = s.fastest * frameAge(fps);
+      assert.ok(s.off <= slack + ahead * 1.05, `${label}: ${s.off.toFixed(3)} off the path at ${s.offAt.toFixed(2)} s (one frame is ${ahead.toFixed(3)})`);
+      for (const plan of s.plans) assert.equal(plan.rough, '', label);
+    }
+  }
+  // what it costs: steady moves inside steady moves are as cheap as one move
+  const pieces = (name) => playScene(scene(...GROUP_CASES[name][0]()))[0].pieces;
+  assert.equal(pieces('group slides steadily'), 2, 'one stretch, then it rests');
+  assert.equal(pieces('group jumps'), 3);
+  const wing = scene(...GROUP_CASES['a wing in a body that glides'][0]());
+  const mixed = playScene(wing)[0];
+  assert.ok(mixed.plans[0].mixed, 'two paces at once are noticed');
+  wing[1].keys[0].ease = 'linear';
+  const steady = playScene(wing)[0];
+  assert.ok(!steady.plans[0].mixed && steady.pieces < mixed.pieces, `${steady.pieces} pieces when all is steady, ${mixed.pieces} when not`);
+});
+
+/** A random number source that gives the same numbers every time. */
+function dice(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** One to three groups in each other and an object in the innermost, all with keys thrown by the dice. */
+function wildScene(seed) {
+  const r = dice(seed);
+  const pick = (list) => list[Math.floor(r() * list.length)];
+  const num = (lo, hi) => Number((lo + (hi - lo) * r()).toFixed(2));
+  const pose = (far) => {
+    const k = num(0.4, 2.5);
+    return {
+      pos: [num(-far, far), num(-far, far), num(-far, far)],
+      rot: r() < 0.4 ? [0, 0, 0] : [0, 0, 0].map(() => Math.round(num(-180, 180))),
+      scale: r() < 0.6 ? [1, 1, 1] : r() < 0.5 ? [k, k, k] : [num(0.4, 2.5), num(0.4, 2.5), num(0.4, 2.5)],
+    };
+  };
+  const keys = (far) => {
+    const out = [];
+    let t = 0;
+    for (let i = Math.floor(r() * 4); i > 0; i--) {
+      t += num(0.3, 2.2);
+      const to = pose(far);
+      if (r() < 0.35 && out.length) to.rot = out[out.length - 1].rot; // often it only slides
+      out.push({ t: Number(t.toFixed(2)), ...to, ease: pick(EASES).id });
+    }
+    return out;
+  };
+  const objects = [];
+  let parent = null;
+  for (let d = 1 + Math.floor(r() * 3); d > 0; d--) {
+    const id = `g${d}`;
+    objects.push(createGroup({ id, parent, ...pose(6), keys: keys(6), start: r() < 0.3 ? num(0, 1.5) : 0, spin: r() < 0.2 }));
+    parent = id;
+  }
+  objects.push(createObject(pick(['circle', 'line', 'cube', 'point', 'star']), {
+    id: 'leaf', name: `scene ${seed}`, parent, count: 6, ...pose(4), keys: keys(4), life: num(0.6, 3.6), start: r() < 0.3 ? num(0, 1.5) : 0, spin: r() < 0.2,
+  }));
+  return scene(...objects);
+}
+
+test('groups: whatever the groups and the keys, every point is shown, and on its path', () => {
+  let pieces = 0;
+  let split = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const objects = wildScene(seed);
+    const tree = sceneTree(objects);
+    const leaf = objects[objects.length - 1];
+    const [play] = tree.playsOf(leaf);
+    const plan = planOf(leaf, play);
+    const points = localPoints(leaf);
+    const { result, calls } = runExport(objects);
+    assert.equal(calls.length, points.length * plan.pieces.length, `scene ${seed}`);
+    pieces += plan.pieces.length;
+    if ((result.parts[0].code.match(/^T\(/gm) || []).length > 1 || result.parts.length > 1) split++;
+    for (const fps of seed % 2 ? [60] : [20]) {
+      const h = frameAge(fps);
+      // (an object with many pieces is written as several T(...), so the order of the particles says nothing here:
+      //  as many must be seen as the shape has points, and each of them at one of the places the points should be)
+      const engine = calls.map((c) => ({ c, p: createParticle(c, () => 0.5), alive: true, step: Math.hypot(...c.dir1) * c.maxEmitPower * h }));
+      for (let f = 1; f * h < plan.a1 + 0.05; f++) {
+        const age = f * h;
+        let seen = 0;
+        const shown = [];
+        for (const e of engine) {
+          e.alive = e.alive && e.p.update(h);
+          if (!e.alive) continue;
+          seen += e.p.color[3];
+          if (e.p.color[3] > 0.5) shown.push(e);
+        }
+        const label = `scene ${seed}, ${fps} fps, ${(age / LIFE_PER_SECOND).toFixed(2)} s`;
+        if (age < plan.a0 - SWITCH || age >= plan.a1 + h) { assert.equal(seen, 0, `${label}: seen outside its time`); continue; }
+        if (age > plan.a0 + 1e-6 && age < plan.a1 - 1e-6) assert.ok(seen > points.length - 0.001, `${label}: ${seen.toFixed(2)} of ${points.length} points are shown`);
+        const t = Math.min(age / LIFE_PER_SECOND, play.start + staySeconds(leaf) - 1e-6);
+        const places = [-0.002, 0.002].flatMap((dt) => points.map((l) => byThree(leaf, play, t + dt, l).map((v, j) => v + ORIGIN[j])));
+        // A path of straight stretches may leave the true one by 0.05 blocks, or by 1% of how far the shape
+        // reaches from the middle of what turns it: the object itself or one of its groups.
+        const middles = [{ node: leaf, start: play.start }, ...play.ancestors].map(({ node, start }, k) => (
+          byThree(node, { start, ancestors: play.ancestors.slice(k) }, t, [0, 0, 0]).map((v, j) => v + ORIGIN[j])));
+        const reach = Math.max(...middles.map((m) => Math.max(...places.map((place) => dist(place, m)))));
+        for (const e of shown) {
+          const off = Math.min(...places.map((want) => dist(want, e.p.position)));
+          const slack = 0.015 + Math.max(0.05, 0.0105 * reach) + e.step * 1.05 + (plan.rough ? 1.5 : 0);
+          assert.ok(off <= slack, `${label}: ${off.toFixed(3)} off its path (one frame is ${e.step.toFixed(3)}, it reaches ${reach.toFixed(1)})`);
+        }
+      }
+    }
+  }
+  assert.ok(split >= 1, 'one scene at least takes more than one statement');
+  assert.ok(pieces / 40 < 20, `${(pieces / 40).toFixed(1)} particles for a point on average`);
+});
+
+test('groups: what flies free is let go where its group is, the way the group points', () => {
+  // a group that turns half round in 3 seconds lets a small ring go every half second
+  const objects = scene(
+    groupAt({ keys: [gkey(3, { rot: [0, 0, 180], ease: 'linear' })] }),
+    inGroup({ scale: [0.3, 0.3, 0.3], move: [2, 0, 0], life: 0.6, repeat: 5, every: 0.5 }),
+  );
+  const [s] = playScene(objects);
+  assert.equal(s.plays.length, 5);
+  assert.equal(s.pieces, 5, 'one piece for each play');
+  const points = localPoints(s.leaf);
+  const h = frameAge(60);
+  points.forEach((l, i) => {
+    s.calls.slice(i * 5, (i + 1) * 5).reverse().forEach((c, n) => {
+      const lineage = s.plays[n];
+      const turned = (30 * n * Math.PI) / 180; // how far the group has turned when this play starts
+      const from = byThree(s.leaf, lineage, lineage.start, l).map((v, j) => v + ORIGIN[j]);
+      const way = [2 * Math.cos(turned), 2 * Math.sin(turned), 0];
+      const p = createParticle(c, () => 0.5);
+      let checked = 0;
+      for (let f = 1; p.update(h); f++) {
+        const flown = Math.max(0, p.age - lineage.start * LIFE_PER_SECOND);
+        if (p.color[3] < 0.5) { assert.ok(flown <= h + 1e-9, 'unseen only before it is let go'); continue; }
+        const want = from.map((v, j) => v + way[j] * flown);
+        assert.ok(dist(p.position, want) < 0.012 + 2 * h, `play ${n}, point ${i}: ${dist(p.position, want).toFixed(3)} off after ${flown.toFixed(2)}`);
+        checked++;
+      }
+      assert.ok(checked > 50);
+    });
+  });
+  // the preview shows the same
+  const shown = computeParticles(objects, 1.25); // plays 2 and 3 are in the air (started at 1 and 0.5... and 1)
+  assert.equal(shown.length, 2 * points.length);
+});
+
+test('groups: loading keeps groups and repairs what is broken', () => {
+  const raw = {
+    objects: [
+      { id: 'a', shape: 'group', parent: 'b', name: 'A', pos: [1, 2, 3], rot: [0, 90, 0], open: false, repeat: 99, every: 0, texture: 'heart',
+        keys: [{ t: 1, pos: [0, 0, 0], rot: [0, 45, 0], scale: [2, 2, 2], color: '#ff0000', size: 3 }] },
+      { id: 'b', shape: 'group', parent: 'a' },
+      { id: 'c', shape: 'circle', parent: 'nope', repeat: 2.6, every: 0.01,
+        keys: [{ t: 1, color: '#FF0000', color2: 'bad', size: 99, size2: 0.5 }, { t: 2, size: 'x', color2: '#00ff00' }] },
+      { id: 'd', shape: 'circle', parent: 'c' },
+      { id: 'e', shape: 'circle', parent: 'e' },
+      { id: 'f', shape: 'point', parent: 'b', keys: [{ t: 1, pos: [1, 1, 1], color: '#123456' }] },
+    ],
+  };
+  const { objects } = sanitizeScene(raw);
+  const [a, b, c, d, e, f] = objects;
+  assert.ok(isGroup(a) && isGroup(b));
+  assert.deepEqual(Object.keys(a).sort(), ['every', 'hidden', 'id', 'keys', 'name', 'open', 'parent', 'pos', 'repeat', 'rot', 'scale', 'shape', 'spin', 'start'].sort());
+  assert.deepEqual([a.name, a.pos, a.rot, a.open, a.repeat, a.every], ['A', [1, 2, 3], [0, 90, 0], false, MAX_REPEAT, MIN_EVERY]);
+  assert.deepEqual(a.keys, [{ t: 1, pos: [0, 0, 0], rot: [0, 45, 0], scale: [2, 2, 2], ease: 'smooth' }], 'a group has no look');
+  assert.deepEqual([a.parent, b.parent].sort(), ['a', null].sort(), 'two groups in each other: one comes out');
+  assert.deepEqual([c.parent, d.parent, e.parent, f.parent], [null, null, null, 'b']);
+  assert.deepEqual([c.repeat, c.every, d.repeat, d.every], [3, MIN_EVERY, 1, 0.5]);
+  assert.deepEqual(c.keys.map((k) => [k.color, k.color2, k.size, k.size2]), [['#ff0000', null, 50, 0.5], [undefined, undefined, undefined, undefined]]);
+  assert.equal(f.keys[0].color, '#123456');
+  assert.deepEqual(sanitizeScene(JSON.parse(JSON.stringify({ objects }))).objects, objects, 'sanitize is stable');
+  // groups in groups: only so deep
+  const deep = Array.from({ length: 14 }, (_, i) => ({ id: `g${i}`, shape: 'group', parent: i ? `g${i - 1}` : null }));
+  const tree = sceneTree(sanitizeScene({ objects: [...deep, { id: 'leaf', shape: 'point', parent: 'g13' }] }).objects);
+  for (const node of tree.byId.values()) assert.ok(tree.chainOf(node).length <= MAX_DEPTH, `${node.id} is ${tree.chainOf(node).length} deep`);
+  // a pose survives the trip through a matrix (what moving in and out of groups relies on)
+  for (const pose of [{ pos: [1, -2, 3], rot: [20, -35, 110], scale: [2, 0.5, 3] }, { pos: [0, 0, 0], rot: [0, 90, 0], scale: [-1, 1, 1] }, { pos: [4, 5, 6], rot: [-170, 10, 5], scale: [1, -2, 1] }]) {
+    const back = poseOfView(viewMatrix(pose));
+    const m1 = viewMatrix(pose);
+    const m2 = viewMatrix(back);
+    assert.ok(m1.every((v, i) => near(v, m2[i], 1e-9)), `${JSON.stringify(pose)} came back as ${JSON.stringify(back)}`);
+  }
+});
+
+test('groups: the tree knows who is in what, and when everything happens', () => {
+  const objects = scene(
+    createGroup({ id: 'top', start: 1, repeat: 2, every: 10, open: false }),
+    createGroup({ id: 'mid', parent: 'top', start: 0.5, keys: [gkey(4)] }),
+    createObject('circle', { id: 'x', parent: 'mid', start: 2, life: 0.6, repeat: 3, every: 0.25 }),
+    createObject('circle', { id: 'y', parent: 'top', life: 1.2 }),
+    createObject('circle', { id: 'z', start: 3, life: 0.6 }),
+  );
+  const tree = sceneTree(objects);
+  const [top, mid, x, y, z] = objects;
+  assert.deepEqual(tree.chainOf(x).map((g) => g.id), ['mid', 'top']);
+  assert.deepEqual(tree.childrenOf(top).map((o) => o.id), ['mid', 'y']);
+  assert.deepEqual(tree.insideOf(top).map((o) => o.id), ['mid', 'x', 'y']);
+  assert.deepEqual(tree.leavesOf(top).map((o) => o.id), ['x', 'y']);
+  assert.deepEqual(tree.rows().map((r) => [r.node.id, r.depth]), [['top', 0], ['mid', 1], ['x', 2], ['y', 1], ['z', 0]]);
+  assert.deepEqual(tree.rows(true).map((r) => r.node.id), ['top', 'z'], 'a closed group keeps its rows to itself');
+  // x: its group starts at 1.5; it appears 2 s later, three times, and stays 1 s each time
+  assert.deepEqual(tree.span(x), { start: 3.5, end: 5 }, 'the first time round');
+  assert.deepEqual(tree.playsOf(x).map((play) => play.start), [3.5, 3.75, 4, 13.5, 13.75, 14]);
+  assert.deepEqual(tree.playsOf(x)[4].ancestors.map((g) => [g.node.id, g.start]), [['mid', 11.5], ['top', 11]]);
+  assert.equal(tree.lastEnd(x), 15);
+  assert.deepEqual(tree.span(mid), { start: 1.5, end: 5.5 }, 'a group lasts until its last key, if nothing in it lasts longer');
+  assert.deepEqual(tree.span(top), { start: 1, end: 1 + 4.5 + 10 }, 'with all its plays');
+  assert.deepEqual(tree.ownSpan(x), { start: 2, end: 3.5 });
+  assert.equal(tree.originOf(x), 1.5);
+  assert.equal(sceneDuration(objects), 15, 'until the last particle is gone');
+  assert.ok(!tree.plain(y) && tree.plain({ ...z, start: 0 }) && !tree.plain(z));
+  // the pose of a group at a time, and what the time marker points at in a group
+  assert.deepEqual(tree.poseOf(mid, 1.5 + 2).pos, [0.5, 4, 0.5].map((v) => v / 2));
+  assert.deepEqual(markAt(mid, 4 + 0.5, tree.ownSpan(mid)), { at: 'key', index: 0 });
+  assert.deepEqual(markAt(mid, 2, tree.ownSpan(mid)), { at: 'between' });
+  assert.deepEqual(markAt(mid, 99, tree.ownSpan(mid)), { at: 'last', index: 0 });
+  // hidden: the object itself or a group around it
+  mid.hidden = true;
+  assert.deepEqual(tree.leaves().map((o) => o.id), ['y', 'z']);
+});
+
+test('repeat: an object, or a whole group, is played several times', () => {
+  const lone = scene(createObject('circle', { id: 'r', name: 'Ring', count: 8, life: 0.6, start: 0.2, repeat: 4, every: 0.7, keys: [key(0.8, { pos: [0.5, 4, 0.5] })] }));
+  assert.ok(!isPlain(lone[0]));
+  assert.ok(near(sceneDuration(lone), 0.2 + 3 * 0.7 + 1));
+  for (const fps of [60, 20]) {
+    const [s] = playScene(lone, { fps });
+    assert.equal(s.plays.length, 4);
+    assert.equal(s.result.particles, 8 * 4 * piecesOf({ ...lone[0], repeat: 1 }));
+    assert.deepEqual([s.early, s.late, s.gaps], [0, 0, 0], `${fps} fps`);
+    assert.ok(s.off <= 0.012 + s.fastest * frameAge(fps) * 1.05, `${fps} fps: ${s.off.toFixed(3)} off`);
+  }
+  // 0.7 s apart and 1 s long: for 0.3 s two plays are seen at once
+  const count = (t) => computeParticles(lone, t).length;
+  assert.deepEqual([count(0.1), count(0.5), count(1.0), count(1.25), count(2.4), count(3.25), count(3.4)], [0, 8, 16, 8, 16, 8, 0]);
+  // a group that repeats plays everything in it again, keys and all
+  const whole = scene(
+    groupAt({ repeat: 3, every: 1, keys: [gkey(0.9, { pos: [3, 4, 0.5], ease: 'linear' })] }),
+    inGroup({ pos: [0, 0, 0], start: 0.2, life: 0.3 }),
+    inGroup({ id: 'p', shape: 'point', pos: [0, 1, 0], life: 0.3, repeat: 2, every: 0.25 }),
+  );
+  const stats = playScene(whole);
+  assert.deepEqual(stats.map((s) => s.plays.map((play) => play.start)), [[0.2, 1.2, 2.2], [0, 0.25, 1, 1.25, 2, 2.25]]);
+  for (const s of stats) {
+    assert.deepEqual([s.early, s.late, s.gaps], [0, 0, 0], s.name);
+    assert.ok(s.off <= 0.012 + s.fastest * frameAge(60) * 1.05, `${s.name}: ${s.off.toFixed(3)} off`);
+  }
+  assert.ok(near(sceneDuration(whole), 2.75));
+  // World Code waits for all of it
+  assert.ok(generateCode(whole, { target: 'world' }).parts[0].code.includes('const PS_EVERY = 2750'));
+});
+
+/** The colour (0 to 255) and visibility of a particle of the stand-in engine. */
+const rgbOf = (p) => p.color.slice(0, 3).map((v) => v * 255);
+
+test('keys can change the colour and the particle size', () => {
+  const flame = () => createObject('circle', {
+    id: 'f', name: 'Flame', count: 6, pos: [0.5, 2, 0.5], life: 2.4, color: '#ffe000', size: 0.4,
+    keys: [key(1, { color: '#ff8000' }), key(2, { pos: [0.5, 4, 0.5], color: '#ff0000', size: 1.6, ease: 'linear' }), key(3), key(3.5, { color: '#404040', size: 0.2, ease: 'jump' })],
+  });
+  const [obj] = scene(flame());
+  // a key without a colour keeps the one before it; the change happens on the way to the key
+  assert.deepEqual(lookAt(obj, 0).c1, [255, 224, 0]);
+  assert.deepEqual(lookAt(obj, 0.5).c1, [255, 176, 0], 'half-way of a smooth change');
+  assert.deepEqual(lookAt(obj, 1.5).c1, [255, 64, 0]);
+  assert.deepEqual([lookAt(obj, 2.5).c1, lookAt(obj, 3.4).c1, lookAt(obj, 3.5).c1], [[255, 0, 0], [255, 0, 0], [64, 64, 64]]);
+  assert.deepEqual([lookAt(obj, 0.99).lo, lookAt(obj, 1.5).lo, lookAt(obj, 2.2).lo, lookAt(obj, 3.6).lo], [0.4, 1, 1.6, 0.2]);
+
+  for (const fps of [60, 30, 20, 12]) {
+    const [s] = playScene([obj], { fps });
+    const label = `${fps} fps`;
+    assert.deepEqual([s.early, s.late], [0, 0], label);
+    assert.equal(s.gaps, 0, `${label}: a point was not shown in ${s.gaps} frames`);
+    assert.ok(s.off <= 0.012 + s.fastest * frameAge(fps) * 1.05, `${label}: ${s.off.toFixed(3)} off the path`);
+    // every particle that is seen has the colour and the size of that moment (or of the frame before: it may be one late)
+    const h = frameAge(fps);
+    const frame = h / LIFE_PER_SECOND;
+    const K = s.pieces;
+    const engine = s.calls.slice(0, K).map((c) => ({ c, p: createParticle(c, () => 0.5) }));
+    let checked = 0;
+    for (let f = 1; f * h < s.plans[0].a1 + 0.05; f++) {
+      const t = (f * h) / LIFE_PER_SECOND;
+      for (const { c, p } of engine) {
+        if (!p.update(h) || p.color[3] < 0.999) continue;
+        const wants = [lookAt(obj, t), lookAt(obj, t - frame)];
+        // the size goes in steps: never further from the true size than a quarter, and exact while it rests
+        assert.equal(c.minSize, c.maxSize);
+        assert.ok(wants.some((want) => c.minSize / want.lo < 1.26 && want.lo / c.minSize < 1.26), `${label}: size ${c.minSize} at ${t.toFixed(2)} s, wanted ${wants[0].lo.toFixed(2)}`);
+        const resting = t < 1 - frame || (t > 2 + frame && t < 3.5 - frame) || t > 3.5 + 2 * frame;
+        if (resting) assert.ok(near(c.minSize, wants[0].lo, 1e-9), `${label}: size ${c.minSize} at ${t.toFixed(2)} s, wanted ${wants[0].lo}`);
+        // the colour: exact while a piece lasts; a short piece (here: the steps of the size) has the colour of its middle
+        const stepping = t > 1 - frame && t < 2 + frame;
+        const moments = stepping ? Array.from({ length: 21 }, (_, k) => t + (k - 10) * 0.01) : [t, t - frame];
+        const off = Math.min(...moments.map((at) => Math.max(...rgbOf(p).map((v, j) => Math.abs(v - lookAt(obj, at).c1[j])))));
+        assert.ok(off < 6, `${label}: colour ${rgbOf(p).map(Math.round)} at ${t.toFixed(2)} s, wanted ${wants[0].c1.map(Math.round)}`);
+        checked++;
+      }
+    }
+    assert.ok(checked > 3 / frame, `${label}: ${checked} looks`);
+  }
+  // a colour that changes over a long stretch is one particle: it cannot be switched on by a last stop, so it
+  // takes a short ramp, like a fade. From 20 frames a second up nothing is missing; a slower device may show a
+  // point faintly for one frame when one piece takes over from another.
+  const [slow] = scene(createObject('circle', {
+    id: 's', name: 'Slow', count: 5, pos: [0.5, 2, 0.5], life: 0.6, color: '#ffe000', start: 0.5,
+    keys: [key(1, { pos: [4, 2, 0.5], color: '#ff0000', ease: 'linear' }), key(2, { pos: [4, 5, 0.5], color: '#0000ff', ease: 'linear' }), key(3, { color: '#00ff00' })],
+  }));
+  assert.equal(piecesOf(slow), 3, 'one particle for each stretch, whatever the colours do');
+  for (const fps of [144, 60, 30, 20]) assert.equal(playScene([slow], { fps })[0].gaps, 0, `${fps} fps`);
+  const at12 = playScene([slow], { fps: 12 })[0];
+  assert.ok(at12.gaps <= 2 * slow.count, `12 fps: a point was not shown in ${at12.gaps} frames`);
+  {
+    // a frame that takes a whole second: afterwards a point is fully there again within half a second
+    const { calls } = runExport([slow]);
+    const h = frameAge(60);
+    for (let stall = 0.05; stall < 2; stall += 0.11) {
+      const mine = calls.slice(0, 3).map((c) => ({ c, p: createParticle(c, () => 0.5), alive: true }));
+      let age = 0;
+      let faintUntil = 0;
+      while (age < 2.2) {
+        const step = age <= stall && age + h > stall ? 0.6 : h;
+        age += step;
+        let seen = 0;
+        for (const e of mine) {
+          e.alive = e.alive && e.p.update(step);
+          if (e.alive) seen += strength(e.p, e.c);
+        }
+        if (age > 0.3 + 1e-6 && age < 2.1 - 1e-6 && seen < 0.999 && age > stall + 0.6) faintUntil = age;
+      }
+      assert.ok(faintUntil <= stall + 0.6 + 0.3 + 1e-6, `a long frame at ${stall.toFixed(2)}: faint until ${faintUntil.toFixed(2)}`);
+    }
+  }
+
+  // what it costs: a change of size is flown in steps
+  const sizes = new Set(runExport([obj]).calls.map((c) => c.minSize));
+  assert.ok(sizes.size >= 6 && sizes.size <= 12, `${sizes.size} sizes`);
+  const steady = { ...obj, keys: obj.keys.map(({ size, size2, ...k }) => k) };
+  assert.ok(piecesOf(steady) < piecesOf(obj), 'without sizes it takes fewer pieces');
+  assert.equal(piecesOf(steady), piecesOf({ ...obj, keys: obj.keys.map(({ size, size2, color, color2, ...k }) => k) }) + 1, 'colours cost nothing, but a colour that jumps starts a piece');
+
+  // two colours: every point keeps its share of the way between them, whatever the colours become
+  const [two] = scene({ ...flame(), color2: '#00e0ff', keys: [key(1, { color: '#ff0000', color2: '#0000ff' }), key(2, { pos: [0.5, 4, 0.5], color: '#ffffff', color2: '#000000' })] });
+  const { calls, result } = runExport([two]);
+  assert.ok(result.parts[0].code.includes('i || 0'), 'the helper for colours that change');
+  const K = piecesOf(two);
+  const shares = new Set();
+  for (let i = 0; i < two.count; i++) {
+    const mine = calls.slice(i * K, (i + 1) * K).map((c) => ({ c, p: createParticle(c, () => 0.5) }));
+    const h = frameAge(60);
+    let share = null;
+    for (let f = 1; f * h < 2.3; f++) {
+      const t = (f * h) / LIFE_PER_SECOND;
+      for (const { p } of mine) {
+        if (!p.update(h) || p.color[3] < 0.999) continue;
+        const { c1, c2 } = lookAt(two, t);
+        const [r, g, b] = rgbOf(p);
+        // (red is 255 in every first colour and 0 in every second one: it shows the share of a point)
+        const k = (255 - r) / 255;
+        if (share === null) share = k;
+        assert.ok(Math.abs(k - share) < 0.01, `point ${i}: share ${k.toFixed(3)} at ${t.toFixed(2)} s, was ${share.toFixed(3)}`);
+        // (a change that does not run steadily is written as four straight stretches: up to 8 of 255 off)
+        assert.ok(near(g, c1[1] + (c2[1] - c1[1]) * share, 10), `point ${i}: green ${g.toFixed(0)} at ${t.toFixed(2)} s`);
+        assert.ok(near(b, c1[2] + (c2[2] - c1[2]) * share, 10), `point ${i}: blue ${b.toFixed(0)} at ${t.toFixed(2)} s`);
+      }
+    }
+    shares.add(share.toFixed(2));
+  }
+  assert.ok(shares.size > 3, 'points get different colours');
+
+  // random sizes: a point keeps its share of the range too
+  const [range] = scene({ ...flame(), size: 0.3, size2: 0.6, keys: [key(1.5, { size: 1, size2: 2 })] });
+  const ranged = runExport([range]);
+  const steps = planOf(range).pieces.map((piece) => piece.size).reverse(); // (the code lists the last piece first)
+  assert.deepEqual(steps[0], [1, 2], 'at the key: the sizes of the key');
+  assert.ok(steps[steps.length - 1][0] > 0.3 && steps[steps.length - 1][0] < 0.375, 'the first step is near the size it starts with');
+  const sharesOfSize = new Set();
+  for (let i = 0; i < range.count; i++) {
+    const mine = ranged.calls.slice(i * steps.length, (i + 1) * steps.length);
+    const share = mine[0].minSize - 1;
+    assert.ok(share >= 0 && share <= 1);
+    mine.forEach((c, k) => assert.ok(near(c.minSize, steps[k][0] + (steps[k][1] - steps[k][0]) * share, 1e-9), `point ${i}, step ${k}: ${c.minSize}`));
+    sharesOfSize.add(share.toFixed(3));
+  }
+  assert.ok(sharesOfSize.size > 3, 'points get different sizes');
+
+  // blend mode 0 ignores alpha: there the code darkens the colour instead, also a colour that changes
+  const normal = runExport([slow]).calls;
+  const glow = runExport(scene({ ...slow, blend: 0 })).calls;
+  assert.equal(glow.length, normal.length);
+  let dark = 0;
+  glow.forEach((c, n) => {
+    assert.equal(c.colorGradients.length, normal[n].colorGradients.length);
+    c.colorGradients.forEach((g, k) => {
+      const [r, gr, b, a] = normal[n].colorGradients[k].minColor;
+      assert.deepEqual(g.minColor.map((v) => Number(v.toFixed(3))), [r * a, gr * a, b * a, 1].map((v) => Number(v.toFixed(3))));
+      assert.equal(g.timeFraction, normal[n].colorGradients[k].timeFraction);
+      if (a === 0) dark++;
+    });
+  });
+  assert.ok(dark >= 2 * slow.count * 3, 'black while unseen');
+  // scenes without such keys are written exactly as before
+  const plainCode = generateCode([timed({ keys: [key(1, { pos: [3, 2, 0.5] })] })]).parts[0].code;
+  assert.ok(!plainCode.includes('i || 0') && !plainCode.includes('const K ='));
+});
+
+test('groups, repeats and looks: the preview shows what the exported code does', () => {
+  const ringAt = (o) => createObject('circle', { id: 'ring', name: 'Ring', count: 8, pos: [0.5, 2, 0.5], life: 3, color: '#ffe000', ...o });
+  const cases = {
+    'colour keys while it moves and turns': [ringAt({ keys: [key(1.5, { pos: [3, 2, 0.5], rot: [0, 0, 120], color: '#ff0000' }), key(2.5, { pos: [3, 4, 0.5], rot: [0, 0, 120], color: '#0000ff', ease: 'linear' })] })],
+    'size keys while it moves': [ringAt({ size: 0.3, keys: [key(1.5, { pos: [3, 2, 0.5], size: 1.2 }), key(2.5, { pos: [3, 4, 0.5], size: 0.6, ease: 'in' })] })],
+    'colour keys, then free flight': [ringAt({ move: [0, 1, 0], life: 2.4, keys: [key(1, { pos: [0.5, 3, 0.5], color: '#ff0000' })] })],
+    'repeats': [ringAt({ life: 0.6, repeat: 3, every: 0.5, start: 0.2, keys: [key(0.8, { pos: [0.5, 4, 0.5] })] })],
+    'a group that repeats': [groupAt({ pos: [0.5, 2, 0.5], repeat: 3, every: 1, keys: [key(0.9, { pos: [3, 2, 0.5], ease: 'linear' })] }), ringAt({ parent: 'g', pos: [0, 0, 0], life: 0.48 })],
+    'let go by a group that turns': [groupAt({ keys: [gkey(3, { rot: [0, 0, 180], ease: 'linear' })] }), ringAt({ parent: 'g', pos: [3, 0, 0], move: [2, 0, 0], life: 0.6, repeat: 5, every: 0.5, scale: [0.3, 0.3, 0.3] })],
+    'with and without timing in one group': [groupAt({ rot: [0, 45, 0], scale: [2, 2, 2] }), ringAt({ parent: 'g', pos: [1, 0, 0], id: 'a' }), ringAt({ parent: 'g', pos: [-1, 0, 0], id: 'b', start: 1 })],
+    'looks in a group that moves': [
+      groupAt({ pos: [0.5, 3, 0.5], keys: [key(3, { pos: [4, 3, 0.5], ease: 'linear' })] }),
+      ringAt({ parent: 'g', pos: [0, 0, 0], size: 0.3, keys: [key(1, { pos: [0, 0, 0], color: '#ff0000', size: 0.9 }), key(2, { pos: [0, 1, 0], color: '#0000ff', ease: 'jump' })] }),
+    ],
+  };
+  for (const [name, list] of Object.entries(cases)) {
+    for (const fps of [60, 20]) {
+      const objects = scene(...list);
+      const label = `${name}, ${fps} fps`;
+      const { calls } = runExport(objects);
+      const h = frameAge(fps);
+      const engine = calls.map((c) => ({ c, p: createParticle(c, () => 0.5), alive: true }));
+      const total = sceneDuration(objects);
+      let frames = 0;
+      for (let f = 1; (f * h) / LIFE_PER_SECOND < total + 0.2; f++) {
+        for (const e of engine) e.alive = e.alive && e.p.update(h);
+        const time = (f * h) / LIFE_PER_SECOND;
+        const inGame = engine.filter((e) => e.alive && e.p.color[3] > 0.5);
+        if (time > total + 0.05) { assert.equal(inGame.length, 0, `${label}: particles are left at ${time.toFixed(2)} s`); continue; }
+        if (f % 5) continue;
+        const shown = computeParticles(objects, time).filter((p) => p.alpha > 0.5);
+        if (shown.length !== inGame.length) continue; // the very frame of a hand-over
+        frames++;
+        const free = inGame.slice();
+        for (const p of shown) {
+          const want = p.pos.map((v, j) => v + ORIGIN[j]);
+          let best = 0;
+          free.forEach((e, k) => { if (dist(want, e.p.position) < dist(want, free[best].p.position)) best = k; });
+          const [twin] = free.splice(best, 1);
+          const step = Math.hypot(...twin.c.dir1) * twin.c.maxEmitPower * h;
+          assert.ok(dist(want, twin.p.position) < 0.012 + step * 1.1, `${label}: preview and game are ${dist(want, twin.p.position).toFixed(3)} apart at ${time.toFixed(2)} s`);
+          assert.ok(near(p.size, twin.p.size, 1e-9), `${label}: size ${p.size} in the preview, ${twin.p.size} in the game at ${time.toFixed(2)} s`);
+          assert.ok(Math.max(...p.rgb.map((v, j) => Math.abs(v - twin.p.color[j] * 255))) < 9, `${label}: colour at ${time.toFixed(2)} s`);
+        }
+      }
+      assert.ok(frames > (fps === 60 ? 20 : 4), `${label}: ${frames} frames compared`);
+    }
+  }
+  // while editing, what is not there is drawn see-through where its groups have it at that time
+  const objects = scene(groupAt({ keys: [gkey(2, { pos: [4.5, 4, 0.5], ease: 'linear' })] }), inGroup({ start: 1, life: 0.6 }));
+  const [, leaf] = objects;
+  const play = sceneTree(objects).playsOf(leaf)[0];
+  assert.equal(computeParticles(objects, 0.5).length, 0);
+  const before = computeParticles(objects, 0.5, { ghosts: true });
+  assert.ok(before.every((p) => p.ghost && p.alpha === GHOST) && before.length === leaf.count);
+  assert.ok(dist(before[0].pos, byThree(leaf, play, 1, localPoints(leaf)[0])) < 1e-9, 'before: where it will appear');
+  const after = computeParticles(objects, 5, { ghosts: true });
+  assert.ok(dist(after[0].pos, byThree(leaf, play, 2, localPoints(leaf)[0])) < 1e-9, 'after: where it was last');
 });
 
 // ---------------------------------------------------------------- the example scene
