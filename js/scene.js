@@ -346,6 +346,8 @@ export function sceneTree(objects) {
     }
     return lengths.get(node);
   };
+  /** Seconds one play of a node takes. */
+  const onceOf = (node) => lengthOf(node) - (repeatOf(node) - 1) * everyOf(node);
   /** The second at which the group around a node starts (0 for a node in no group). */
   const originOf = (node) => chainOf(node).reduce((sum, g) => sum + startOf(g), 0);
   /**
@@ -389,12 +391,18 @@ export function sceneTree(objects) {
       }
       plays = next;
     }
-    const box = chain.length > 1 && leaf.shape !== 'point' ? localBox(leaf) : undefined;
+    const box = chain.length > 1 && leaf.shape !== 'point' && !isGroup(leaf) ? localBox(leaf) : undefined;
     return plays.map(({ starts }) => ({
       start: starts[0], box,
       ancestors: chain.slice(1).map((node, k) => ({ node, start: starts[k + 1] })),
     }));
   };
+
+  /**
+   * The play a time on the timeline belongs to: the one that started last, or
+   * the first one while none has started. Works for groups too.
+   */
+  const playAt = (node, time) => latestPlay(playsOf(node), time);
 
   /** The second the very last play of an object is over, counting the repeats of the groups around it. */
   const lastEnd = (leaf) => {
@@ -427,11 +435,18 @@ export function sceneTree(objects) {
   };
 
   return {
-    byId, parentOf, chainOf, childrenOf, insideOf, leavesOf, isHidden, lengthOf, originOf, span, ownSpan,
-    ancestorsOf, playsOf, lastEnd, poseOf, aroundOf, matrixOf, plain, rows,
+    byId, parentOf, chainOf, childrenOf, insideOf, leavesOf, isHidden, lengthOf, onceOf, originOf, span, ownSpan,
+    ancestorsOf, playsOf, playAt, lastEnd, poseOf, aroundOf, matrixOf, plain, rows,
     /** The objects that make particles and are not hidden, in the order of the list. */
     leaves: () => objects.filter((o) => !isGroup(o) && !isHidden(o)),
   };
+}
+
+/** Of some plays the one that started last before a time, or the first one while none has started. */
+function latestPlay(plays, time) {
+  let best = plays[0];
+  for (const play of plays) if (play.start <= time + 1e-9 && play.start >= best.start) best = play;
+  return best;
 }
 
 /** Where each particle of an object is when it and its groups stand where they start (the still picture). */
@@ -514,10 +529,8 @@ export function computeParticles(objects, time = null, options = {}) {
     const age = time * LIFE_PER_SECOND;
     const plays = tree.playsOf(obj);
     let seen = false;
-    let over = true; // every play of it is over
     plays.forEach((lineage, n) => {
       const plan = planOf(obj, lineage);
-      if (age < plan.a1) over = false;
       const shown = piecesAt(plan, age);
       if (!shown.length) return;
       seen = true;
@@ -542,13 +555,11 @@ export function computeParticles(objects, time = null, options = {}) {
       }
     });
     if (seen || !options.ghosts) continue;
-    // not there at this time: see-through where it starts, or where it was last
-    const first = plays[0];
-    const last = plays[plays.length - 1];
-    const around = over
-      ? lineageMatrix(last.ancestors, last.start + staySeconds(obj))
-      : lineageMatrix(first.ancestors, first.start);
-    standing(flipZ(mulAffine(around, viewMatrix(restPose(obj, over)))), true);
+    // not there at this time: see-through where its latest play ended, or where it starts while none has begun
+    const play = latestPlay(plays, time);
+    const gone = time >= play.start + staySeconds(obj);
+    const around = lineageMatrix(play.ancestors, gone ? play.start + staySeconds(obj) : play.start);
+    standing(flipZ(mulAffine(around, viewMatrix(restPose(obj, gone)))), true);
   }
   return out;
 }
