@@ -121,12 +121,6 @@ function buildAtlas(images, names) {
 }
 
 function makeLayer(kind, map) {
-  const quad = new THREE.PlaneGeometry(1, 1);
-  const geometry = new THREE.InstancedBufferGeometry();
-  geometry.index = quad.index;
-  geometry.setAttribute('position', quad.attributes.position);
-  geometry.setAttribute('uv', quad.attributes.uv);
-  geometry.instanceCount = 0;
   const material = new THREE.ShaderMaterial({
     uniforms: { map: { value: map } },
     vertexShader: VERTEX,
@@ -141,10 +135,14 @@ function makeLayer(kind, map) {
     material.blendSrc = kind === 'add' ? THREE.OneFactor : THREE.DstColorFactor;
     material.blendDst = kind === 'add' ? THREE.OneFactor : THREE.ZeroFactor;
   }
-  const mesh = new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = { normal: 1, multiply: 2, add: 3 }[kind];
-  const layer = { mesh, geometry, capacity: 0, arrays: null };
+  const layer = { mesh, capacity: 0, arrays: null };
+  // Room for n particles. A layer that has to grow gets a new geometry: three.js
+  // notes how many instances a geometry holds the first time it is drawn and
+  // never draws more than that, so bigger buffers on the old geometry would
+  // leave every particle past the old size undrawn.
   const grow = (n) => {
     layer.capacity = Math.max(256, 2 ** Math.ceil(Math.log2(n)));
     layer.arrays = {
@@ -153,11 +151,19 @@ function makeLayer(kind, map) {
       iColor: new Float32Array(layer.capacity * 4),
       iUv: new Float32Array(layer.capacity * 4),
     };
+    const quad = new THREE.PlaneGeometry(1, 1);
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = quad.index;
+    geometry.setAttribute('position', quad.attributes.position);
+    geometry.setAttribute('uv', quad.attributes.uv);
+    geometry.instanceCount = 0;
     for (const [name, array] of Object.entries(layer.arrays)) {
       const attr = new THREE.InstancedBufferAttribute(array, array.length / layer.capacity);
       attr.setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute(name, attr);
     }
+    mesh.geometry.dispose();
+    mesh.geometry = geometry;
   };
   grow(256);
   layer.fill = (list, rects) => {
@@ -171,8 +177,8 @@ function makeLayer(kind, map) {
       a.iColor.set([p.rgb[0] / 255, p.rgb[1] / 255, p.rgb[2] / 255, p.blend === 0 ? -1 : p.alpha], i * 4);
       a.iUv.set(rects[p.texture] || rects.square_particle, i * 4);
     });
-    geometry.instanceCount = list.length;
-    for (const name of Object.keys(a)) geometry.attributes[name].needsUpdate = true;
+    mesh.geometry.instanceCount = list.length;
+    for (const name of Object.keys(a)) mesh.geometry.attributes[name].needsUpdate = true;
   };
   return layer;
 }

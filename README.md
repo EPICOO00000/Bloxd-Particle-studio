@@ -116,6 +116,28 @@ a key, for example 360.
 After its last key an object stays where it is until its bar ends. If it has
 Motion settings (Move, Scatter, Grow, Gravity), they start after the last key.
 
+### An example: the dragon
+
+![A dragon made of particles breathes fire at the ground in front of the code block](docs/dragon.png)
+
+`examples/dragon.json` is a finished scene to play and to take apart. A dragon
+76 blocks wide glides towards the code block with its wings spread, throws its
+head back, opens its jaws and breathes fire at the ground in front of the
+block. It lasts 10 seconds. Press **Open**, choose the file and press **Play**.
+
+It is made of 76 ordinary objects: arcs for the neck, the tail and the wing
+bones, zigzags for the teeth, claws and spikes, a ball of rings for the body
+and smoke clouds for the fire. Click any of them to change it. The wings, the
+tail and the head with its jaw move by keys.
+
+The export is 1,211 particles in 3 stacked code blocks. That is twice what the
+studio calls a lot, so it can lag on slower devices, and like everything here
+it has not been tried in the game. The dragon appears 70 blocks from the code
+block and 30 blocks up, on the side where Z grows.
+
+`examples/dragon.mjs` is the script that wrote the file. Change the numbers at
+its top and run `node examples/dragon.mjs`.
+
 ### Keyboard and mouse
 
 | Key | Does |
@@ -256,7 +278,8 @@ npm run build    # rebuild START-HERE.html
 | `tools/` | Local server and the single-file build |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |
-| `docs/` | The screenshot at the top of this page |
+| `examples/` | A finished scene, the dragon, and the script that wrote it |
+| `docs/` | The pictures on this page |
 
 ### Add a shape of your own
 

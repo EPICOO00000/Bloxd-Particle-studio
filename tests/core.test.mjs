@@ -20,6 +20,7 @@ import {
 import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
 import { createParticle, frameAge } from './babylon-sim.mjs';
 import { sourceFiles, sourceHash } from '../tools/sources.mjs';
+import { dragonFile } from '../examples/dragon.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = new URL('..', import.meta.url);
@@ -1075,6 +1076,88 @@ test('time: the preview shows what the exported code does', () => {
   assert.ok(near(after[0].pos[0] - before[0].pos[0], 4.5), 'after it is gone: at its last key');
   const during = computeParticles([obj], 2.5, { ghosts: true });
   assert.ok(during.every((p) => !p.ghost && p.alpha === 1));
+});
+
+// ---------------------------------------------------------------- the example scene
+
+/** The same "random" numbers on every run. */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const middle = (points) => points.reduce((sum, p) => sum.map((v, i) => v + p[i] / points.length), [0, 0, 0]);
+
+test('the dragon example is up to date, and its code plays the way the studio shows it', () => {
+  const text = fs.readFileSync(new URL('examples/dragon.json', root), 'utf8');
+  assert.equal(text, dragonFile(), 'examples/dragon.json is out of date: run "node examples/dragon.mjs"');
+  const file = JSON.parse(text);
+  const objects = sanitizeScene(file).objects;
+  assert.deepEqual(objects, file.objects, 'the studio changes the file when it opens it');
+  for (const obj of objects) assert.equal(planOf(obj).rough, '', `${obj.name} turns too far too quickly`);
+
+  // the whole scene fits its code blocks, and the README gives its real size
+  const { result } = runExport(objects);
+  const readme = fs.readFileSync(new URL('README.md', root), 'utf8').replace(/\s+/g, ' ');
+  for (const words of [
+    `${objects.length} ordinary objects`,
+    `${result.particles.toLocaleString('en-US')} particles`,
+    `${result.parts.length} stacked code blocks`,
+    `${sceneDuration(objects)} seconds`,
+  ]) assert.ok(readme.includes(words), `README: "${words}"`);
+
+  // object by object: the exported code, played in the stand-in for the game's
+  // particle engine, against what Play shows in the studio
+  for (const fps of [60, 30]) {
+    const h = frameAge(fps);
+    for (const obj of objects) {
+      const label = `${obj.name}, ${fps} fps`;
+      const { calls } = runExport([obj]);
+      const K = piecesOf(obj);
+      assert.equal(calls.length, localPoints(obj).length * K, label);
+      const random = seeded(obj.count + calls.length);
+      const engine = calls.map((c) => ({ p: createParticle(c, random), alive: true }));
+      const { start, end } = spanOf(obj);
+      const scatters = obj.spread > 0 || obj.expand !== 0 || obj.gravity !== 0;
+      const step = Math.max(...calls.map((c) => Math.hypot(...c.dir1) * c.maxEmitPower)) * h; // its fastest particle, one frame
+      let checked = 0;
+      for (let f = 1; (f * h) / LIFE_PER_SECOND < end + 0.3; f++) {
+        for (const e of engine) e.alive = e.alive && e.p.update(h);
+        const t = (f * h) / LIFE_PER_SECOND;
+        const inGame = engine.filter((e) => e.alive && e.p.color[3] > 0);
+        if (t < start - 0.06 || t > end + 0.06) {
+          assert.equal(inGame.length, 0, `${label}: seen at ${t.toFixed(2)} s, outside its time`);
+          continue;
+        }
+        const shown = computeParticles([obj], t).map((p) => ({ ...p, pos: p.pos.map((v, j) => v + ORIGIN[j]) }));
+        if (scatters) {
+          // every particle picks its own way: compare how many there are and where the cloud is
+          if (t < start + 0.1 || t > start + (end - start) * 0.75) continue;
+          assert.equal(inGame.length, shown.length, `${label}: particles at ${t.toFixed(2)} s`);
+          const apart = dist(middle(inGame.map((e) => e.p.position)), middle(shown.map((p) => p.pos)));
+          assert.ok(apart < 2 + step, `${label}: the cloud is ${apart.toFixed(2)} blocks from where the studio shows it at ${t.toFixed(2)} s`);
+          checked++;
+          continue;
+        }
+        for (const p of shown) {
+          if (p.alpha < 0.75) continue; // fading in or out
+          const mine = engine.filter((e, j) => Math.floor(j / K) === p.index && e.alive && e.p.color[3] > 0.25);
+          assert.ok(mine.length, `${label}: point ${p.index} is missing at ${t.toFixed(2)} s`);
+          const d = Math.min(...mine.map((e) => dist(p.pos, e.p.position)));
+          // the game may be one frame ahead; a turn is flown as straight stretches
+          assert.ok(d <= 0.065 + step * 1.02, `${label}: point ${p.index} is ${d.toFixed(3)} blocks off at ${t.toFixed(2)} s`);
+          checked++;
+        }
+      }
+      assert.ok(checked > 10, `${label}: ${checked} comparisons`);
+      assert.ok(engine.every((e) => !e.alive), `${label}: particles are left after the end`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------- single-file build
