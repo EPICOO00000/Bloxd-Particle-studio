@@ -147,6 +147,26 @@ export function ease(stops, t) {
 const SCATTER = [0.8191725133961645, 0.6710436067037893, 0.5497004779019703];
 export const scatter = (i, axis) => (0.5 + (i + 1) * SCATTER[axis]) % 1;
 
+/** Centre points [[x, y], ...] and scale them to fill the -1..1 box. */
+export function fitBox(pts) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const half = Math.max(x1 - x0, y1 - y0) / 2 || 1;
+  return pts.map(([x, y]) => [(x - (x0 + x1) / 2) / half, (y - (y0 + y1) / 2) / half, 0]);
+}
+
+/** Numbers from 0 to 1 that look random but are the same every time. */
+export function dice(seed) {
+  let s = (Math.round(seed) * 2654435761) >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
 // ---------------------------------------------------------------- nets
 //
 // A net is how most shapes are stored: `nodes` are the corners, ends and
@@ -458,6 +478,26 @@ export function fitDrawing(drawing, box = null) {
   return placeDrawing(drawing, { x: -cx / half, y: -cy / half, size: 1 / half });
 }
 
+/** A drawing repeated `times` around the middle, the first copy turned by `first` degrees. */
+export const spin = (d, times, first = 0) => joinDrawings(
+  ...Array.from({ length: times }, (_, i) => placeDrawing(parsePath(d), { turn: first + (360 * i) / times })),
+);
+
+export const fix = (v) => Number(v.toFixed(4));
+export const around = (cx, cy, r, deg) => `${fix(cx + r * Math.cos(deg * RAD))},${fix(cy + r * Math.sin(deg * RAD))}`;
+
+/** A closed ring of `k` arcs (bulge 1 = half circles), like the edge of a flower. */
+export function scallop(cx, cy, r, k, bulge) {
+  let d = `M${around(cx, cy, r, 90)}`;
+  for (let i = 1; i <= k; i++) d += ` B${around(cx, cy, r, 90 + (360 * i) / k)} ${bulge}`;
+  return d;
+}
+
+/** The same drawing several times: `at` is a list of [x, y, size, turn] (size 1 and turn 0 if left out). */
+export const stamp = (d, at) => joinDrawings(
+  ...at.map(([x, y, size = 1, turn = 0]) => placeDrawing(typeof d === 'string' ? parsePath(d) : d, { x, y, size, turn })),
+);
+
 const TOL = 0.004; // in the -1..1 box: points this close are the same point
 const JOIN = 0.03; // junctions this close, with a stroke between them, are one junction
 const REACH = 0.03; // how far along a stroke to look when judging a bend (a quarter of the usual gap between particles)
@@ -766,6 +806,152 @@ export function ringStack(stations, n) {
     : ring(per[j], r, y, j % 2 ? Math.PI / Math.max(1, per[j]) : 0)));
 }
 
+// ---------------------------------------------------------------- builders
+
+/** Several nets as one; corners that are on the same spot become one corner. */
+export function joinNets(...nets) {
+  const nodes = [];
+  const seen = new Set();
+  for (const net of nets) {
+    for (const p of net.nodes) {
+      const key = p.map((v) => Math.round(v * 1e4) + 0).join(',');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      nodes.push(p);
+    }
+  }
+  return makeNet(nodes, nets.flatMap((net) => net.chains));
+}
+
+/** Every point of a net put through fn(point) -> point. */
+export const mapNet = (net, fn) => makeNet(net.nodes.map(fn), net.chains.map((chain) => chain.map(fn)));
+
+/** A net centred and scaled (the same on every axis) so that it fills the -1..1 box. */
+export function fitNet(net, reach = 1) {
+  const all = [...net.nodes, ...net.chains.flat()];
+  const lo = [0, 1, 2].map((c) => Math.min(...all.map((p) => p[c])));
+  const hi = [0, 1, 2].map((c) => Math.max(...all.map((p) => p[c])));
+  const half = Math.max(...[0, 1, 2].map((c) => hi[c] - lo[c])) / 2 || 1;
+  return mapNet(net, (p) => p.map((v, c) => ((v - (lo[c] + hi[c]) / 2) / half) * reach));
+}
+
+/**
+ * Builds a net stroke by stroke. Corners on the same spot are shared. `line`
+ * and `path` are straight, `run` is a curve whose two ends are corners.
+ */
+export function sketch() {
+  const nodes = [];
+  const chains = [];
+  const at = new Map();
+  const node = (p) => {
+    const key = p.map((v) => Math.round(v * 1e4) + 0).join(',');
+    if (!at.has(key)) {
+      at.set(key, p);
+      nodes.push(p);
+    }
+    return at.get(key);
+  };
+  const api = {
+    node(...pts) {
+      pts.forEach(node);
+      return api;
+    },
+    line(a, b) {
+      chains.push([node(a), node(b)]);
+      return api;
+    },
+    path(pts, closed = false) {
+      for (let i = 1; i < pts.length; i++) api.line(pts[i - 1], pts[i]);
+      if (closed) api.line(pts[pts.length - 1], pts[0]);
+      return api;
+    },
+    run(pts) {
+      const chain = pts.slice();
+      chain[0] = node(pts[0]);
+      chain[chain.length - 1] = node(pts[pts.length - 1]);
+      chains.push(chain);
+      return api;
+    },
+    loose(pts) { // a stroke whose ends are not corners (it ends on another stroke, say)
+      chains.push(pts);
+      return api;
+    },
+    add(net) {
+      net.nodes.forEach(node);
+      chains.push(...net.chains);
+      return api;
+    },
+    net: () => makeNet(nodes, chains),
+  };
+  return api;
+}
+
+/** n particles on a net, exactly n: with too few for its corners, the first corners only. */
+export const netExact = (net, n) => (n >= net.nodes.length ? netPoints(net, n) : net.nodes.slice(0, Math.max(0, n)).map((p) => p.slice()));
+
+/**
+ * Shares n particles between the parts of a shape. A part is
+ * { fixed, weight, gen }: it gets its `fixed` particles first (the corners of
+ * a net) and then its share of the rest; gen(count) returns exactly that many.
+ */
+export function mix(n, parts) {
+  const fixed = parts.map((p) => p.fixed || 0);
+  const need = fixed.reduce((s, v) => s + v, 0);
+  const counts = n >= need
+    ? apportion(parts.map((p) => p.weight), n - need).map((extra, i) => fixed[i] + extra)
+    : apportion(fixed, n);
+  return parts.flatMap((p, i) => (counts[i] > 0 ? p.gen(counts[i]) : []));
+}
+
+/** A net as a part for mix(). */
+export const netPart = (net, weight) => ({ fixed: net.nodes.length, weight, gen: (k) => netExact(net, k) });
+
+/** A smooth line through points (Catmull-Rom), `steps` pieces between each pair. Works in 2D and 3D. */
+export function smooth(points, steps = 8) {
+  const out = [];
+  const get = (i) => points[Math.min(points.length - 1, Math.max(0, i))];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [a, b, c, d] = [get(i - 1), get(i), get(i + 1), get(i + 2)];
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      out.push(b.map((_, k) => 0.5 * (2 * b[k] + (c[k] - a[k]) * t + (2 * a[k] - 5 * b[k] + 4 * c[k] - d[k]) * t * t + (3 * b[k] - a[k] - 3 * c[k] + d[k]) * t * t * t)));
+    }
+  }
+  out.push(points[points.length - 1].slice());
+  out[0] = points[0].slice();
+  return out;
+}
+
+/** n particles spread evenly over a ball, or over the slice of it between two heights (-1 = bottom, 1 = top). */
+export function ballPoints(n, radius = 1, centre = [0, 0, 0], from = -1, to = 1) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const y = to - ((to - from) * (i + 0.5)) / n;
+    const w = Math.sqrt(1 - y * y);
+    out.push([centre[0] + Math.cos(i * GOLDEN) * w * radius, centre[1] + y * radius, centre[2] + Math.sin(i * GOLDEN) * w * radius]);
+  }
+  return out;
+}
+
+/** n particles on the outside of a lump of balls [[x, y, z, radius], ...]: the parts inside another ball are left out. */
+export function blobPoints(balls, n) {
+  if (n <= 0) return [];
+  const weight = balls.reduce((s, b) => s + b[3] * b[3], 0);
+  let found = [];
+  for (let factor = 1; factor < 400; factor *= 1.06) {
+    found = [];
+    balls.forEach((b, i) => {
+      const m = Math.max(1, Math.round((factor * n * b[3] * b[3]) / weight));
+      for (const p of ballPoints(m, b[3], b)) {
+        if (balls.every((o, j) => j === i || Math.hypot(p[0] - o[0], p[1] - o[1], p[2] - o[2]) >= o[3] - 1e-9)) found.push(p);
+      }
+    });
+    if (found.length >= n) break;
+  }
+  if (found.length < n) return ballPoints(n, balls[0][3], balls[0]);
+  return Array.from({ length: n }, (_, i) => found[Math.floor(((i + 0.5) * found.length) / n)]);
+}
+
 // ---------------------------------------------------------------- drawn shapes
 
 /**
@@ -777,9 +963,11 @@ export function ringStack(stations, n) {
  *   lift   (x, y) => [x, y, z] to lay a flat drawing down in 3D
  * count (default "How many") and min (fewest particles: one per corner) are
  * measured from the drawing the first time they are needed, unless given.
+ * sub is the heading it stands under in its tab; drop is how far it may hang
+ * below the box (small letters with a tail).
  */
 export function drawnShape({
-  id, name, cat, draw, params, box = null, turn = 0, lift, group = 'flat', count, min, label, tags, spacing = 0.13,
+  id, name, cat, draw, params, box = null, turn = 0, lift, group = 'flat', count, min, label, tags, spacing = 0.13, sub, drop,
 }) {
   const keys = (params || []).map((p) => p.key);
   const build = memo((...values) => {
@@ -803,6 +991,8 @@ export function drawnShape({
   if (params) shape.params = params;
   if (label) shape.label = label;
   if (tags) shape.tags = tags;
+  if (sub) shape.sub = sub;
+  if (drop) shape.drop = drop;
   Object.defineProperty(shape, 'min', { enumerable: true, get: () => min ?? measure().min });
   Object.defineProperty(shape, 'count', { enumerable: true, get: () => count ?? measure().count });
   return shape;

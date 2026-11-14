@@ -5,10 +5,19 @@
 // scale 1). Flat shapes lie in the XY plane (standing up, facing the camera).
 //
 // This file holds the first 24 shapes and puts the whole library together:
-//   shape-kit.js     the geometry tools every shape is built from
-//   shapes-geo.js    shapes made from formulas (basic, 3D, curves, effects)
-//   shapes-text.js   letters, numbers and signs
-//   shapes-icons.js  pictures drawn with strokes (symbols, nature, things)
+//   shape-kit.js      the geometry tools every shape is built from
+//   shapes-geo.js     shapes made from formulas (basic, 3D, curves, effects)
+//   shapes-text.js    letters, numbers and signs
+//   shapes-icons.js   pictures drawn with strokes (symbols, nature, things)
+// and, since the library grew to 924 shapes:
+//   shapes-flat.js    more basic shapes, and patterns
+//   shapes-solid.js   more 3D shapes
+//   shapes-curves.js  more curves
+//   shapes-effects.js more effects
+//   shapes-signs.js   more symbols, and faces
+//   shapes-living.js  more nature, and animals
+//   shapes-stuff.js   food, more things, travel and costumes
+//   shapes-pixel.js   pixel art
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -16,20 +25,38 @@ import {
 import { GEO_SHAPES } from './shapes-geo.js';
 import { TEXT_SHAPES } from './shapes-text.js';
 import { ICON_SHAPES } from './shapes-icons.js';
+import { FLAT_SHAPES } from './shapes-flat.js';
+import { SOLID_SHAPES } from './shapes-solid.js';
+import { CURVE_SHAPES } from './shapes-curves.js';
+import { EFFECT_SHAPES } from './shapes-effects.js';
+import { SIGN_SHAPES } from './shapes-signs.js';
+import { LIVING_SHAPES } from './shapes-living.js';
+import { STUFF_SHAPES } from './shapes-stuff.js';
+import { PIXEL_SHAPES } from './shapes-pixel.js';
 
 export { resample };
 
-/** The tabs of the shape picker, in order. */
+/**
+ * The tabs of the shape picker, in order. `subs` are the headings inside a tab,
+ * in order; shapes without a heading come first.
+ */
 export const CATEGORIES = [
-  { id: 'basic', name: 'Basic' },
-  { id: 'solid', name: '3D' },
-  { id: 'letters', name: 'Letters' },
-  { id: 'numbers', name: 'Numbers' },
-  { id: 'symbols', name: 'Symbols' },
-  { id: 'nature', name: 'Nature' },
-  { id: 'things', name: 'Things' },
-  { id: 'curves', name: 'Curves' },
-  { id: 'effects', name: 'Effects' },
+  { id: 'basic', name: 'Basic', subs: ['More outlines', 'Shapes in shapes', 'More filled shapes', 'Lines'] },
+  { id: 'solid', name: '3D', subs: ['More solids', 'Round things', 'Buildings', 'Things', 'Plants and animals'] },
+  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Greek letters', 'Runes'] },
+  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Digital numbers', 'Signs', 'Money', 'Maths'] },
+  { id: 'symbols', name: 'Symbols', subs: ['Arrows', 'Signs', 'Hearts and sparkles', 'Music', 'Star signs', 'People and body'] },
+  { id: 'faces', name: 'Faces', subs: ['Smileys', 'Characters'] },
+  { id: 'nature', name: 'Nature', subs: ['Sky and weather', 'Plants', 'Land and sea'] },
+  { id: 'animals', name: 'Animals', subs: ['Pets and farm', 'Wild animals', 'Birds', 'Sea animals', 'Bugs', 'Dinosaurs and dragons'] },
+  { id: 'food', name: 'Food', subs: ['Fruit and vegetables', 'Meals', 'Sweets', 'Drinks'] },
+  { id: 'things', name: 'Things', subs: ['Tools', 'Weapons', 'Treasure and magic', 'Games and sport', 'Music', 'Home', 'Party and holidays'] },
+  { id: 'travel', name: 'Travel', subs: ['Vehicles', 'Buildings'] },
+  { id: 'costume', name: 'Costume', subs: ['Wings', 'On the head', 'Clothes'] },
+  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Nature and food', 'Signs and things'] },
+  { id: 'curves', name: 'Curves', subs: ['More flat curves', 'More curves in 3D'] },
+  { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Fractals'] },
+  { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
 ];
 
 /**
@@ -37,7 +64,9 @@ export const CATEGORIES = [
  * cat (tab of the picker), count (default), min (fewest useful particles),
  * params (extra sliders), gen(n, params) -> [[x, y, z], ...]
  * Optional: label (short name under the picture), tags (extra search words),
- * tidy (the shape rounds "How many" to a count that fits its pattern).
+ * tidy (the shape rounds "How many" to a count that fits its pattern),
+ * sub (the heading it stands under in its tab), drop (how far it hangs below
+ * the -1..1 box: the tails of g, j, p, q and y).
  */
 const FIRST_SHAPES = [
   {
@@ -253,10 +282,52 @@ for (const s of FIRST_SHAPES) {
   if (SEARCH_WORDS[s.id]) s.tags = SEARCH_WORDS[s.id];
 }
 
-/** Every shape, grouped by tab in the order of CATEGORIES. */
+// Where the first pictures stand now that the tabs have headings: 'tab/Heading'
+// -> ids. Some moved to a tab that did not exist when they were drawn.
+const PLACES = {
+  'symbols/Arrows': 'arrow arrow-double arrow-turn chevrons',
+  'symbols/Signs': 'check xmark noentry peace yinyang lightning infinity spade club pentagram hexagram crosshair warning atom eye speech',
+  'symbols/Music': 'note notes',
+  'faces/Smileys': 'smiley sadface',
+  'faces/Characters': 'skull',
+  'nature/Sky and weather': 'sun moon cloud raindrop snowflake rainbow planet',
+  'nature/Plants': 'leaf tree pine flower tulip clover mushroom cactus',
+  'nature/Land and sea': 'flame mountain',
+  'animals/Pets and farm': 'cat paw rabbit',
+  'animals/Wild animals': 'bat',
+  'animals/Birds': 'bird',
+  'animals/Sea animals': 'fish',
+  'animals/Bugs': 'butterfly web',
+  'food/Fruit and vegetables': 'apple',
+  'things/Tools': 'pickaxe hammer key lock anchor',
+  'things/Weapons': 'sword shield bow',
+  'things/Treasure and magic': 'crown jewel potion',
+  'things/Games and sport': 'trophy flag',
+  'things/Music': 'bell',
+  'things/Home': 'umbrella bulb candle',
+  'things/Party and holidays': 'gift balloon ghost',
+  'travel/Vehicles': 'rocket boat',
+  'travel/Buildings': 'house castle',
+};
+
+/** Every shape, grouped by tab in the order of CATEGORIES, and by heading inside a tab. */
 export const SHAPES = (() => {
-  const all = [...FIRST_SHAPES, ...GEO_SHAPES, ...TEXT_SHAPES, ...ICON_SHAPES];
-  return CATEGORIES.flatMap((c) => all.filter((s) => s.cat === c.id));
+  const all = [
+    ...FIRST_SHAPES, ...GEO_SHAPES, ...TEXT_SHAPES, ...ICON_SHAPES,
+    ...FLAT_SHAPES, ...SOLID_SHAPES, ...CURVE_SHAPES, ...EFFECT_SHAPES,
+    ...SIGN_SHAPES, ...LIVING_SHAPES, ...STUFF_SHAPES, ...PIXEL_SHAPES,
+  ];
+  const byId = new Map(all.map((s) => [s.id, s]));
+  for (const [place, ids] of Object.entries(PLACES)) {
+    const [cat, sub] = place.split('/');
+    for (const id of ids.split(' ')) Object.assign(byId.get(id), { cat, sub });
+  }
+  return CATEGORIES.flatMap((c) => {
+    const mine = all.filter((s) => s.cat === c.id);
+    const stray = mine.find((s) => s.sub && !c.subs.includes(s.sub));
+    if (stray) throw new Error(`Shape ${stray.id}: the ${c.name} tab has no heading "${stray.sub}"`);
+    return [...mine.filter((s) => !s.sub), ...c.subs.flatMap((sub) => mine.filter((s) => s.sub === sub))];
+  });
 })();
 
 export const SHAPE_BY_ID = Object.fromEntries(SHAPES.map((s) => [s.id, s]));
@@ -271,32 +342,42 @@ export function defaultParams(shapeId) {
   return out;
 }
 
+// What the search looks through, per shape, made the first time something is typed.
+let lookup = null;
+function searchIndex() {
+  if (!lookup) {
+    lookup = SHAPES.map((s) => {
+      const name = s.name.toLowerCase();
+      const label = (s.label || '').toLowerCase();
+      const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${TAB_NAME[s.cat]} ${s.id}`;
+      return { name, label, all, parts: all.split(/[\s-]+/), words: name.split(' '), heading: (s.sub || '').toLowerCase() };
+    });
+  }
+  return lookup;
+}
+
 /**
  * Shapes that match what was typed into the search box, best match first.
  * Every word has to appear in the name, the sign ("A", "7", "?"), the search
- * words or the name of the tab.
+ * words, the name of the tab or the heading the shape stands under.
  */
 export function searchShapes(text) {
   const words = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const typed = words.join(' ');
   const found = [];
-  SHAPES.forEach((s, order) => {
-    const name = s.name.toLowerCase();
-    const label = (s.label || '').toLowerCase();
-    const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${TAB_NAME[s.cat]} ${s.id}`;
-    const parts = all.split(/[\s-]+/);
-    // a single letter has to start a word, or "a" would find nearly everything
-    if (!words.every((w) => (w.length > 1 ? all.includes(w) : parts.some((x) => x.startsWith(w))))) return;
+  searchIndex().forEach((x, order) => {
+    // a single letter has to start a word, or "a" would find nearly everything (and the headings do not count for it)
+    if (!words.every((w) => (w.length > 1 ? x.all.includes(w) || x.heading.includes(w) : x.parts.some((part) => part.startsWith(w))))) return;
     let rank = 5;
-    if (label === typed || name === typed) rank = 0;
-    else if (name.startsWith(typed)) rank = 1;
-    else if (name.split(' ').some((w) => w.startsWith(typed))) rank = 2;
-    else if (name.includes(typed)) rank = 3;
-    else if (parts.some((w) => w.startsWith(typed))) rank = 4;
-    found.push([rank, order, s]);
+    if (x.label === typed || x.name === typed) rank = 0;
+    else if (x.name.startsWith(typed)) rank = 1;
+    else if (x.words.some((w) => w.startsWith(typed))) rank = 2;
+    else if (x.name.includes(typed)) rank = 3;
+    else if (x.parts.some((w) => w.startsWith(typed))) rank = 4;
+    found.push([rank, order, SHAPES[order]]);
   });
-  return found.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((f) => f[2]);
+  return found.sort((p, q) => p[0] - q[0] || p[1] - q[1]).map((f) => f[2]);
 }
 
 export const MAX_COUNT = 600;

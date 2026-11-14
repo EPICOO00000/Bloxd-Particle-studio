@@ -1560,15 +1560,17 @@ function bindExamples() {
 // ------------------------------------------------------------------ start
 
 /** The little picture on a shape's button: the shape itself, as it comes when you add it. */
-function shapeIcon(shape) {
-  const px = 88;
-  const canvas = h('canvas', { width: px, height: px });
+function drawShapeIcon(canvas, shape) {
+  const px = canvas.width;
   const ctx = canvas.getContext('2d');
   const pts = shapePoints(shape.id, shape.count, defaultParams(shape.id));
   const solid = shape.group === 'solid';
-  const reach = solid ? 31 : 38; // 3D shapes are drawn turned, so they need room for their corners
+  // a letter with a tail (g, y) reaches below the box: the picture is made a little smaller and lifted, so the tail shows
+  const drop = shape.drop || 0;
+  const reach = (solid ? 31 : 38) / (1 + drop / 2); // 3D shapes are drawn turned, so they need room for their corners
   const dot = pts.length > 110 ? 3 : pts.length > 60 ? 4 : 5;
   const cy = Math.cos(0.6), sy = Math.sin(0.6), cx = Math.cos(0.45), sx = Math.sin(0.45);
+  const dy = shape.id === 'dome' ? 0.35 : -drop / 2;
   ctx.fillStyle = '#e8ecf5';
   for (const [x0, y0, z0] of pts) {
     let x = x0, y = y0;
@@ -1578,10 +1580,8 @@ function shapeIcon(shape) {
       x = x1;
       y = y0 * cx - z1 * sx;
     }
-    const dy = shape.id === 'dome' ? 0.35 : 0;
     ctx.fillRect(Math.round(px / 2 + x * reach - dot / 2), Math.round(px / 2 - (y - dy) * reach - dot / 2), dot, dot);
   }
-  return canvas;
 }
 
 function loadImage(src) {
@@ -1593,10 +1593,13 @@ function loadImage(src) {
   });
 }
 
+const SHOWN_AT_ONCE = 40; // about as many shape buttons as are in view without scrolling
+
 /**
- * The shape library: tabs, a search box and a grid of buttons. Only the shapes
- * on show are in the page; a button (and its picture) is made the first time
- * it is needed and kept.
+ * The shape library: tabs, a search box and a grid of buttons. Inside a tab the
+ * shapes stand under headings. Only the shapes on show are in the page; a button
+ * is made the first time it is needed and kept, and its picture is drawn when it
+ * first comes into view, so a long tab or a wide search stays quick.
  */
 function bindShapePicker() {
   const search = $('#shape-search');
@@ -1604,16 +1607,32 @@ function bindShapePicker() {
   const grid = $('#shapes');
   const hint = $('#shape-note');
   const made = new Map();
+  const blank = new Map(); // picture (canvas) -> its shape, until it is drawn
   let tab = CATEGORIES[0].id;
+
+  const draw = (canvas) => {
+    const shape = blank.get(canvas);
+    if (!shape) return;
+    blank.delete(canvas);
+    if (watch) watch.unobserve(canvas);
+    drawShapeIcon(canvas, shape);
+  };
+  const watch = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((seen) => { for (const e of seen) if (e.isIntersecting) draw(e.target); }, { root: grid, rootMargin: '260px 0px' })
+    : null;
 
   const button = (s) => {
     if (!made.has(s.id)) {
       // a soft hyphen lets "Dodecahedron" break as "Dodeca-hedron" on a narrow button
       const caption = (s.label || s.name).replace(/(\w{4})(hedron)/, '$1\u00AD$2');
+      const picture = h('canvas', { width: 88, height: 88 });
+      blank.set(picture, s);
+      if (watch) watch.observe(picture);
+      else draw(picture);
       made.set(s.id, h('button', {
         title: `${s.name}: ${s.count} particles`, 'aria-label': `Add ${s.name}`, 'data-shape': s.id,
         onclick: () => addObject(s.id),
-      }, shapeIcon(s), h('span', {}, caption)));
+      }, picture, h('span', {}, caption)));
     }
     return made.get(s.id);
   };
@@ -1626,7 +1645,20 @@ function bindShapePicker() {
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));
     }
-    grid.replaceChildren(...list.map(button));
+    const cells = [];
+    let under = '';
+    list.forEach((s, i) => {
+      // in a tab, a heading stands before the first shape of each kind (SHAPES is in that order)
+      if (!typed && (s.sub || '') !== under) {
+        under = s.sub || '';
+        const size = list.filter((x) => x.sub === under).length;
+        cells.push(h('h4', { class: 'shape-sub', 'aria-label': `${under}: ${size} shapes` }, under, h('small', {}, String(size))));
+      }
+      const b = button(s);
+      if (i < SHOWN_AT_ONCE) draw(b.firstChild); // what is in view at once has its picture straight away
+      cells.push(b);
+    });
+    grid.replaceChildren(...cells);
     grid.scrollTop = 0;
     hint.hidden = !typed;
     if (typed) {

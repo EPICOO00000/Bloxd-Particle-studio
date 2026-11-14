@@ -24,6 +24,7 @@ import { createParticle, frameAge } from './babylon-sim.mjs';
 import { sourceFiles, sourceHash } from '../tools/sources.mjs';
 import { dragonFile } from '../examples/dragon.mjs';
 import { examplesFile } from '../examples/build.mjs';
+import { shapeList, shapeTable } from '../tools/shape-list.mjs';
 import { EXAMPLES } from '../js/examples-data.js';
 import { fileURLToPath } from 'node:url';
 
@@ -32,14 +33,17 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 // ---------------------------------------------------------------- shapes
 
-// Shapes marked `tidy` (Filled square, Filled cube, Donut) pick the nearest count that fits their pattern.
+// Shapes marked `tidy` (Filled square, Filled cube, Donut, the pixel art) pick the nearest count that fits their pattern.
 
-test('there are 224 shapes, each made of dozens of particles, in nine tabs', () => {
-  assert.equal(SHAPES.length, 224);
+// A point of a shape stays in the box from -1 to 1. Only a letter with a tail (g, y) reaches below it, by its `drop`.
+const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v) && v <= 1.0001 && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
+
+test('there are 924 shapes, each made of dozens of particles, in 16 tabs', () => {
+  assert.equal(SHAPES.length, 924);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
   assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
   const tabs = CATEGORIES.map((c) => c.id);
-  assert.equal(tabs.length, 9);
+  assert.equal(tabs.length, 16);
   for (const tab of tabs) assert.ok(SHAPES.some((s) => s.cat === tab), `tab ${tab} is empty`);
   // the picker shows the shapes tab by tab, in this order
   assert.deepEqual([...new Set(SHAPES.map((s) => s.cat))], tabs);
@@ -52,6 +56,23 @@ test('there are 224 shapes, each made of dozens of particles, in nine tabs', () 
     for (const p of s.params || []) {
       assert.ok(p.min < p.max && p.step > 0 && p.default >= p.min && p.default <= p.max, `${s.id} slider ${p.key}`);
     }
+    if (s.drop !== undefined) assert.ok(s.cat === 'letters' && s.drop > 0 && s.drop < 1, `${s.id} drop ${s.drop}`);
+  }
+});
+
+test('inside a tab the shapes stand under its headings, in their order', () => {
+  for (const tab of CATEGORIES) {
+    const list = SHAPES.filter((s) => s.cat === tab.id);
+    assert.equal(new Set(tab.subs).size, tab.subs.length, `tab ${tab.id} lists a heading twice`);
+    for (const sub of tab.subs) assert.ok(list.some((s) => s.sub === sub), `tab ${tab.id} has nothing under "${sub}"`);
+    for (const s of list) assert.ok(!s.sub || tab.subs.includes(s.sub), `${s.id} is under "${s.sub}", which tab ${tab.id} does not list`);
+    // the shapes without a heading come first, then heading after heading: the picker relies on it
+    const order = list.map((s) => (s.sub ? tab.subs.indexOf(s.sub) : -1));
+    assert.deepEqual(order, order.slice().sort((a, b) => a - b), `tab ${tab.id} is not in the order of its headings`);
+  }
+  // the shapes there were before the headings are all still there
+  for (const id of ['line', 'heart', 'letter-a', 'digit-7', 'sign-question', 'smiley', 'cat', 'apple', 'rocket', 'house', 'rose', 'smoke']) {
+    assert.ok(SHAPES.some((s) => s.id === id), `${id} is gone`);
   }
 });
 
@@ -64,7 +85,7 @@ test('every shape gives the requested number of distinct, finite points', () => 
       else assert.equal(pts.length, want, `${s.id} n=${want}`);
       for (const p of pts) {
         assert.equal(p.length, 3);
-        for (const v of p) assert.ok(Number.isFinite(v) && Math.abs(v) <= 1.0001, `${s.id} n=${want} value ${v}`);
+        assert.ok(inBox(s, p), `${s.id} n=${want} point ${p}`);
         if (s.group === 'flat') assert.equal(p[2], 0, `${s.id} is flat but has depth`);
       }
     }
@@ -89,7 +110,7 @@ test('shape sliders stay valid across their whole range', () => {
       for (const n of [s.count, MAX_COUNT]) {
         const pts = shapePoints(s.id, n, params);
         assert.ok(pts.length >= 3, `${s.id} ${what}`);
-        for (const q of pts) for (const c of q) assert.ok(Number.isFinite(c) && Math.abs(c) <= 1.0001, `${s.id} ${what}: ${c}`);
+        for (const q of pts) assert.ok(inBox(s, q), `${s.id} ${what}: ${q}`);
       }
     }
   }
@@ -130,9 +151,48 @@ test('the first 24 shapes are exactly what they were', () => {
   }
 });
 
+// The same for the 200 shapes that came next, taken before the library grew to 924: "id:fingerprint".
+const EARLIER_SHAPES = `
+  rectangle:213a4a6e rounded:fab8a010 diamond:38c2b6db oval:5322e96a semicircle:448463c5 sector:9c49fea4 rings2:db25136d target:6bc5046f
+  righttri:74629b01 frame:07ae9bf2 zigzag:b763a77d squarewave:eb0e3d8d squarespiral:da3f00b6 stadium:eeca373a thickplus:cdb0627d net:55c6dbae
+  fill-polygon:9cac55f0 fill-star:d1ab920d fill-heart:ad5494a1 fill-ring:a5ccdef7 tetrahedron:ffa80890 octahedron:21ae543a dodecahedron:c2b68dec
+  icosahedron:dec498fc football:83b8dbc5 prism:d22fae51 crystal:d0e4fa93 gem:8bd423ac star3d:0791504b tesseract:853d034f stepped:6bb935e9 hut:b4ae5a4a
+  starprism:658cdca7 globe:b7477527 ringsphere:8042036d ball:3615d3c6 capsule:07730ff7 hourglass:880e83b1 vase:2f74bec8 goblet:d57214dd
+  saucer:46a2c2af letter-a:27fd7c7b letter-b:2a94cf54 letter-c:426d54a0 letter-d:2a8d7cfe letter-e:d89fc794 letter-f:474f61b8 letter-g:4731887e
+  letter-h:bbfe13ea letter-i:b5ac7e60 letter-j:7f29f09b letter-k:9d1b2216 letter-l:f2493a10 letter-m:4e52677f letter-n:5a8c9e08 letter-o:8483415f
+  letter-p:c04999de letter-q:d767d238 letter-r:f9cd24ad letter-s:836d5d8a letter-t:9e597f89 letter-u:804739f9 letter-v:c2f46459 letter-w:ec8d91ef
+  letter-x:5054d6e4 letter-y:9d2a89bd letter-z:73dac746 digit-0:d35eeb0c digit-1:06851f7e digit-2:7d3f36db digit-3:778f4236 digit-4:b5e06911
+  digit-5:5993b133 digit-6:4c916ce6 digit-7:d869481d digit-8:c020721f digit-9:f1c29384 sign-exclaim:6649815d sign-question:85534ddb sign-hash:0022c924
+  sign-at:612c5e9e sign-and:9fe89271 sign-percent:5d2cd128 sign-dollar:288230ca sign-euro:67634645 sign-equals:219c2613 sign-divide:f35e8aa6
+  arrow:a134b2c8 arrow-double:a9b88aa1 arrow-turn:64f5353c chevrons:873e9e19 check:45e653b2 xmark:3796c797 noentry:733f1bf8 peace:9b8ad2cd
+  yinyang:051c3469 smiley:49a8e60e sadface:d3185298 skull:9e0580cc lightning:b1366e6b note:1d948b4f notes:3b5e15cc infinity:7b6f98d9 spade:df6c40c1
+  club:de66bec1 pentagram:0ab64cdd hexagram:cb51103f crosshair:606101b0 warning:2a09e07e atom:89ba7009 eye:75fadcde speech:6b4c699a sun:0fade60c
+  moon:113fa1df cloud:aa43564e raindrop:fd4da2aa snowflake:c2fcd94d flame:f6d3a78f leaf:451f1674 tree:a2944dab pine:4257e21e flower:b19eb084
+  tulip:e30fbb36 clover:e750ffdd mushroom:5ac70ef5 cactus:93c6bb8e mountain:b215dee2 rainbow:805f13ec fish:7b1978a1 bird:132bd969 butterfly:c2429a7c
+  cat:f4b24521 paw:30b61219 rabbit:c733f794 web:719f5bed bat:fcfccffb planet:ad07622b house:dda6bf85 castle:a40b702d key:614b3d7a lock:a849e750
+  sword:24e3b914 shield:f369b755 crown:4db61249 flag:467968c9 bell:82998f7a gift:f4ebc404 balloon:791809a5 trophy:b8edc36e jewel:006a947a
+  rocket:c5d9f686 boat:5a2a89b1 anchor:ebb1237c umbrella:330da00b bulb:a69068e3 candle:4225d467 potion:e97fc3ad pickaxe:b13eb9a5 hammer:22e58b68
+  bow:cbca0415 apple:4f0f82eb ghost:a30443f6 rose:3b870912 lissajous:b89f91c5 spirograph:a277860f petalring:b82835b3 wavyring:0b9989e4
+  shellspiral:2f975a98 spiralarms:95b357dc bounce:fee85034 trefoil:c197a95f torusknot:7456ed51 globespiral:257ba2cc ballseam:d1e40f34 dna:dc790b10
+  strands:2e5bdb39 slinky:dc2bf362 springring:3c670454 mobius:fdf35ef9 smoke:1307049f firework:e597e93d fountain:d0875b5f galaxy:ef870177
+  whirlpool:1d3f6b7d portal:95efefe7 halo:90137f39 ripple:bc533bb5 cyclone:c209c50f gyro:72013b57 scatter:c0069fb9 flame3d:2e9fbdeb comet:6d5b59a9
+  pillar:0a777837 cage:37a5a8c7 crownring:06c7d277 wavehalo:d9fb68b8 spotlight:e1bd0a63 stairs:768c591e heart3d:c9d0f4b5 orbs:c8bb8c05
+`;
+
+test('the 200 shapes added after them are exactly what they were too', () => {
+  const pairs = EARLIER_SHAPES.trim().split(/\s+/).map((pair) => pair.split(':'));
+  assert.equal(pairs.length, 200);
+  for (const [id, expected] of pairs) {
+    const shape = SHAPES.find((s) => s.id === id);
+    assert.ok(shape, `${id} is gone`);
+    assert.equal(fingerprint(shape), expected, `${id} gives different points than before: old scenes would change`);
+  }
+});
+
 test('letters and pictures have no clumps of particles', () => {
-  const drawn = SHAPES.filter((s) => ['letters', 'numbers', 'symbols', 'nature', 'things'].includes(s.cat));
-  assert.equal(drawn.length, 121);
+  const tabs = ['letters', 'numbers', 'symbols', 'faces', 'nature', 'animals', 'food', 'things', 'travel', 'costume'];
+  const drawn = SHAPES.filter((s) => tabs.includes(s.cat));
+  assert.equal(drawn.length, 514);
   for (const s of drawn) {
     const pts = shapePoints(s.id, s.count, defaultParams(s.id));
     const nearest = pts.map((p, i) => Math.min(...pts.map((q, j) => (i === j ? Infinity : Math.hypot(p[0] - q[0], p[1] - q[1])))));
@@ -151,33 +211,45 @@ test('the search box finds shapes by name, sign and other words', () => {
   assert.deepEqual(ids('?'), ['sign-question']);
   assert.equal(ids('STAR')[0], 'star');
   assert.ok(ids('star').includes('pentagram'), 'search words count');
-  assert.deepEqual(ids('heart'), ['heart', 'fill-heart', 'heart3d']);
-  assert.deepEqual(ids('  music   note '), ['note', 'notes']);
-  assert.equal(ids('letter').length, 26);
-  assert.equal(ids('nature').length, SHAPES.filter((s) => s.cat === 'nature').length);
-  assert.ok(ids('x').length < 10, 'one letter only matches the start of a word');
+  // the shape of that very name first, then the others in the order of the tabs
+  assert.equal(ids('heart')[0], 'heart');
+  for (const id of ['fill-heart', 'heart-broken', 'px-heart', 'heart3d']) assert.ok(ids('heart').includes(id), `"heart" finds ${id}`);
+  assert.equal(ids('  music   note ')[0], 'note');
+  for (const id of ['notes', 'note-quarter', 'px-note']) assert.ok(ids('music note').includes(id), `"music note" finds ${id}`);
+  assert.deepEqual(ids('letter').slice(0, 26), [...'abcdefghijklmnopqrstuvwxyz'].map((c) => `letter-${c}`));
+  assert.ok(ids('letter').includes('small-g') && ids('letter').includes('envelope'), 'the name of the tab and search words count');
+  assert.deepEqual(ids('small letter g'), ['small-g']);
+  // the name of a tab finds the tab; a heading finds what stands under it, wherever that is
+  const tab = (id) => SHAPES.filter((s) => s.cat === id).map((s) => s.id);
+  const under = (sub) => SHAPES.filter((s) => s.sub === sub).map((s) => s.id);
+  assert.deepEqual(ids('pixel art'), tab('pixel'));
+  assert.deepEqual(ids('nature'), [...tab('nature'), ...under('Nature and food')]);
+  assert.deepEqual(ids('weapons'), under('Weapons'));
+  assert.equal(under('Weapons').length, 7);
+  for (const c of CATEGORIES) for (const sub of c.subs) for (const id of under(sub)) assert.ok(ids(sub).includes(id), `"${sub}" finds ${id}`);
+  assert.ok(ids('x').length < 20 && ids('x').includes('letter-x'), 'one letter only matches the start of a word');
   // every shape can be found by its own name, and comes first
   for (const s of SHAPES) assert.equal(ids(s.name)[0], s.id, `searching "${s.name}"`);
 });
 
-test('the README lists every shape', () => {
-  const readme = fs.readFileSync(new URL('README.md', root), 'utf8');
+test('the README and docs/shapes.md list every shape', () => {
+  const readme = fs.readFileSync(new URL('README.md', root), 'utf8').replace(/\r\n/g, '\n');
   assert.ok(readme.includes(`one of the ${SHAPES.length} shapes`), 'the number of shapes in "Make something"');
-  assert.ok(readme.includes(`There are ${SHAPES.length} shapes in nine tabs`), 'the number of shapes under "Shapes"');
-  for (const c of CATEGORIES) {
-    const list = SHAPES.filter((s) => s.cat === c.id);
-    const row = readme.split('\n').find((line) => line.startsWith(`| ${c.name} | `));
-    assert.ok(row, `the table has no row for ${c.name}`);
-    const [, , count, names] = row.split('|').map((cell) => cell.trim());
-    assert.equal(Number(count), list.length, `how many shapes the ${c.name} tab has`);
-    if (c.id === 'letters') assert.equal(names, 'A to Z');
-    else if (c.id === 'numbers') {
-      assert.ok(names.startsWith('0 to 9'));
-      for (const s of list.filter((x) => x.id.startsWith('sign-'))) assert.ok(names.includes(s.label), `${s.name} is missing`);
-    } else assert.deepEqual(names.split(', '), list.map((s) => s.name), `the ${c.name} row`);
+  assert.ok(readme.includes(`There are ${SHAPES.length} shapes in ${CATEGORIES.length} tabs`), 'the number of shapes under "Shapes"');
+  // one row per tab: how many shapes, and how many under each heading
+  for (const row of shapeTable().split('\n')) assert.ok(readme.includes(`${row}\n`), `the table of tabs wants this row ("node tools/shape-list.mjs" prints it): ${row}`);
+  for (const tab of CATEGORIES) {
+    const row = shapeTable().split('\n').find((line) => line.startsWith(`| ${tab.name} | `));
+    assert.ok(row.startsWith(`| ${tab.name} | ${SHAPES.filter((s) => s.cat === tab.id).length} | `), `the ${tab.name} row`);
+    for (const sub of tab.subs) assert.ok(row.includes(`${sub} ${SHAPES.filter((s) => s.cat === tab.id && s.sub === sub).length}`), `${sub} in the ${tab.name} row`);
   }
   const withSliders = SHAPES.filter((s) => (s.params || []).length > 0).length;
   assert.ok(readme.includes(`${withSliders} of them\nhave settings of their own`), `${withSliders} shapes have sliders of their own`);
+  // every shape by name
+  const list = fs.readFileSync(new URL('docs/shapes.md', root), 'utf8').replace(/\r\n/g, '\n');
+  assert.equal(list, shapeList(), 'docs/shapes.md is out of date: run "node tools/shape-list.mjs"');
+  for (const s of SHAPES) assert.ok(list.includes(s.name), `${s.name} is missing`);
+  assert.ok(readme.includes('(docs/shapes.md)'), 'the README links to the list');
 });
 
 test('junk shape input falls back safely', () => {
@@ -746,8 +818,13 @@ test('time: loading keeps timing and repairs what is broken', () => {
 });
 
 test('time: scenes without timing export exactly the code they always did', () => {
-  // Fingerprints of the code this scene gave before timing existed.
-  const scene = () => SHAPES.slice(0, 40).map((sh, i) => createObject(sh.id, {
+  // Fingerprints of the code this scene gave before timing existed. It is made of the 40 shapes that came
+  // first in the library then (the tabs have more shapes now, so they are named here).
+  const forty = [...SHAPES.filter((s) => s.cat === 'basic').slice(0, 34).map((s) => s.id), 'sphere', 'dome', 'cube', 'lattice', 'cylinder', 'cone'];
+  assert.equal(forty.join(' '), 'line circle disc arc square grid triangle polygon star heart cross rays spiral wave rectangle rounded diamond oval '
+    + 'semicircle sector rings2 target righttri frame zigzag squarewave squarespiral stadium thickplus net fill-polygon fill-star fill-heart fill-ring '
+    + 'sphere dome cube lattice cylinder cone');
+  const scene = () => forty.map((shape, i) => createObject(shape, {
     id: `o${i}`, pos: [i % 5 * 3 - 6, 1 + Math.floor(i / 5) * 3, (i % 3) * 2.5 - 2], rot: [i * 17, i * 31, i * 7],
     scale: [1 + (i % 3) * 0.5, 1, 0.75], texture: TEXTURES[i % TEXTURES.length], color: rgbToHex([i * 10 % 256, 255 - i * 6, (i * 53) % 256]),
     fade: i % 4 === 0, color2: i % 5 === 0 ? '#ffffff' : null, size2: i % 6 === 0 ? 0.8 : null, blend: i % 5,
