@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import * as THREE from '../vendor/three.module.min.js';
-import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from '../js/shapes.js';
+import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, shapeCaption, MAX_COUNT } from '../js/shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, HIDDEN_TEXELS, createObject, sanitizeScene, objectPoints, rotationMatrix,
   computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex, localPoints, posedPoints, poseAtTime, GHOST,
@@ -36,11 +36,13 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
 // Shapes marked `tidy` (Filled square, Filled cube, Donut, the pixel art) pick the nearest count that fits their pattern.
 
-// A point of a shape stays in the box from -1 to 1. Only a letter with a tail (g, y) reaches below it, by its `drop`.
-const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v) && v <= 1.0001 && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
+// A point of a shape stays in the box from -1 to 1. Only a letter with a tail (g, y) or a comma reaches below it, by
+// its `drop`, and only a capital letter with an accent (É) stands above it, by its `rise`.
+const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v)
+  && v <= 1.0001 + (axis === 1 ? shape.rise || 0 : 0) && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
 
-test('there are 924 shapes, each made of dozens of particles, in 16 tabs', () => {
-  assert.equal(SHAPES.length, 924);
+test('there are 1624 shapes, each made of dozens of particles, in 16 tabs', () => {
+  assert.equal(SHAPES.length, 1624);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
   assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
   const tabs = CATEGORIES.map((c) => c.id);
@@ -57,7 +59,8 @@ test('there are 924 shapes, each made of dozens of particles, in 16 tabs', () =>
     for (const p of s.params || []) {
       assert.ok(p.min < p.max && p.step > 0 && p.default >= p.min && p.default <= p.max, `${s.id} slider ${p.key}`);
     }
-    if (s.drop !== undefined) assert.ok(s.cat === 'letters' && s.drop > 0 && s.drop < 1, `${s.id} drop ${s.drop}`);
+    if (s.drop !== undefined) assert.ok((s.cat === 'letters' || s.cat === 'numbers') && s.drop > 0 && s.drop < 1, `${s.id} drop ${s.drop}`);
+    if (s.rise !== undefined) assert.ok(s.cat === 'letters' && s.rise > 0 && s.rise < 1, `${s.id} rise ${s.rise}`);
   }
 });
 
@@ -190,10 +193,121 @@ test('the 200 shapes added after them are exactly what they were too', () => {
   }
 });
 
+// And for the 700 shapes that came after those, taken before the library grew to 1624.
+const LATER_SHAPES = `
+  trapezoid:a165ff5a parallelogram:eb2c3adb egg:28eb6f73 lens:aab89a38 squircle:89439b50 reuleaux:17a1df2d lshape:dec93d70 tshape:a0f9e474
+  ushape:e80f749f arrowhead:5aaf63d6 arcband:2f325be7 corners:0faefd26 dashed-circle:dd5679e6 keyhole:7ecde1bc banner:15f3da8a splat:f86ce009
+  jagged:21f393fd compass-star:b58a48d4 star-polygon:eb2825f2 wheel:d9fe7348 crossed-square:2c468f57 circle-in-square:cd9613e8
+  square-in-circle:64a7271e triangle-in-circle:1e4402c4 star-in-circle:c87e73e5 two-circles:72136d31 three-circles:cd41da21 five-rings:f19b4078
+  nested-polygons:3ca51049 nested-hearts:a59473d6 fill-rectangle:b83a9d50 fill-diamond:5f30e5c2 fill-oval:4a70ae5c fill-semicircle:e3d4c8cb
+  fill-sector:5134e8fa fill-plus:e8f8b602 fill-moon:7d33eda2 fill-drop:01b5a5af fill-arrow:3574a34d fill-cloud:13e390db fill-lightning:d68de98a
+  dot-triangle:dcad9df4 dot-hexagon:891977f5 flat-scatter:e0f110c2 dashed-line:c287d7fe angle:ba26352e steps:38c74e09 sawtooth:d83b22c0
+  cuboid:e723ae0e cuboctahedron:1cbf8b44 star-octahedron:e9780771 spiky-ball:ebff8095 antiprism:85ba14ce bipyramid:66b0a831 frustum:4a08f9ca
+  wedge:9ad9231e plus3d:93ce8ea3 twisted-tower:f9792a93 corner-box:67003761 diamond-cube:e3af2b97 heart-block:d85be4a1 arrow-block:3e55936d
+  bolt-block:fcb40da1 ellipsoid:87b0e8ad egg3d:eb1068d0 drop3d:571a3c47 bowl:31302f32 tube:19a32129 barrel:dc2af40f rugby-ball:af79a5b1
+  beehive:b8f79fc2 ringed-planet:1f1af722 cloud3d:39c3e77b house3d:4632f9d6 round-tower:8e24b753 castle3d:0e000ad1 arch3d:a22147c2 bridge:994649e4
+  temple:3e67d685 lighthouse3d:5a96631b windmill3d:8d05f2e4 tipi:a14de838 igloo:8b61a8db obelisk:75f9df59 staircase:4ffd3393 geodesic:f2af38b1
+  onion-dome:866d6b58 chest3d:89a9e77a table:25408fa0 chair:cfd28bf5 lantern:8834a5c8 mug:ebc0bcb1 bottle3d:659e936b spinning-top:3d7b8b8d
+  bell3d:11222ce7 hot-air-balloon:05a0a217 rocket3d:73ca8240 ice-cream3d:8123ccca gift3d:a9467a6d dice:6b63cf0c drum:63e440dc wizard-hat3d:cd7fc6cb
+  top-hat3d:59ffd737 umbrella3d:9ee04258 cauldron:9911a6f0 gem-ring:d7373dce plane3d:d345982f bowling-pin:ecae1896 snowman3d:33f2eb7a tree3d:9bcee37e
+  pine3d:68310131 mushroom3d:a5e10bcc flower3d:d21d1d96 pumpkin3d:123a1f84 apple3d:0d923b24 sea-shell:171189aa butterfly3d:cbb73081
+  jellyfish3d:6528439f cactus3d:0fa5bc20 palm3d:549dc1c3 spider3d:4537f4c9 grass:f15ea169 bare-tree:f0314a78 small-a:2b12ab48 small-b:1a56ddec
+  small-c:982e1621 small-d:0d3f5fe5 small-e:22678a3a small-f:fc1b911b small-g:208a45c7 small-h:4034458b small-i:b4313845 small-j:dedfd50b
+  small-k:d7464a11 small-l:e1b2df20 small-m:4c82835d small-n:d6fa05ea small-o:8cf8183c small-p:e857d4da small-q:0925ad3e small-r:f8b672d7
+  small-s:f52d5e5a small-t:b34a57aa small-u:1af09edf small-v:80973f63 small-w:bb694568 small-x:978d6d54 small-y:79aaede9 small-z:7a17deb4
+  greek-alpha:d59d18cd greek-beta:ccfa56b2 greek-gamma:e00437da greek-delta:b7ee8720 greek-epsilon:adea779f greek-zeta:f88ede57 greek-eta:7af3ce6f
+  greek-theta:391ef89c greek-lambda:b6ca214f greek-mu:13ccca3f greek-xi:41c3cd13 greek-pi:d2a0e022 greek-rho:d68ae54c greek-sigma:f6e5554d
+  greek-tau:33aad719 greek-phi:7e9bc963 greek-psi:a8d17f67 greek-omega:f35deb7f greek-cap-gamma:a1dd5dc4 greek-cap-delta:72558b2d
+  greek-cap-lambda:837c7be7 greek-cap-xi:59de235b greek-cap-sigma:1524b5fc greek-cap-omega:36e2450f rune-fehu:86cef8e2 rune-uruz:55e2c68d
+  rune-thurisaz:1078e3fa rune-ansuz:31213bc1 rune-raido:e3673d79 rune-wunjo:769fa320 rune-hagalaz:1814e8fe rune-nauthiz:351894e6 rune-jera:1b828a61
+  rune-eihwaz:1935f84a rune-perthro:f557660a rune-algiz:d638b790 rune-sowilo:b3f9d8b1 rune-berkanan:4fc0cb15 rune-mannaz:fc3dd606 rune-laguz:8224132a
+  rune-dagaz:0d31b304 rune-othala:ad27732c rune-gar:ac5942c7 rune-os:1e65ae15 digital-0:e45f3278 digital-1:ca27f0e9 digital-2:2e1d6489
+  digital-3:42252624 digital-4:2c80316a digital-5:84a62d55 digital-6:d8e62f18 digital-7:098813e7 digital-8:cb5ce65c digital-9:609601de
+  sign-brackets:08e5d208 sign-square-brackets:35980d58 sign-curly-brackets:87ee079d sign-angle-brackets:0be6fc8c sign-copyright:a8fe6b68
+  sign-registered:5622cddc sign-paragraph:bb443312 sign-pound:e141999d sign-yen:d0ef130c sign-cent:c1ea7054 sign-rupee:cab8b7e8 sign-bitcoin:4316305f
+  sign-won:926d285c sign-plus-minus:7bc01b94 sign-not-equal:67e870a4 sign-approx:78961906 sign-less-equal:7eb3a995 sign-greater-equal:e2e904e8
+  sign-root:ba0f0409 sign-integral:5b79e099 sign-angle:2550777c sign-squared:46e8eec8 sign-half:8d237008 sign-quarter:593b3026
+  sign-three-quarters:b4eb8fb5 sign-tally:8c2b109b arrow-outline:81aa1149 arrow-curved:a7e9ecc6 arrow-uturn:f12527fc arrow-split:2d434888
+  arrows-four:037539b4 arrows-swap:8e073acc arrows-cycle:f7e3e294 arrow-trend:f25fc6cf pointer:9f4f5e5a power:b981ac1a radiation:8e2ecbad
+  signal:fc7403db play:7870b459 pause:12a932bc map-pin:9816e6ec female:04005ef0 male:291c08df ankh:084c7e4f star-crescent:31bdc228 battery:3cac1f16
+  magnifier:dc537daf stop-sign:113ab09d bullseye:2b280aac info:165cff10 medical:4cb6ca1d speaker:d3fbf1ed checkbox:62a7a6e5 scales:4cd078b8
+  heart-broken:bfcfeb32 heart-arrow:244909f6 hearts-two:4f73c9b6 heart-in-heart:968f7fa2 sparkle:746dd979 sparkles:4d7c7af0 shooting-star:5bb59c75
+  note-quarter:efee3cfd note-sixteenth:061fb617 notes-three:c7ab3957 treble-clef:081da3e9 bass-clef:bc3e94fd aries:42e0ff63 taurus:d9b7054c
+  gemini:c3ee151f cancer:876f8019 leo:82a51f16 virgo:1a2ecb8c libra:e5da07b2 scorpio:48fa0743 sagittarius:26e180cf capricorn:22cd286e
+  aquarius:74b9061f pisces:ee903c3f person:a04706a3 person-cheer:c006ffd2 person-run:40751f6c lips:ab4129eb bone:95236bdf thumbs-up:c817c707
+  hand:351d671c face-grin:253ee2ff face-wink:2bf85457 face-laugh:a55eeb1a face-surprised:19c99967 face-neutral:73ec41cd face-angry:64d6bbc3
+  face-cry:6f455bd9 face-love:08e51c61 face-cool:e51d4a9e face-tongue:04ff8d71 face-sleep:c140005a face-unsure:750f3119 face-dizzy:c058116d
+  face-star:5daedefc face-glasses:03c04541 face-scared:f6f1a91c face-moustache:ffb94542 face-angel:ab03afe2 face-devil:b5d5ef01 face-zip:df69fee7
+  skull-bones:58a4bed4 alien:2d8b34b3 robot-face:fd223f27 pumpkin-face:d544e4f1 ninja:1599ae69 pirate-face:cd6e7328 clown:d2dc09ef
+  mask-comedy:eb9efb85 mask-tragedy:ef1cd221 monster:18ff674e rain-cloud:c9302181 storm-cloud:370010cf snow-cloud:783265d9 twister:2abdf98b
+  wind:509881f4 sunrise:c6d66b56 full-moon:0c0a35ee constellation:96612c4f raindrops:e2c69384 stars-three:87309a3b rose-flower:ed9a1410
+  sunflower:51167cf1 wheat:3e7155c4 bamboo:b466bc52 sprout:e6293835 acorn:a7e7707d maple-leaf:10ee675f palm-tree:6d39bd9b apple-tree:72636b68
+  grass-blades:e5b82074 sea-wave:c89090b8 waves:ae5ff8e1 island:3bb92c96 scallop-shell:5d1e3f00 dog:8aa054a5 pig:a63807c7 mouse:5226b78b cow:1023a6ee
+  sheep:b92d4071 chick:2baa61fc duck:8ad6f2ed bear:b7a1eb6b panda:24fcef1b koala:9904a4f6 tiger:07f36b35 lion:c08febc5 fox:6ae9eea2 monkey:6bf54681
+  elephant:ab4e21d8 deer:9e6a82ef frog:b91691a9 snake:6861b6da turtle:c21f2abf hedgehog:6bb3ed0c owl:a97e94a2 penguin:fed7a41b swan:d75cb042
+  feather:d395ac02 whale:29d7e0e8 shark-fin:47427cef octopus:ddd0397e jellyfish:26940129 crab:c148b338 starfish:9d88bd3b fish-bones:ae4aadcb
+  bee:25470c9d ladybird:5255af92 spider:fa5eed93 ant:da9f1eee dragonfly:e24e1544 snail:84ee484b caterpillar:ab80514c dinosaur:adafd5a7
+  stegosaurus:7426b5c7 hatching-egg:50b390ff dragon-eye:91e7a114 sea-monster:14d6f16c pear:3b227613 cherries:5e3db2fb banana:ad6bc57b grapes:7e10f2a1
+  strawberry:095c8ee7 watermelon:cd001662 pineapple:fda05328 carrot:493ebe0a pumpkin:306560a8 chili:7081f2b2 avocado:93ce2520 pizza:d70ec07f
+  burger:7dfec1eb hot-dog:253ff000 fries:db68b0bb fried-egg:da07aca2 toast:9d096a4a cheese:bebb9e53 noodle-bowl:e1186cc4 fork-knife:db423b78
+  ice-cream:f4948f1a lollipop:237ef61f candy:1a9a0242 sprinkle-donut:dae76a1c cupcake:a59e401a birthday-cake:c5251f5a cookie:be6a7a55 teacup:d6abc971
+  juice:f9ad5598 cocktail:28e774f3 coffee-cup:868781d5 wrench:ec8a3ada screwdriver:e03cb0c5 saw:6a228deb shovel:c619244b magnet:c9303ff4
+  paint-brush:42bf8586 scissors:97f26c44 ladder:46560e42 bucket:e388b5c2 trident:b327cd6b bomb:0292d3ab battle-axe:90cc100b throwing-star:dc6e7a1c
+  magic-wand:977fd50f crystal-ball:360407bc open-book:37b6b88d coins:506ff8b9 money-bag:d553aa01 treasure-map:30a74597 basketball:2ad59a4b
+  tennis-ball:80a59e45 medal:9f7ef4a8 chess-pawn:2d85056a playing-card:b271f10b game-controller:950502af puzzle-piece:94b16331 kite:0f05b17d
+  skateboard:6dd01527 dumbbell:8652b0d0 guitar:9099373b trumpet:adda533a piano-keys:070d966e microphone:b5550c83 headphones:f29d4179 boombox:0efa7ce6
+  clock:a09a41da door:7186e9fd window:15c7302a bed:da05f0cf lamp:e58bcd64 television:5a74bfce laptop:78f253b0 phone:feac7533 envelope:f34b35e4
+  broom:f49dcf28 party-popper:2fa3660b bauble:baefd4fe snowman:827a2aa1 candy-cane:7a782da7 fireworks:505b9b75 easter-egg:8d74009c balloons:066ebf36
+  car:3cdc1192 bus:5a73008c truck:6264a131 bicycle:cbbd8d03 train:47117000 airplane:138c6a50 helicopter:22df2ba2 ship:06217353 submarine:54f029f5
+  ufo:9d81ef30 parachute:f175adef traffic-light:4807e024 ship-wheel:6bcd21b8 lighthouse:1532217a church:e3216c01 tent:08b70c6e windmill:b7699a57
+  city:239b5b72 pyramids:58fcb522 barn:18380445 factory:53e6f00c castle-tower:44d2e4ce shop:162e06e9 torii-gate:3277bbf5 ferris-wheel:94f3a29c
+  angel-wings:cd04f084 fairy-wings:281a6dff dragon-wings:6d06fbef top-hat:5f287a43 witch-hat:c92e557b party-hat:b1fd408d cap:8035cc0c
+  cowboy-hat:90ba151a knight-helmet:836f369b horns:08f6baec cat-ears:03ad6ed6 pirate-hat:2a48b500 chef-hat:f90cca03 t-shirt:41b431ea dress:2d33c00b
+  trousers:c15ed251 boot:ab2ef056 bow-tie:df02a100 glasses:28475305 mask:6471c863 cape:ae1b22bb mitten:0c3811e6 tie:e3c674a7 px-heart:c3a0066a
+  px-heart-empty:989757f6 px-star:990fc847 px-coin:6ad2a442 px-gem:ef856a3f px-key:cfb2735b px-lock:1d5209d4 px-sword:4e848300 px-shield:4aebb508
+  px-pickaxe:b4ff0d3d px-potion:e0a300d0 px-bomb:693f3800 px-chest:1ebf0d96 px-crown:f39aed95 px-trophy:604b65f7 px-flag:6763ebd0
+  px-hourglass:7b3a7b4a px-controller:c33a0e9d px-block-t:d23f215d px-block-l:2e143335 px-block-s:61dc3a41 px-bone:c4a50fa4 px-smiley:cd980e61
+  px-skull:1aac90ef px-ghost:da2344f8 px-alien:ece1ae51 px-slime:651741d0 px-robot:beb9b58a px-man:132e4ad6 px-cat:5ce9bb95 px-rabbit:f1f2ead5
+  px-penguin:7f251060 px-bird:ccf083a8 px-fish:186e0d67 px-butterfly:2a4fd2d8 px-snake:f0b6b730 px-frog:0426bfa0 px-dino:72247c50 px-bat:fa7ccf93
+  px-pumpkin:6915b00c px-snowman:b283a607 px-sun:d5aa0706 px-moon:7a0a1153 px-cloud:cfcb38ef px-bolt:795bfcc1 px-flame:3f12b368 px-drop:9644ea52
+  px-snowflake:756d8dc3 px-tree:19d9b157 px-pine:aa76d505 px-cactus:5b043c13 px-flower:19ca8897 px-mushroom:5a71b0ed px-apple:cb4758c2
+  px-cherry:80551c9b px-icecream:342cd32d px-arrow:df2a36c8 px-cursor:4e2f2b74 px-check:b1b1c7c7 px-cross:3f3002e3 px-question:41992df9
+  px-note:b7843b49 px-warning:9947d1c2 px-speech:4a528309 px-house:20a77d91 px-castle:38397fa1 px-rocket:8d9b20a7 px-ufo:dee899b3
+  px-spaceship:039f6ab2 px-car:0319658b limacon:592b6ccf astroid:7f3e184f butterfly-curve:c696ac8e fermat-spiral:e85307fb double-spiral:14119936
+  harmonograph:5eec5ffa loop-wave:39abb960 heartbeat:2f3a47f6 bell-curve:f69ee1d5 parabola:188a20af hyperbola:aef33f57 fading-wave:94ca6df9
+  wave-packet:799e4a82 string-art:078e3e4a fish-curve:a72d9933 star-knot:c7fed966 peanut-curve:964f1718 polygon-spiral:a6057196 whirl:1452dd8f
+  gear:421711b5 wavy-spiral:cbc7af38 circle-flower:04dd7aea viviani:74502507 eight-knot:16fad5e8 lissajous3d:28693ec8 borromean:85eca4e0
+  linked-rings:8194af06 lorenz:fd58a9e5 square-helix:f24a5db8 hourglass-spiral:6c430ae2 hilbert3d:e6790baa woven-tube:477c9c4a honeycomb:51caf9be
+  bricks:cbe4e460 triangle-grid:be415fb6 diamond-grid:aeec147f fish-scales:357d4199 wave-lines:35165bc4 checkerboard:7b6d0dc8 stripes:779884a5
+  chevron-pattern:deeb4330 plus-pattern:db8bb447 circle-pattern:fab98b13 weave:aa0eb09b truchet:ab9a777a greek-key:f19fcb39 chain-border:f2cccd2d
+  braid:ad72b627 scallop-border:962245e5 bunting:70281560 fence:bc88204f vine:1379e60e sierpinski:e67e094c koch:ac266c2a carpet:e7b3205b
+  cross-fractal:e62d761f dragon-curve:705917d0 hilbert:f35a18dc fractal-tree:3cfbe1d5 h-tree:1af32b3e fractal-fern:3391654a circle-packing:4c0eb76d
+  maze:2b67a794 magic-circle:fbd88624 rune-circle:1be3b07c summoning-circle:9ef8cd26 hexagram-seal:45aaeb19 alchemy-circle:60a1e73b
+  clock-circle:cb27bc60 sun-seal:ede79a1f moon-seal:c988f441 eye-seal:495e82ae compass-rose:ad5b5b9f octagram-seal:153b1cf4 triangle-seal:5ff358ee
+  flower-seal:06eccf05 teleport-pad:e2739e33 mandala:cb0e391f ring-tower:954dddd3 crossed-rings:ea739cb9 saw-ring:b20bf109 solar-system:ee66fd73
+  aura:0392598e force-field:d80a1b23 tunnel:8f88e307 gimbal:711ce843 atom3d:ce4760a7 lightning-strike:cadc6961 rain:53259186 water-surface:8c2b8059
+  ice-spikes:8205ae1b meteor-shower:d2164464 wind-gust:41562666 mushroom-cloud:2ae315fb cracks:490dde37 waterfall:fef4c220 big-wave:5c963187
+  volcano:a0a7f3e9 campfire:c0ab4b16 aurora:eaab9b8e floating-hearts:7a80fcf3 floating-stars:6b88eb97 sparkle-cloud:a9f5e4da bubbles:00351cf9
+  floating-notes:5ba2d982 confetti:c4c98575 falling-snow:d3bcde64 zzz:839c50ab dizzy-stars:c8e2e662 rising-arrows:605cbcfc healing-pluses:79295d66
+  falling-leaves:447488b0 sparks:f30c344c bird-flock:7333c993
+`;
+
+test('the 700 shapes added after those are exactly what they were as well', () => {
+  const pairs = LATER_SHAPES.trim().split(/\s+/).map((pair) => pair.split(':'));
+  assert.equal(pairs.length, 700);
+  const before = new Set([...Object.keys(FIRST_SHAPES), ...EARLIER_SHAPES.trim().split(/\s+/).map((pair) => pair.split(':')[0])]);
+  for (const [id, expected] of pairs) {
+    assert.ok(!before.has(id), `${id} is listed twice`);
+    const shape = SHAPES.find((s) => s.id === id);
+    assert.ok(shape, `${id} is gone`);
+    assert.equal(fingerprint(shape), expected, `${id} gives different points than before: old scenes would change`);
+  }
+});
+
 test('letters and pictures have no clumps of particles', () => {
   const tabs = ['letters', 'numbers', 'symbols', 'faces', 'nature', 'animals', 'food', 'things', 'travel', 'costume'];
   const drawn = SHAPES.filter((s) => tabs.includes(s.cat));
-  assert.equal(drawn.length, 514);
+  assert.equal(drawn.length, 977);
   for (const s of drawn) {
     const pts = shapePoints(s.id, s.count, defaultParams(s.id));
     const nearest = pts.map((p, i) => Math.min(...pts.map((q, j) => (i === j ? Infinity : Math.hypot(p[0] - q[0], p[1] - q[1])))));
@@ -220,23 +334,50 @@ test('the search box finds shapes by name, sign and other words', () => {
   assert.deepEqual(ids('letter').slice(0, 26), [...'abcdefghijklmnopqrstuvwxyz'].map((c) => `letter-${c}`));
   assert.ok(ids('letter').includes('small-g') && ids('letter').includes('envelope'), 'the name of the tab and search words count');
   assert.deepEqual(ids('small letter g'), ['small-g']);
+  // a letter with an accent is found by typing it, the capital first; so are the other signs
+  assert.deepEqual(ids('é'), ['letter-eacute', 'small-eacute']);
+  assert.deepEqual(ids('É'), ['letter-eacute', 'small-eacute']);
+  assert.deepEqual(ids('ß'), ['small-szlig']);
+  assert.deepEqual(ids('Ω'), ['greek-omega', 'greek-cap-omega']);
+  assert.deepEqual(ids(';'), ['sign-semicolon']);
+  assert.deepEqual(ids('xii'), ['roman-12']);
+  assert.deepEqual(ids('6'), ['digit-6', 'digital-6', 'px-digit-6', 'roman-6', 'dice-6']);
   // the name of a tab finds the tab; a heading finds what stands under it, wherever that is
   const tab = (id) => SHAPES.filter((s) => s.cat === id).map((s) => s.id);
   const under = (sub) => SHAPES.filter((s) => s.sub === sub).map((s) => s.id);
   assert.deepEqual(ids('pixel art'), tab('pixel'));
   assert.deepEqual(ids('nature'), [...tab('nature'), ...under('Nature and food')]);
   assert.deepEqual(ids('weapons'), under('Weapons'));
-  assert.equal(under('Weapons').length, 7);
+  assert.equal(under('Weapons').length, 18);
   for (const c of CATEGORIES) for (const sub of c.subs) for (const id of under(sub)) assert.ok(ids(sub).includes(id), `"${sub}" finds ${id}`);
   assert.ok(ids('x').length < 20 && ids('x').includes('letter-x'), 'one letter only matches the start of a word');
   // every shape can be found by its own name, and comes first
   for (const s of SHAPES) assert.equal(ids(s.name)[0], s.id, `searching "${s.name}"`);
 });
 
+test('a long word under a picture has a place to break', () => {
+  const soft = '\u00AD';
+  for (const s of SHAPES) {
+    const caption = shapeCaption(s);
+    assert.equal(caption.split(soft).join(''), s.label || s.name, `${s.id}: the caption is the sign or the name`);
+    for (const word of caption.split(/[\s-]+/)) {
+      const parts = word.split(soft);
+      assert.ok(parts.length <= 2 && parts.every((part) => part.length >= 3 || parts.length === 1), `${s.id}: "${word}" breaks into ${parts.join(' + ')}`);
+      // nine letters do not fit on a button of the narrowest panel: such a word names where it may break
+      if (/^[A-Za-z]{9,}$/.test(parts.join(''))) assert.equal(parts.length, 2, `"${word}" (${s.id}) is long: give it a place to break in BREAKS in js/shapes.js`);
+      assert.ok(parts.every((part) => part.length <= 9), `${s.id}: "${word}" has a part of more than 9 letters`);
+    }
+  }
+  assert.equal(shapeCaption(SHAPES.find((s) => s.id === 'dodecahedron')), `Dodeca${soft}hedron`);
+  assert.equal(shapeCaption(SHAPES.find((s) => s.id === 'px-microphone')), `Pixel micro${soft}phone`);
+  assert.equal(shapeCaption(SHAPES.find((s) => s.id === 'letter-eacute')), 'É');
+});
+
 test('the README and docs/shapes.md list every shape', () => {
   const readme = fs.readFileSync(new URL('README.md', root), 'utf8').replace(/\r\n/g, '\n');
   assert.ok(readme.includes(`one of the ${SHAPES.length} shapes`), 'the number of shapes in "Make something"');
   assert.ok(readme.includes(`There are ${SHAPES.length} shapes in ${CATEGORIES.length} tabs`), 'the number of shapes under "Shapes"');
+  assert.ok(readme.includes(`[All ${SHAPES.length} shapes by name](docs/shapes.md)`), 'the number of shapes in the link to the list');
   // one row per tab: how many shapes, and how many under each heading
   for (const row of shapeTable().split('\n')) assert.ok(readme.includes(`${row}\n`), `the table of tabs wants this row ("node tools/shape-list.mjs" prints it): ${row}`);
   for (const tab of CATEGORIES) {

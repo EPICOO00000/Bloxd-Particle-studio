@@ -964,10 +964,11 @@ export function blobPoints(balls, n) {
  * count (default "How many") and min (fewest particles: one per corner) are
  * measured from the drawing the first time they are needed, unless given.
  * sub is the heading it stands under in its tab; drop is how far it may hang
- * below the box (small letters with a tail).
+ * below the box (small letters with a tail) and rise how far it may stand above
+ * it (the accent on a capital letter).
  */
 export function drawnShape({
-  id, name, cat, draw, params, box = null, turn = 0, lift, group = 'flat', count, min, label, tags, spacing = 0.13, sub, drop,
+  id, name, cat, draw, params, box = null, turn = 0, lift, group = 'flat', count, min, label, tags, spacing = 0.13, sub, drop, rise,
 }) {
   const keys = (params || []).map((p) => p.key);
   const build = memo((...values) => {
@@ -993,6 +994,7 @@ export function drawnShape({
   if (tags) shape.tags = tags;
   if (sub) shape.sub = sub;
   if (drop) shape.drop = drop;
+  if (rise) shape.rise = rise;
   Object.defineProperty(shape, 'min', { enumerable: true, get: () => min ?? measure().min });
   Object.defineProperty(shape, 'count', { enumerable: true, get: () => count ?? measure().count });
   return shape;

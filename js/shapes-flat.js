@@ -441,7 +441,7 @@ const pattern = (sub, id, name, draw, extra = {}) => drawnShape({ id, name, cat:
 const picture = (polys) => ({ polys, dots: [] });
 
 /** A straight line through the -1..1 square: `offset` from the middle, turned by `angle` degrees. */
-function across(offset, angle) {
+export function across(offset, angle) {
   const dx = Math.cos(angle * RAD);
   const dy = Math.sin(angle * RAD);
   const ox = -dy * offset;

@@ -8,7 +8,7 @@ import {
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
 
 /** A closed flat curve t -> [x, y] (t from 0 to 1) as a drawing. */
-function loop(fn, samples = 360) {
+export function loop(fn, samples = 360) {
   const poly = Array.from({ length: samples }, (_, i) => fn(i / samples));
   poly.push(poly[0]);
   return { polys: [poly], dots: [] };
