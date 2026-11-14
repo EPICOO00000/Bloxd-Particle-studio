@@ -172,30 +172,73 @@ input[type="color"] {
 
 .stage { position: relative; min-width: 0; min-height: 0; container-type: inline-size; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-/* the buttons that open and close the panels: in the corners of the 3D view, next to where their panel is */
-.docks { position: absolute; z-index: 3; display: flex; gap: 6px; }
-.docks-left { top: 10px; left: 10px; }
-.docks-right { top: 10px; right: 10px; }
-.docks-bottom { bottom: 8px; right: 10px; }
-.dock { padding: 5px 12px; border-radius: 999px; background: #1b2233eb; border-color: var(--line); box-shadow: 0 2px 8px #0005; }
-.dock:hover { background: var(--panel-2); border-color: #55617f; }
-/* open: marked the way the selected row of a list is */
-.dock[aria-pressed="true"] { background: #2d3d5e; border-color: var(--accent); color: #fff; }
-.dock[aria-pressed="true"]:hover { background: #35486f; }
+/*
+ * The buttons that open and close the panels: in the corners of the 3D view,
+ * next to where their panel is. They are the way to everything else, so each
+ * has a bright colour of its own and stands out like a key of a keyboard:
+ * raised while its panel is shut, pressed in while it is open.
+ *   --c the colour   --ink the writing on it   --edge its side, seen while raised
+ *   --well and --glow: pressed in, the dark it sinks into and the writing there
+ * The colours keep away from blue, which both backgrounds of the 3D view are
+ * (dark, or the sky), and the thin dark line around a raised one keeps its
+ * outline on the sky.
+ */
+.docks { position: absolute; z-index: 3; display: flex; gap: 8px; }
+.docks-left { top: 12px; left: 12px; }
+.docks-right { top: 12px; right: 12px; }
+.docks-bottom { bottom: 14px; right: 12px; }
+.dock {
+  --c: #6aa8ff; --ink: #061f45; --edge: #2f6fd0; --well: #14274a; --glow: #a9cbff;
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 15px 7px 12px;
+  font-size: 15px; font-weight: 700; line-height: 20px; color: var(--ink);
+  background: var(--c); border: 2px solid var(--c); border-radius: 999px;
+  box-shadow: 0 0 0 1px #0a0f1a59, 0 3px 0 var(--edge), 0 7px 14px #0008;
+  transition: transform 0.08s ease-out, box-shadow 0.08s ease-out, filter 0.12s;
+}
+#show-add { --c: #4ddb6a; --ink: #06260f; --edge: #1f9a3d; --well: #10331c; --glow: #8cf0a3; }
+#show-scene { --c: #ffd24a; --ink: #2e1d00; --edge: #c08a0c; --well: #3a2c0a; --glow: #ffe08a; }
+#show-settings { --c: #d08aff; --ink: #270a40; --edge: #8f46cf; --well: #2e1b47; --glow: #e2b8ff; }
+#show-timeline { --c: #ff7b6e; --ink: #2e0803; --edge: #c4443a; --well: #401512; --glow: #ffb3aa; }
+/* their little pictures: drawn as lines in the colour of the writing (.knob: a filled dot) */
+.dock-icon { flex: none; width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.dock-icon .knob { fill: currentColor; stroke: none; }
+.dock:hover { border-color: var(--c); } /* (not the blue that other buttons get) */
+/* under the mouse: lifted, with a white rim (not on touch screens, where it would stay after a tap) */
+@media (hover: hover) {
+  .dock:hover { border-color: #fff; filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 0 0 1px #0a0f1a59, 0 4px 0 var(--edge), 0 9px 16px #0008; }
+  .dock[aria-pressed="true"]:hover { border-color: #fff; filter: brightness(1.15); transform: translateY(3px); box-shadow: inset 0 2px 6px #000a; }
+}
+.dock:active { transform: translateY(2px); box-shadow: 0 0 0 1px #0a0f1a59, 0 1px 0 var(--edge), 0 3px 8px #0008; }
+.dock:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+/* open: pressed in, down by the height of its side */
+.dock[aria-pressed="true"] {
+  color: var(--glow); background: var(--well); border-color: var(--c);
+  transform: translateY(3px); box-shadow: inset 0 2px 6px #000a;
+}
+/* a 3D view narrower than a small phone: the three at the top still fit side by side */
+@container (max-width: 349px) {
+  .docks { gap: 6px; }
+  .docks-left { left: 8px; }
+  .docks-right, .docks-bottom { right: 8px; }
+  .dock { gap: 5px; padding: 6px 10px 6px 8px; font-size: 14px; }
+}
+/* the line about the mouse: beside the button in the corner, and shorter where the 3D view is narrow */
 .hint {
-  position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 124px); color: #dfe5f3; font-size: 12px;
+  position: absolute; left: 10px; bottom: 11px; max-width: calc(100% - 154px); color: #dfe5f3; font-size: 12px;
   pointer-events: none; background: #0d111cb8; border-radius: 6px; padding: 3px 8px;
 }
+@container (max-width: 779px) { .hint-more { display: none; } }
 /* (under the buttons in the corners, and between them where the 3D view is wide enough) */
 .playing {
-  position: absolute; top: 48px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  position: absolute; top: 62px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   background: #000a; border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; pointer-events: none;
 }
-@container (min-width: 700px) { .playing { top: 10px; } }
+@container (min-width: 820px) { .playing { top: 16px; } }
 /* a 3D view as narrow as a phone: no room for the line about the mouse (and a phone has none) */
-@container (max-width: 559px) { .hint { display: none; } }
+@container (max-width: 599px) { .hint { display: none; } }
+/* (in the middle, as wide as its words, with no lone last word, and above the button in the corner) */
 .toast {
-  position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: calc(100% - 24px);
+  position: absolute; left: 12px; right: 12px; bottom: 64px; width: fit-content; max-width: 720px; margin: 0 auto; text-wrap: pretty;
   background: #0d111cf2; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px;
   padding: 7px 12px; pointer-events: none; text-align: center;
 }
