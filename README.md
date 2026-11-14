@@ -7,7 +7,7 @@ world. A timeline sets when each of them appears, where it moves and when it
 goes away. Groups move many objects as one, ready-made moves such as Flap, Spin
 and Orbit do the animating for you, and three examples show what is possible.
 
-![The studio: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
+![The studio with its panels open: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
 
 This is an unofficial fan tool. It is not made, approved or supported by Bloxd.
 
@@ -28,27 +28,41 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. **Add** a single particle or one of the 224 shapes from the left panel.
-   Pick a tab, or type in the search box. Or start from one of the
+1. Press **+ Add** and pick a single particle or one of the 224 shapes. Pick a
+   tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
    Resize in the top bar.
-3. **Style** it on the right: texture, colour, size, how many particles.
-4. Use the **timeline** at the bottom to make it appear later, move or go away
-   sooner. See [Timing](#timing).
+3. Press **Settings** to style it: texture, colour, size, how many particles.
+4. Press **Timeline** to make it appear later, move or go away sooner. See
+   [Timing](#timing).
 5. Press **Play** to see what happens after the click.
 6. Press **Export code**.
 
 The crate in the middle is your code block. One grid square is one block, and
 everything shows up in the game where you see it around the crate.
 
+**The 3D view has the whole window.** The rest of the studio is shut until you
+ask for it. Four buttons in the corners of the 3D view open and close its
+parts, and the 3D view makes room for what is open:
+
+| Button | Opens | Key |
+|---|---|---|
+| **+ Add** | Single particle and the shapes, on the left | 1 |
+| **Scene** | The list of everything in the scene, on the left | 2 |
+| **Settings** | The settings of what is selected, on the right | 3 |
+| **Timeline** | When things appear and how they move, at the bottom | 4 |
+
+Press a button again to close its part. The studio remembers which parts you
+keep open. Nothing opens by itself: clicking an object selects it, and
+Settings shows it when you open that.
+
 **Categories.** The settings on the right are sorted into categories: Look,
 Shape, Place, Time and repeat, Keys, Ready-made moves, Motion, Group and
 mirror. Click the name of a category to open or close it. A closed one still
 says in a few words what is in it, and the studio remembers which ones you keep
-open. "Add" and "Scene" on the left close the same way. The two share the
-height of the panel and the scene list scrolls by itself; close one and the
-other gets the whole panel.
+open. Add and Scene share the height of the left panel when both are open,
+and the scene list scrolls by itself.
 
 Your scene is kept in the browser between visits. **Save** writes it to a file
 and **Open** loads one, so you can keep several scenes or share them.
@@ -81,9 +95,10 @@ next free place in a row, so the letters line up by themselves.
 
 ### Timing
 
-The timeline at the bottom shows time from left to right, in seconds after the
-click on the code block. Every object and every group has a row. Its bar starts
-when the object appears and ends when it is gone.
+The timeline (press **Timeline**, at the bottom right of the 3D view) shows
+time from left to right, in seconds after the click on the code block. Every
+object and every group has a row. Its bar starts when the object appears and
+ends when it is gone.
 
 | To | Do this |
 |---|---|
@@ -279,6 +294,7 @@ for **Open**.
 | K | Add a key at the time marker |
 | Left, Right | Move the time marker by 0.05 seconds, with Shift by 1 second |
 | Escape or Home | Back to the start. Escape also deselects and closes the export window |
+| 1, 2, 3, 4 | Open or close Add, Scene, Settings, Timeline |
 
 Mouse: drag to look around, right-drag to slide, wheel to zoom.
 

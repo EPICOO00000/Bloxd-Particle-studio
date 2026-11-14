@@ -22,7 +22,7 @@ import { EXAMPLES } from './examples-data.js';
 import { createViewport } from './viewport.js';
 import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
-import { $, h, clone, round, selectOnEntry, category, wireCategory } from './ui.js';
+import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.js';
 
 const STORE = 'bloxd-particle-studio.v1';
 const MANY_PARTICLES = 600; // above this one click may lag slower devices
@@ -1017,6 +1017,7 @@ const KEYBOARD = [
   ['Ctrl+G', 'group what is selected'], ['Ctrl+Shift+G', 'take the group apart'], ['Ctrl+D', 'duplicate'], ['Delete', 'delete'],
   ['Ctrl+Z, Ctrl+Y', 'undo, redo'], ['Space', 'play or pause'], ['K', 'add a key at the time marker'],
   ['Left, Right', 'move the time marker (Shift: a whole second)'], ['Esc', 'back to the start, then select nothing'], ['F', 'center the view'],
+  ['1, 2, 3, 4', 'open or close Add, Scene, Settings, Timeline'],
 ];
 
 function nothingSelected() {
@@ -1024,9 +1025,10 @@ function nothingSelected() {
     h('div', { class: 'ins-head' },
       h('h2', {}, 'How it works'),
       h('ol', { class: 'steps' },
-        h('li', {}, h('b', {}, 'Add'), ' a particle or a shape on the left. Or open one of the ', h('b', {}, 'Examples'), ' at the top.'),
+        h('li', {}, 'Press ', h('b', {}, '+ Add'), ' and pick a particle or a shape. Or open one of the ', h('b', {}, 'Examples'), ' at the top.'),
         h('li', {}, h('b', {}, 'Click'), ' it in the 3D view and drag the arrows to move it. Its settings appear here, in categories that open when you click them.'),
-        h('li', {}, h('b', {}, 'Export code'), ', paste it into a code block in Bloxd and click the block.'))),
+        h('li', {}, h('b', {}, 'Export code'), ', paste it into a code block in Bloxd and click the block.')),
+      note('The buttons in the corners of the 3D view open and close the parts of the page: + Add, Scene, Settings and Timeline. Shut, they leave the whole window to the 3D view.')),
     category('show', 'Whole show', [
       row('Lasts', withUnit(numberOnEnter({
         get: duration, apply: stretchShow, min: 0.1, max: 6000, label: 'Seconds the whole show lasts',
@@ -1036,7 +1038,7 @@ function nothingSelected() {
     ], { summary: liveNote(() => `${round(duration(), 1)} s`, 'span') }),
     category('tips', 'Tips', [
       note('The crate in the middle is your code block. Everything appears in the game exactly where you see it around the block. One grid square is one block. Y is up.'),
-      note(h('b', {}, 'Timing: '), 'drag the bar of an object on the timeline to make it appear later. To make it move: click it, click a later time on the row of numbers, press Add key and move it.'),
+      note(h('b', {}, 'Timing: '), 'open the Timeline and drag the bar of an object to make it appear later. To make it move: click it, click a later time on the row of numbers, press Add key and move it.'),
       note(h('b', {}, 'Groups: '), 'select several objects (Ctrl+click), press Group, and they move, turn and resize as one. A wing is a group; so is a whole dragon.'),
       note(h('b', {}, 'Ready-made moves: '), 'Flap, Pulse, Spin, Orbit and more work out the keys for you. Select something and open that category.'),
       note(h('b', {}, 'Repeat: '), 'under Time, an object or a whole group can be played again and again, for fire, smoke or rain.'),
@@ -1147,7 +1149,7 @@ function placeHint(node) {
 function keysHint(node) {
   const group = isGroup(node);
   if (!node.keys.length) {
-    return `No keys: ${group ? 'the group' : 'it'} stays in one place. To make it move, put the time marker of the timeline at a later moment, press Add key and move it. Or pick a ready-made move below.`;
+    return `No keys: ${group ? 'the group' : 'it'} stays in one place. To make it move, open the Timeline, put the time marker at a later moment, press Add key and move it. Or pick a ready-made move below.`;
   }
   const tr = tree();
   const rough = tr.leavesOf(node).map((leaf) => planOf(leaf, tr.playsOf(leaf)[0]).rough).find(Boolean) || '';
@@ -1725,9 +1727,77 @@ function bindTimeline() {
   renderTimeline();
 }
 
+// ------------------------------------------------------------------ panels
+
+/**
+ * The big parts of the page stay shut until their button is pressed, so the 3D
+ * view has the window to itself. The buttons sit in the corners of the 3D view;
+ * the page remembers which parts are open. `within`: the two parts on the left
+ * share one panel, which is there while one of them is open.
+ */
+const PANELS = [
+  { id: 'add', key: '1', el: '#cat-add', button: '#show-add', within: '#left' },
+  { id: 'scene', key: '2', el: '#cat-scene', button: '#show-scene', within: '#left' },
+  { id: 'settings', key: '3', el: '#inspector', button: '#show-settings' },
+  { id: 'timeline', key: '4', el: '#timeline', button: '#show-timeline' },
+];
+const shown = Object.fromEntries(PANELS.map((p) => [p.id, recall(`panel.${p.id}`, false)]));
+
+/** Make the page look the way `shown` says. */
+function applyPanels() {
+  for (const panel of PANELS) {
+    const on = shown[panel.id];
+    const el = $(panel.el);
+    el.hidden = !on;
+    if (panel.within) {
+      el.classList.toggle('open', on);
+      $(panel.within).hidden = !PANELS.some((p) => p.within === panel.within && shown[p.id]);
+    }
+    $(panel.button).setAttribute('aria-pressed', String(on));
+  }
+  // nothing open: on a small screen the 3D view takes the whole height
+  document.body.classList.toggle('bare', !PANELS.some((p) => shown[p.id]));
+}
+
+/** Open or close a part of the page (no `on`: the other way round). */
+function showPanel(id, on = !shown[id]) {
+  const panel = PANELS.find((p) => p.id === id);
+  if (!panel || shown[id] === on) return;
+  shown[id] = on;
+  keep(`panel.${id}`, on);
+  applyPanels();
+  if (id === 'timeline') keyPressed = false; // (Delete is for what can be seen: not for a key clicked before the timeline went)
+  if (!on) return;
+  // what could not be laid out while it was out of sight
+  if (id === 'timeline' && timeline) timeline.reveal();
+  if (id === 'scene') showSelectedRow();
+  // one column on a small screen: the part that opened may be below the edge
+  if (window.matchMedia('(max-width: 900px)').matches) $(panel.el).scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * The panel a pressed key stands for. By the place of the key as well as by
+ * what it types: on a French keyboard the keys with 1 to 4 on them type & é " '
+ * unless Shift is held.
+ */
+function panelOfKey(e) {
+  const digit = /^Digit\d$/.test(e.code) ? e.code.slice(5) : e.key;
+  return PANELS.find((p) => p.key === digit) || null;
+}
+
+function bindPanels() {
+  for (const panel of PANELS) {
+    const button = $(panel.button);
+    button.onclick = () => { showPanel(panel.id); button.blur(); }; // (the keyboard goes back to the shortcuts)
+    // the heading of a part on the left closes it again
+    const head = panel.within ? $(panel.el).querySelector('.cat-head') : null;
+    if (head) head.onclick = () => showPanel(panel.id, false);
+  }
+  applyPanels();
+}
+
 function bindUi() {
-  wireCategory($('#cat-add'), true);
-  wireCategory($('#cat-scene'), true);
+  bindPanels();
   bindShapePicker();
   const closeExamples = bindExamples();
   $('#add-point').onclick = () => addObject('point');
@@ -1817,6 +1887,7 @@ function bindUi() {
         if (!deleteKeyHere()) toast('No key under the time marker. To delete the whole object, click it first.');
       } else if (state.selection.length) { e.preventDefault(); removeSelected(); }
     }
+    else if (panelOfKey(e)) showPanel(panelOfKey(e).id);
     else if (key === 'w') setMode('translate');
     else if (key === 'e') setMode('rotate');
     else if (key === 'r') setMode('scale');
@@ -1867,10 +1938,16 @@ async function start() {
   viewport.setTheme(state.sky ? 'sky' : 'dark');
   refresh();
   updateStats();
+  // the first time: where everything is
+  if (!recall('welcomed')) {
+    keep('welcomed', true);
+    toast('The buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
+  }
   // Handy in the console and for tests. After changing studio.state by hand, call studio.redraw().
   window.studio = {
     state, viewport, timeline, generateCode, select, addObject, seek, examples: EXAMPLES, openExample,
     redraw: () => { commit(); renderInspector(); refresh(); },
+    showPanel, panels: () => ({ ...shown }),
   };
 }
 

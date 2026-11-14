@@ -1907,6 +1907,17 @@ test('the page fits together: every import exists, and so does every element the
   // the timeline's name column has one width, known to the script and the style sheet
   const css = fs.readFileSync(new URL('css/style.css', root), 'utf8');
   assert.equal(Number(/const NAMES = (\d+);/.exec(source['timeline.js'])[1]), Number(/--names: (\d+)px/.exec(css)[1]));
+  // the big parts are shut in the page as it comes (so nothing shows and goes away while it loads),
+  // and each has the button that opens it, which the script knows
+  for (const id of ['left', 'cat-add', 'cat-scene', 'inspector', 'timeline']) {
+    assert.match(html, new RegExp(`<(?:aside|section)[^>]*\\sid="${id}"[^>]*\\shidden[\\s>]`), `#${id} is shut in index.html`);
+  }
+  const panels = [...source['app.js'].matchAll(/\{ id: '(\w+)', key: '(\d)', el: '#([\w-]+)', button: '#([\w-]+)'/g)];
+  assert.deepEqual(panels.map((m) => m[1]), ['add', 'scene', 'settings', 'timeline']);
+  for (const [, id, key, el, button] of panels) {
+    assert.ok(ids.has(el) && ids.has(button), `the ${id} panel and its button are in the page`);
+    assert.match(html, new RegExp(`<button id="${button}" class="dock" aria-pressed="false"[^>]*\\(${key}\\)"`), `the ${id} button starts unpressed and names its key`);
+  }
 });
 
 test('START-HERE.html is built from the current sources', () => {
