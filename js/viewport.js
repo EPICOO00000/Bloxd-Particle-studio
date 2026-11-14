@@ -121,12 +121,6 @@ function buildAtlas(images, names) {
 }
 
 function makeLayer(kind, map) {
-  const quad = new THREE.PlaneGeometry(1, 1);
-  const geometry = new THREE.InstancedBufferGeometry();
-  geometry.index = quad.index;
-  geometry.setAttribute('position', quad.attributes.position);
-  geometry.setAttribute('uv', quad.attributes.uv);
-  geometry.instanceCount = 0;
   const material = new THREE.ShaderMaterial({
     uniforms: { map: { value: map } },
     vertexShader: VERTEX,
@@ -141,10 +135,14 @@ function makeLayer(kind, map) {
     material.blendSrc = kind === 'add' ? THREE.OneFactor : THREE.DstColorFactor;
     material.blendDst = kind === 'add' ? THREE.OneFactor : THREE.ZeroFactor;
   }
-  const mesh = new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = { normal: 1, multiply: 2, add: 3 }[kind];
-  const layer = { mesh, geometry, capacity: 0, arrays: null };
+  const layer = { mesh, capacity: 0, arrays: null };
+  // Room for n particles. A layer that has to grow gets a new geometry: three.js
+  // notes how many instances a geometry holds the first time it is drawn and
+  // never draws more than that, so bigger buffers on the old geometry would
+  // leave every particle past the old size undrawn.
   const grow = (n) => {
     layer.capacity = Math.max(256, 2 ** Math.ceil(Math.log2(n)));
     layer.arrays = {
@@ -153,11 +151,19 @@ function makeLayer(kind, map) {
       iColor: new Float32Array(layer.capacity * 4),
       iUv: new Float32Array(layer.capacity * 4),
     };
+    const quad = new THREE.PlaneGeometry(1, 1);
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = quad.index;
+    geometry.setAttribute('position', quad.attributes.position);
+    geometry.setAttribute('uv', quad.attributes.uv);
+    geometry.instanceCount = 0;
     for (const [name, array] of Object.entries(layer.arrays)) {
       const attr = new THREE.InstancedBufferAttribute(array, array.length / layer.capacity);
       attr.setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute(name, attr);
     }
+    mesh.geometry.dispose();
+    mesh.geometry = geometry;
   };
   grow(256);
   layer.fill = (list, rects) => {
@@ -171,8 +177,8 @@ function makeLayer(kind, map) {
       a.iColor.set([p.rgb[0] / 255, p.rgb[1] / 255, p.rgb[2] / 255, p.blend === 0 ? -1 : p.alpha], i * 4);
       a.iUv.set(rects[p.texture] || rects.square_particle, i * 4);
     });
-    geometry.instanceCount = list.length;
-    for (const name of Object.keys(a)) geometry.attributes[name].needsUpdate = true;
+    mesh.geometry.instanceCount = list.length;
+    for (const name of Object.keys(a)) mesh.geometry.attributes[name].needsUpdate = true;
   };
   return layer;
 }
@@ -195,8 +201,9 @@ function label(text, color) {
  * canvas    : <canvas>
  * images    : { textureName: HTMLImageElement }, plus images.code_block
  * names     : texture names (atlas order)
- * callbacks : onPick(id | null), onTransform({ mode, pos, rot, scale }), onTransformEnd(), onFrame(seconds)
- *             (mode: 'translate', 'rotate' or 'scale' says which of the three the drag changes)
+ * callbacks : onPick(id | null, { add }), onTransform({ mode, pos, rot, scale }), onTransformEnd(), onFrame(seconds)
+ *             (mode: 'translate', 'rotate' or 'scale' says which of the three the drag changes;
+ *              add: Shift or Ctrl was held, the click adds to what is selected)
  */
 export function createViewport(canvas, images, names, callbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -292,12 +299,21 @@ export function createViewport(canvas, images, names, callbacks) {
   box.material.depthTest = false;
   box.renderOrder = 5;
   scene.add(box);
+  // The handles move a stand-in. It sits in a holder that is placed like the
+  // groups around the selected object, so its own place, turn and size are the
+  // numbers the object has inside its group.
+  const holder = new THREE.Object3D();
+  holder.matrixAutoUpdate = false;
+  scene.add(holder);
   const proxy = new THREE.Object3D();
-  scene.add(proxy);
+  holder.add(proxy);
+  const proxyAt = new THREE.Vector3(); // where the stand-in is in the scene
+  const proxyTurn = new THREE.Quaternion();
+  const whereProxy = () => proxy.getWorldPosition(proxyAt);
   const gizmo = new TransformControls(camera, canvas);
   gizmo.setSize(0.9);
   scene.add(gizmo.getHelper());
-  let selectedId = null;
+  let selectedIds = new Set();
   let canTransform = true;
   let mode = 'translate';
   const applyMode = () => gizmo.setMode(canTransform ? mode : 'translate');
@@ -305,7 +321,7 @@ export function createViewport(canvas, images, names, callbacks) {
     orbit.enabled = !e.value;
     if (!e.value) callbacks.onTransformEnd();
   });
-  const gizmoUnit = () => camera.position.distanceTo(proxy.position)
+  const gizmoUnit = () => camera.position.distanceTo(whereProxy())
     * Math.min((1.9 * Math.tan((Math.PI * camera.fov) / 360)) / camera.zoom, 7) * (gizmo.size / 4);
 
   // The little handle in the middle always wins when the pointer is on it. (Without
@@ -313,11 +329,11 @@ export function createViewport(canvas, images, names, callbacks) {
   const hover = gizmo.pointerHover.bind(gizmo);
   const middleWins = (pointer) => {
     if (!pointer || gizmo.mode === 'rotate') return;
-    const centre = new THREE.Vector3().copy(proxy.position).project(camera);
+    const centre = new THREE.Vector3().copy(whereProxy()).project(camera);
     if (centre.z < -1 || centre.z > 1) return;
     const w = canvas.clientWidth || 1;
     const h = canvas.clientHeight || 1;
-    const unitPx = (gizmoUnit() / (2 * camera.position.distanceTo(proxy.position) * Math.tan((Math.PI * camera.fov) / 360))) * h;
+    const unitPx = (gizmoUnit() / (2 * camera.position.distanceTo(whereProxy()) * Math.tan((Math.PI * camera.fov) / 360))) * h;
     const reach = Math.max(9, unitPx * 0.085);
     if (Math.hypot(((pointer.x - centre.x) * w) / 2, ((pointer.y - centre.y) * h) / 2) <= reach) gizmo.axis = 'XYZ';
   };
@@ -350,7 +366,7 @@ export function createViewport(canvas, images, names, callbacks) {
       const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
       factor.fill(1 + (travel.dot(right) + travel.dot(up)) / (2 * handle));
     } else {
-      const inverse = proxy.quaternion.clone().invert();
+      const inverse = proxy.getWorldQuaternion(proxyTurn).clone().invert();
       const grabbed = new THREE.Vector3().copy(gizmo.pointStart).applyQuaternion(inverse).toArray();
       const moved = travel.applyQuaternion(inverse).toArray();
       ['X', 'Y', 'Z'].forEach((name, i) => {
@@ -376,7 +392,7 @@ export function createViewport(canvas, images, names, callbacks) {
   });
 
   const updateBox = () => {
-    const mine = selectedId ? particles.filter((p) => p.id === selectedId) : [];
+    const mine = selectedIds.size ? particles.filter((p) => selectedIds.has(p.id)) : [];
     box.visible = mine.length > 0;
     if (!mine.length) return;
     box.box.makeEmpty();
@@ -397,7 +413,7 @@ export function createViewport(canvas, images, names, callbacks) {
   });
   canvas.addEventListener('pointerup', (e) => {
     if (!down.ok || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
-    callbacks.onPick(pick(e.clientX, e.clientY));
+    callbacks.onPick(pick(e.clientX, e.clientY), { add: e.shiftKey || e.ctrlKey || e.metaKey });
   });
   const pick = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
@@ -470,15 +486,24 @@ export function createViewport(canvas, images, names, callbacks) {
       for (const k of Object.keys(layers)) layers[k].fill(byLayer[k], atlas.rects);
       updateBox();
     },
-    /** obj: the selected scene object, or null */
-    setSelection(obj, editable = true) {
-      selectedId = obj ? obj.id : null;
-      if (obj && editable) {
-        canTransform = obj.shape !== 'point';
+    /**
+     * What is selected. ids: the objects to draw the box around. handle: where
+     * the handles go, or null for none: { pose: { pos, rot, scale } as the
+     * object has them in its group, around: the groups around it as a view
+     * matrix (12 numbers), point: a single particle, which can only be moved }.
+     */
+    setSelection(ids, handle = null, editable = true) {
+      selectedIds = new Set(ids);
+      if (handle && editable) {
+        canTransform = !handle.point;
         if (!gizmo.dragging) {
-          proxy.position.fromArray(toView(obj.pos));
-          proxy.rotation.set(obj.rot[0] / DEG, obj.rot[1] / DEG, obj.rot[2] / DEG, 'XYZ');
-          proxy.scale.fromArray(obj.scale);
+          const m = handle.around;
+          holder.matrix.set(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], 0, 0, 0, 1);
+          holder.updateMatrixWorld(true);
+          proxy.position.fromArray(toView(handle.pose.pos));
+          proxy.rotation.set(handle.pose.rot[0] / DEG, handle.pose.rot[1] / DEG, handle.pose.rot[2] / DEG, 'XYZ');
+          proxy.scale.fromArray(handle.pose.scale);
+          proxy.updateMatrixWorld(true);
         }
         if (gizmo.object !== proxy) gizmo.attach(proxy);
         applyMode();
@@ -519,7 +544,9 @@ export function createViewport(canvas, images, names, callbacks) {
     },
     /** For tests. */
     debug: () => ({
-      frames, particles: particles.length, selectedId, dragging: gizmo.dragging, mode: gizmo.mode,
+      frames, particles: particles.length, selectedId: [...selectedIds][0] || null, selectedIds: [...selectedIds],
+      handle: gizmo.object ? whereProxy().toArray().map((v, i) => Math.round((i === 2 ? -v : v) * 1000) / 1000) : null,
+      dragging: gizmo.dragging, mode: gizmo.mode,
       calls: renderer.info.render.calls, size: [canvas.width, canvas.height], blocks: blocks.children.length,
       camera: camera.position.toArray().map((v) => Math.round(v * 100) / 100),
     }),

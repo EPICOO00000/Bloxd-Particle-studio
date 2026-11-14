@@ -7,12 +7,18 @@
 // sends the complete set of fields from the official example.
 //
 // Objects without timing are written the short way: P(...) with one position
-// per particle. Objects with timing (they appear later, fade in or have keys)
-// are written as T(...): the points of the shape once, and a table of "pieces"
-// (js/motion.js) that says what the particles of every point do over time.
+// per particle. Objects with timing (they appear later, fade in, have keys,
+// repeat, or sit in a group that does) are written as T(...): the points of
+// the shape once, and a table of "pieces" (js/motion.js) that says what the
+// particles of every point do over time.
+//
+// Groups are not in the code at all: every object is written where its groups
+// put it.
 
-import { objectPoints, localPoints, hexToRgb, isMoving, sceneDuration, FADE_START } from './scene.js';
-import { planOf, isPlain } from './motion.js';
+import {
+  objectPoints, stillPoints, stillMove, localPoints, hexToRgb, isMoving, sceneDuration, sceneTree, FADE_START,
+} from './scene.js';
+import { planOf, tintedStops } from './motion.js';
 
 /** Limits of the in-game editor. */
 export const LIMITS = { chars: 16000, lines: 500, width: 80 };
@@ -93,12 +99,16 @@ function styleOf(obj, hideDist) {
 const styleKey = (s) => JSON.stringify([s.texture, s.c1, s.c2, s.fade, s.fields, s.expand]);
 
 /** Objects with the same look are merged so their options are written once. */
-function buildGroups(objects, opts) {
+function buildGroups(tree, opts) {
   const groups = [];
   const byKey = new Map();
-  for (const obj of objects) {
-    if (obj.hidden || !isPlain(obj)) continue;
-    const style = styleOf(obj, opts.hideDist);
+  for (const obj of tree.leaves()) {
+    if (!tree.plain(obj)) continue;
+    // in a group: where the group puts it, flying the way the group is turned
+    const grouped = tree.chainOf(obj).length > 0;
+    const points = grouped ? stillPoints(tree, obj) : objectPoints(obj);
+    const placed = grouped ? { ...obj, pos: stillPoints(tree, { ...obj, shape: 'point' })[0], move: stillMove(tree, obj) } : obj;
+    const style = styleOf(placed, opts.hideDist);
     const key = styleKey(style);
     let group = byKey.get(key);
     if (!group) {
@@ -106,7 +116,7 @@ function buildGroups(objects, opts) {
       byKey.set(key, group);
       groups.push(group);
     }
-    for (const p of objectPoints(obj)) {
+    for (const p of points) {
       for (const v of p) group.data.push(Math.round(v * opts.precision) + 0); // + 0 turns -0 into 0
     }
   }
@@ -213,38 +223,57 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, p
  * Every point gets one game particle per piece. All of them are made at once;
  * each stays unseen until its time has come.
  */
-function timedHelperLines({ mix, sizes, darken }) {
-  const c = mix ? 'c' : 'a';
+function timedHelperLines({ mix, sizes, darken, hue, grow }) {
+  // `hue`: a key changes a colour somewhere. Then a and b are lists of colours
+  // and a stop of the visibility says which one it has: [fraction, value, number].
+  // `grow`: a key changes a size somewhere. Then a piece can carry its own size,
+  // after its visibility: a number, or [smallest, largest].
+  const own = mix ? 'c' : 'a';
+  const colour = hue ? `${own}[i || 0]` : own;
   const lines = [
     `const T = (texture, a, b, o, q, d, s${darken ? ', h' : ''}) => {`,
     '  for (let i = 0; i < d.length; i += 3) {',
   ];
   // one colour and one size per point: all its pieces have to look the same
-  if (mix) lines.push('    const k = Math.random()', '    const c = a.map((v, j) => Math.round(v + (b[j] - v) * k))');
-  if (sizes) lines.push('    const z = o.minSize + (o.maxSize - o.minSize) * Math.random()');
+  if (mix) {
+    lines.push('    const k = Math.random()');
+    if (hue) lines.push('    const c = a.map((e, n) =>', '      e.map((v, j) => Math.round(v + (b[n][j] - v) * k)))');
+    else lines.push('    const c = a.map((v, j) => Math.round(v + (b[j] - v) * k))');
+  }
+  if (grow) lines.push('    const K = Math.random()');
+  else if (sizes) lines.push('    const z = o.minSize + (o.maxSize - o.minSize) * Math.random()');
   if (darken) {
     // blend mode 0 ignores alpha: there a particle is hidden by turning it black
     lines.push(
-      '    const C = (t, x) => {',
-      `      const e = h ? ${c}.map((y) => Math.round(y * x)) : ${c}`,
+      hue ? '    const C = (t, x, i) => {' : '    const C = (t, x) => {',
+      `      const e = h ? ${colour}.map((y) => Math.round(y * x)) : ${colour}`,
       '      return G(t, e, e, h ? 1 : x)',
       '    }',
     );
   }
   lines.push(
-    '    for (const [n, m, v, w, f, r, g] of s) {',
+    grow ? '    for (const [n, m, v, w, z, f, r, g] of s) {' : '    for (const [n, m, v, w, f, r, g] of s) {',
     '      const at = (e) => [0, 4, 8].map((j) => e[j + 3] + (e[j] * d[i]',
     '        + e[j + 1] * d[i + 1] + e[j + 2] * d[i + 2]) / q)',
     '      const p = at(m).map((x, j) => x + [X, Y, Z][j])',
     '      const u = v ? at(v) : [0, 1, 0]',
+  );
+  if (grow) {
+    lines.push(
+      '      const S = !z ? o.minSize + (o.maxSize - o.minSize) * K',
+      '        : z.length ? z[0] + (z[1] - z[0]) * K : z',
+    );
+  }
+  const stop = hue ? '([t, x, i])' : '([t, x])';
+  lines.push(
     '      api.playParticleEffect(Object.assign({}, B, o, {',
-    `        texture, pos1: p, pos2: p,${sizes ? ' minSize: z, maxSize: z,' : ''}`,
+    `        texture, pos1: p, pos2: p,${grow ? ' minSize: S, maxSize: S,' : sizes ? ' minSize: z, maxSize: z,' : ''}`,
     '        dir1: u.map((x) => x - (r || 0)),',
     '        dir2: u.map((x) => x + (r || 0)),',
     '        minEmitPower: v ? 1 : 0, maxEmitPower: v ? 1 : 0,',
     '        minLifeTime: n, maxLifeTime: n, gravity: [0, g || 0, 0],',
-    darken ? '        colorGradients: w.map(([t, x]) => C(t, x)),'
-      : `        colorGradients: w.map(([t, x]) => G(t, ${c}, ${c}, x)),`,
+    darken ? `        colorGradients: w.map(${stop} => C(t, x${hue ? ', i' : ''})),`
+      : `        colorGradients: w.map(${stop} => G(t, ${colour}, ${colour}, x)),`,
     '        velocityGradients: (f || [[0, 1]]).map(([t, x]) =>',
     '          ({ timeFraction: t, factor: x, factor2: x })),',
     '      }))',
@@ -285,56 +314,106 @@ const ageOf = (age) => Number(age.toFixed(4));
  * before it dies. They stay strictly rising.
  */
 function stopsOf(curve, life, digits) {
-  const out = curve.map(([age, value]) => [
+  const out = curve.map(([age, value, colour]) => [
     Math.min(1, Math.floor((ageOf(age) / life) * 1e6 + 1e-6) / 1e6),
     Number(Number(value).toFixed(digits)) + 0,
+    colour,
   ]);
   for (let i = out.length - 2; i >= 0; i--) {
     if (out[i][0] >= out[i + 1][0]) out[i][0] = Math.max(0, Math.round(out[i + 1][0] * 1e6 - 1) / 1e6);
   }
   // (two stops at 0 can only come from a change in the very first moment: the later one counts)
   while (out.length > 1 && out[1][0] <= 0) out.shift();
-  return out.map(([t, x]) => [short(t, 6), short(x, digits)]);
+  // (the number of a colour is only written when it is not the first one)
+  return out.map(([t, x, colour]) => (colour ? [short(t, 6), short(x, digits), String(colour)] : [short(t, 6), short(x, digits)]));
 }
 
-/** Everything the code needs to know about one object with timing. */
-function timedOf(obj, opts) {
-  const plan = planOf(obj);
+/** Everything the code needs to know about one object with timing: all its plays, with its groups worked in. */
+function timedOf(obj, tree, opts) {
+  const plans = tree.playsOf(obj).map((lineage) => planOf(obj, lineage));
   const n = (v) => Number(fmt(v));
   const size2 = obj.size2 === null ? obj.size : obj.size2;
   const o = { minSize: n(Math.min(obj.size, size2)), maxSize: n(Math.max(obj.size, size2)), blendMode: obj.blend };
   if (opts.hideDist) o.hideDist = opts.hideDist;
   // points are stored as whole numbers: fine enough for the biggest the shape gets
-  const reach = Math.max(1, ...[obj, ...obj.keys].flatMap((k) => k.scale.map(Math.abs)));
+  const biggest = (node) => Math.max(...[node, ...node.keys].flatMap((k) => k.scale.map(Math.abs)));
+  const reach = Math.max(1, [obj, ...tree.chainOf(obj)].reduce((r, node) => r * biggest(node), 1));
   const q = Math.ceil(opts.precision * reach);
   const c1 = hexToRgb(obj.color);
-  const pieces = plan.pieces.map((piece) => {
+  // the colours its keys give it, each written once: colour 0 is the one it starts with
+  const palette = [[c1, obj.color2 ? hexToRgb(obj.color2) : c1]];
+  const colourOf = ([a, b]) => {
+    const pair = [a.map(Math.round), b.map(Math.round)];
+    let at = palette.findIndex((known) => String(known) === String(pair));
+    if (at < 0) at = palette.push(pair) - 1;
+    return at;
+  };
+  let hue = false;
+  let grow = false;
+  const pieces = plans.flatMap((plan) => plan.pieces).map((piece) => {
     const life = ageOf(piece.end);
     const matrix = (m) => m.map((v, i) => short(v, i % 4 === 3 ? 3 : 4));
+    let visible = piece.visible;
+    if (piece.tint) {
+      // its colour is not the one the object starts with, or changes: every stop says which colour it has
+      hue = true;
+      visible = piece.tint.length > 1
+        ? tintedStops(piece).map(([age, value, a, b]) => [age, value, colourOf([a, b])])
+        : visible.map(([age, value]) => [age, value, colourOf([piece.tint[0][1], piece.tint[0][2]])]);
+    }
+    // its size, when that is not the one the object starts with
+    let size = null;
+    if (piece.size && (n(piece.size[0]) !== o.minSize || n(piece.size[1]) !== o.maxSize)) {
+      grow = true;
+      size = piece.size[0] === piece.size[1] ? short(piece.size[0], 3) : [short(piece.size[0], 3), short(piece.size[1], 3)];
+    }
     const tuple = [short(life, 4), matrix(piece.P)];
     if (piece.V) {
       const v = piece.V.slice();
       if (piece.g) v[7] -= piece.g[1] * piece.ref; // the pull starts when the particle is made, not when it sets off
-      tuple.push(matrix(v), stopsOf(piece.visible, life, 3), stopsOf(piece.speed, life, 4));
+      tuple.push(matrix(v), stopsOf(visible, life, 3), stopsOf(piece.speed, life, 4));
       if (piece.spread || piece.g) tuple.push(short(piece.spread, 3));
       if (piece.g) tuple.push(short(piece.g[1], 3));
-    } else tuple.push('0', stopsOf(piece.visible, life, 3));
-    return tuple;
+    } else tuple.push('0', stopsOf(visible, life, 3));
+    return { tuple, size };
   });
   // Latest piece first. Should the game ever make the particles of one click
   // over several frames, a piece then shows up a frame early (unnoticed, it is
   // in the same place as the one before it) instead of a frame late (a blink).
   pieces.reverse();
   return {
-    texture: obj.texture, c1, c2: obj.color2 ? hexToRgb(obj.color2) : c1, o, q, darken: obj.blend === 0,
+    texture: obj.texture, c1, c2: palette[0][1], palette, o, q, darken: obj.blend === 0, hue, grow,
     points: localPoints(obj).flatMap((l) => l.map((v) => Math.round(v * q) + 0)),
     pieces,
   };
 }
 
+/**
+ * The pieces of an object as they are written. When a key changes a size
+ * somewhere in the scene (`grow`), every piece has a place for its size right
+ * after its visibility; the pieces at the end of a tuple that are not needed
+ * are left out.
+ */
+function tuplesOf(t, grow) {
+  return t.pieces.map(({ tuple, size }) => {
+    if (!grow) return tuple;
+    const out = [...tuple.slice(0, 4), size || '0', ...tuple.slice(4)];
+    if (out.length === 5 && !size) out.pop();
+    return out;
+  });
+}
+
 /** Lines of one T(...) call for some of the points and some of the pieces of an object. */
-function timedCallLines(t, points, table, width) {
-  const head = [`T(${lit(t.texture)},`, `${lit(t.c1)},`, `${lit(t.c2)},`, `${lit(t.o)},`, `${t.q}, [`];
+function timedCallLines(t, points, table, width, hue) {
+  // with colours that change, both colours are lists: one entry for each colour its keys give it
+  const colours = (at) => {
+    if (!hue) return [`${lit(t.palette[0][at])},`];
+    const tokens = t.palette.map((pair) => `${lit(pair[at])},`);
+    tokens[0] = `[${tokens[0]}`;
+    tokens[tokens.length - 1] = tokens[tokens.length - 1].replace(/,$/, '],');
+    return tokens;
+  };
+  const head = [`T(${lit(t.texture)},`, ...colours(0), ...colours(1), `${lit(t.o)},`, `${t.q}, [`];
   const lines = pack(head, width - 2).map((l, i) => (i ? '  ' : '') + l);
   lines.push(...pack(points.map((v) => `${v},`), width, '', ''));
   lines.push('], [', ...table, t.darken ? '], 1)' : '])');
@@ -386,17 +465,22 @@ export function generateCode(objects, options = {}) {
   };
   opts.hideDist = Number(opts.hideDist) > 0 ? Number(fmt(opts.hideDist)) : 0;
   const world = opts.target === 'world';
-  const groups = buildGroups(objects, opts);
-  const timed = objects.filter((o) => !o.hidden && !isPlain(o)).map((o) => timedOf(o, opts));
+  const tree = sceneTree(objects);
+  const groups = buildGroups(tree, opts);
+  const timed = tree.leaves().filter((o) => !tree.plain(o)).map((o) => timedOf(o, tree, opts));
   const base = buildBase(groups);
   const useExpand = groups.some((g) => g.style.expand);
   const useMixFade = groups.some((g) => g.style.fade && String(g.style.c1) !== String(g.style.c2));
+  const hue = timed.some((t) => t.hue);
+  const grow = timed.some((t) => t.grow);
   const helpers = {
     plain: groups.length > 0 || !timed.length,
     timed: timed.length ? {
-      mix: timed.some((t) => String(t.c1) !== String(t.c2)),
+      mix: timed.some((t) => t.palette.some((pair) => String(pair[0]) !== String(pair[1]))),
       sizes: timed.some((t) => t.o.minSize !== t.o.maxSize),
       darken: timed.some((t) => t.darken),
+      hue,
+      grow,
     } : null,
   };
   const seconds = sceneDuration(objects);
@@ -416,7 +500,7 @@ export function generateCode(objects, options = {}) {
     // cut into runs; every run comes with the points again.
     const runs = [];
     let run = [];
-    for (const piece of t.pieces) {
+    for (const piece of tuplesOf(t, grow)) {
       const lines = tableLines([...run, piece], opts.width);
       if (run.length && (sizeOf(lines) > budgetChars * 0.45 || lines.length > budgetLines * 0.45)) {
         runs.push(run);
@@ -430,7 +514,7 @@ export function generateCode(objects, options = {}) {
       units.push({
         atoms: t.points.length / 3,
         per: pieces.length,
-        lines: (from, take) => timedCallLines(t, t.points.slice(from * 3, (from + take) * 3), table, opts.width),
+        lines: (from, take) => timedCallLines(t, t.points.slice(from * 3, (from + take) * 3), table, opts.width, hue),
       });
     }
   }
