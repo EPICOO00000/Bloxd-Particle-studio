@@ -28,7 +28,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 224 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 924 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -70,26 +70,41 @@ and **Open** loads one, so you can keep several scenes or share them.
 
 ### Shapes
 
-There are 224 shapes in nine tabs. Click a tab to see its shapes, or type in
-the search box above the tabs to look through all of them: a name ("star",
-"heart"), a letter, a number or a sign ("A", "7", "?"). Enter adds the first
-shape found.
+There are 924 shapes in 16 tabs. Click a tab to see its shapes. A tab is
+sorted under headings, and a heading stays at the top of the list while you
+scroll through its shapes. Or type in the search box above the tabs to look
+through all of them at once: a name ("star", "dragon"), a letter, a number or a
+sign ("A", "7", "?"), the name of a tab ("animals") or a heading ("weapons").
+Enter adds the first shape found.
 
-| Tab | How many | Shapes |
+![The Add panel: the 16 tabs, and the Animals tab with its headings](docs/shapes.png)
+
+| Tab | How many | Under these headings |
 |---|---|---|
-| Basic | 34 | Line, Circle, Disc, Arc, Square, Filled square, Triangle, Polygon, Star, Heart, Plus, Rays, Spiral, Wave, Rectangle, Rounded square, Diamond, Oval, Half circle, Pie slice, Double circle, Target, Right triangle, Double square, Zigzag, Square wave, Square spiral, Pill, Plus outline, Net, Filled polygon, Filled star, Filled heart, Filled ring |
-| 3D | 31 | Sphere, Dome, Cube, Filled cube, Cylinder, Cone, Pyramid, Donut, Helix, Tornado, Tetrahedron, Octahedron, Dodecahedron, Icosahedron, Football, Prism, Crystal, Gem, 3D star, Cube in a cube, Step pyramid, Hut, Star block, Globe, Ring ball, Filled ball, Capsule, Hourglass, Vase, Goblet, Flying saucer |
-| Letters | 26 | A to Z |
-| Numbers | 20 | 0 to 9, and the signs ! ? # @ & % $ € = ÷ |
-| Symbols | 25 | Arrow, Double arrow, Turn arrow, Chevrons, Tick, X mark, No sign, Peace sign, Yin yang, Smiley, Sad face, Skull, Lightning, Music note, Double note, Infinity, Spade, Club, Pentagram, Hexagram, Crosshair, Warning sign, Atom, Eye, Speech bubble |
-| Nature | 25 | Sun, Moon, Cloud, Drop, Snowflake, Flame, Leaf, Tree, Pine tree, Flower, Tulip, Clover, Mushroom, Cactus, Mountains, Rainbow, Fish, Bird, Butterfly, Cat, Paw print, Rabbit, Spider web, Bat, Planet |
-| Things | 25 | House, Castle, Key, Padlock, Sword, Shield, Crown, Flag, Bell, Gift, Balloon, Trophy, Jewel, Rocket, Sailing boat, Anchor, Umbrella, Light bulb, Candle, Potion, Pickaxe, Hammer, Bow and arrow, Apple, Ghost |
-| Curves | 17 | Rose, Lissajous, Spirograph, Petal ring, Wavy circle, Shell spiral, Spiral arms, Bounce path, Trefoil, Torus knot, Globe spiral, Ball seam, DNA, Twin helix, Slinky, Spring ring, Möbius strip |
-| Effects | 21 | Smoke, Firework, Fountain, Galaxy, Whirlpool, Portal, Halo, Ripple, Cyclone, Orbit rings, Scatter, 3D flame, Comet, Light pillar, Cage, Crown ring, Wave ring, Light cone, Spiral stairs, Puffy heart, Orbs |
+| Basic | 82 | 34 at the top; More outlines 20; Shapes in shapes 10; More filled shapes 14; Lines 4 |
+| 3D | 106 | 31 at the top; More solids 15; Round things 10; Buildings 14; Things 22; Plants and animals 14 |
+| Letters | 96 | Capital letters 26; Small letters 26; Greek letters 24; Runes 20 |
+| Numbers | 56 | Numbers 10; Digital numbers 10; Signs 12; Money 8; Maths 16 |
+| Symbols | 81 | Arrows 13; Signs 35; Hearts and sparkles 7; Music 7; Star signs 12; People and body 7 |
+| Faces | 33 | Smileys 22; Characters 11 |
+| Nature | 41 | Sky and weather 17; Plants 18; Land and sea 6 |
+| Animals | 51 | Pets and farm 10; Wild animals 14; Birds 5; Sea animals 8; Bugs 9; Dinosaurs and dragons 5 |
+| Food | 32 | Fruit and vegetables 12; Meals 9; Sweets 7; Drinks 4 |
+| Things | 72 | Tools 14; Weapons 7; Treasure and magic 9; Games and sport 12; Music 7; Home 13; Party and holidays 10 |
+| Travel | 29 | Vehicles 15; Buildings 14 |
+| Costume | 23 | Wings 3; On the head 10; Clothes 10 |
+| Pixel art | 70 | Game items 22; Creatures 19; Nature and food 15; Signs and things 14 |
+| Curves | 49 | 17 at the top; More flat curves 22; More curves in 3D 10 |
+| Patterns | 31 | Tilings 13; Borders 7; Fractals 11 |
+| Effects | 72 | 21 at the top; Magic circles 15; Rings and shields 9; Elements 13; Floating things 14 |
 
-Every shape has a "How many" slider for the number of particles. 72 of them
+[All 924 shapes by name](docs/shapes.md).
+
+Every shape has a "How many" slider for the number of particles. 165 of them
 have settings of their own, such as the points of a star, the petals of a
-flower or the turns of a helix.
+flower or the turns of a helix. A Pixel art picture has one particle for every
+dot, so its "How many" goes in steps: with 4 times as many, every dot is a
+block of 2 by 2 particles, with 9 times as many a block of 3 by 3.
 
 To write a word, add its letters one after the other. Each new shape takes the
 next free place in a row, so the letters line up by themselves.
@@ -433,8 +448,10 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes.js` | The shape library: the first 24 shapes, the tabs and the search. Each shape returns a list of points |
 | `js/shape-kit.js` | The geometry tools the shapes are built from, and the small drawing language used for letters and pictures |
 | `js/shapes-geo.js` | Shapes made from formulas: more basic outlines, 3D shapes, curves and effects |
-| `js/shapes-text.js` | Letters, numbers and signs |
-| `js/shapes-icons.js` | Pictures: symbols, nature and things |
+| `js/shapes-flat.js`, `js/shapes-curves.js`, `js/shapes-solid.js`, `js/shapes-effects.js` | More of the same: flat shapes and patterns, curves, 3D shapes, effects |
+| `js/shapes-text.js` | Letters (capital, small, Greek, runes), numbers and signs |
+| `js/shapes-icons.js`, `js/shapes-signs.js`, `js/shapes-living.js`, `js/shapes-stuff.js` | Pictures: symbols and faces, nature and animals, food, things, travel and costume |
+| `js/shapes-pixel.js` | Pixel art: pictures written as rows of dots |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
@@ -449,15 +466,17 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second |
-| `tools/` | Local server and the single-file build |
+| `tools/` | Local server, the single-file build, and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |
 | `examples/` | The scripts that write the examples, and the dragon as a scene file |
-| `docs/` | The pictures on this page |
+| `docs/` | The pictures on this page, and the list of all shapes |
 
 ### Add a shape of your own
 
-A picture is one line in `js/shapes-icons.js`: an id, a name and a drawing.
+A picture is one line in a list of one of the picture files, for example
+`FRUIT` in `js/shapes-stuff.js`: an id, a name and a drawing. The list it is in
+decides its tab and its heading.
 
 ```js
 ['arrow', 'Arrow', 'M0,0 L0,10 M-3.5,6.5 L0,10 L3.5,6.5'],
@@ -467,10 +486,18 @@ A picture is one line in `js/shapes-icons.js`: an id, a name and a drawing.
 arcs, circles, single dots, mirroring) are listed in `js/shape-kit.js` under
 "drawings". Use whatever size suits the picture: it is centred and scaled to
 fit, and particles are spread evenly along the strokes with one on every
-corner.
+corner. Search words go in a fourth place: `{ tags: 'fruit red' }`.
 
-Then run `npm test`, which checks every shape, and `npm run build`. The tests
-and the table above know how many shapes there are, so update both.
+A pixel art picture is one line in `js/shapes-pixel.js`: its rows from top to
+bottom with `/` between them, `#` for a dot and `.` for none.
+
+A new heading is a name in the `subs` of its tab, in `CATEGORIES` in
+`js/shapes.js`. The headings show in that order.
+
+Then run `node tools/shape-list.mjs`, which writes `docs/shapes.md` again and
+prints the table above, `npm test`, which checks every shape, and
+`npm run build`. The tests know how many shapes there are, so update the number
+there and in the two places in this file.
 
 ## Credits and licence
 

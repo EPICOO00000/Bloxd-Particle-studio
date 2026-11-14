@@ -1,7 +1,9 @@
 // Letters, numbers and signs, drawn with single strokes so they read well as
 // dots. Every glyph sits on the same lines: y = 0 is the baseline and y = 10 the
-// top of a capital, which become -1 and 1 in the shape. See shape-kit.js for
-// the drawing language.
+// top of a capital, which become -1 and 1 in the shape. Small letters are 6.5
+// high and their tails reach down to -3.2, which is below the box every other
+// shape fits in: that way words line up on one line. See shape-kit.js for the
+// drawing language.
 
 import { drawnShape, parsePath, placeDrawing } from './shape-kit.js';
 
@@ -47,19 +49,143 @@ const DIGITS = {
   9: 'M1.2,0 Q6,0.5 6,7 A3,7 3 0 360',
 };
 
-// [id, name, sign, drawing]
+// [id, name, sign, drawing, heading]
 const SIGNS = [
-  ['exclaim', 'Exclamation mark', '!', 'M0,10 L0,3.2 D0,0.5'],
-  ['question', 'Question mark', '?', 'A3,7.2 2.8 160 -50 Q3,3.8 3,3 D3,0.5'],
-  ['hash', 'Hash', '#', 'M2,0 L3,10 M5,0 L6,10 M0.5,3.3 L7,3.3 M1,6.7 L7.5,6.7'],
-  ['at', 'At sign', '@', 'A5,5 1.8 0 360 M6.8,6.8 L6.8,4.33 A8.18,4.33 1.38 180 360 A5,5 4.6 -8 300'],
-  ['and', 'And sign', '&', 'M7,0 L2.2,6.2 C1,7.8 1.6,10 3.2,10 C4.8,10 5.2,8 3.8,6.6 L1.6,4.6 C-0.6,2.8 0.4,0 3,0 C5,0 6.4,1.8 7,4.6'],
-  ['percent', 'Percent', '%', 'M7,10 L1,0 O1.8,8.2 1.7 O6.2,1.8 1.7'],
-  ['dollar', 'Dollar', '$', 'A3.25,7 2 20 270 A3.25,3 2 90 -160 M3.25,10 L3.25,0'],
-  ['euro', 'Euro', '€', 'E4.5,5 4,5 50 310 M0,6.2 L5.2,6.2 M0,3.8 L5.2,3.8'],
-  ['equals', 'Equals', '=', 'M0,6.8 L7,6.8 M0,3.2 L7,3.2'],
-  ['divide', 'Divide', '÷', 'M0,5 L7,5 D3.5,8 D3.5,2'],
+  ['exclaim', 'Exclamation mark', '!', 'M0,10 L0,3.2 D0,0.5', 'Signs'],
+  ['question', 'Question mark', '?', 'A3,7.2 2.8 160 -50 Q3,3.8 3,3 D3,0.5', 'Signs'],
+  ['hash', 'Hash', '#', 'M2,0 L3,10 M5,0 L6,10 M0.5,3.3 L7,3.3 M1,6.7 L7.5,6.7', 'Signs'],
+  ['at', 'At sign', '@', 'A5,5 1.8 0 360 M6.8,6.8 L6.8,4.33 A8.18,4.33 1.38 180 360 A5,5 4.6 -8 300', 'Signs'],
+  ['and', 'And sign', '&', 'M7,0 L2.2,6.2 C1,7.8 1.6,10 3.2,10 C4.8,10 5.2,8 3.8,6.6 L1.6,4.6 C-0.6,2.8 0.4,0 3,0 C5,0 6.4,1.8 7,4.6', 'Signs'],
+  ['percent', 'Percent', '%', 'M7,10 L1,0 O1.8,8.2 1.7 O6.2,1.8 1.7', 'Maths'],
+  ['dollar', 'Dollar', '$', 'A3.25,7 2 20 270 A3.25,3 2 90 -160 M3.25,10 L3.25,0', 'Money'],
+  ['euro', 'Euro', '€', 'E4.5,5 4,5 50 310 M0,6.2 L5.2,6.2 M0,3.8 L5.2,3.8', 'Money'],
+  ['equals', 'Equals', '=', 'M0,6.8 L7,6.8 M0,3.2 L7,3.2', 'Maths'],
+  ['divide', 'Divide', '÷', 'M0,5 L7,5 D3.5,8 D3.5,2', 'Maths'],
 ];
+
+// The bowl of a, b, d, g, p and q is one arc that meets the stem at two places.
+const BOWL_LEFT = 'A3.25,3.25 3.25 26.8 333.2'; // for a stem on the right, at x = 6.15
+const BOWL_RIGHT = 'A2.9,3.25 3.25 153.2 -153.2'; // for a stem on the left, at x = 0
+
+const SMALL = {
+  a: `M6.15,6.5 L6.15,0 N ${BOWL_LEFT}`,
+  b: `M0,10 L0,0 N ${BOWL_RIGHT}`,
+  c: 'A3.25,3.25 3.25 45 315',
+  d: `M6.15,10 L6.15,0 N ${BOWL_LEFT}`,
+  e: 'M0,3.25 L6.5,3.25 A3.25,3.25 3.25 0 320',
+  f: 'A3.6,8.1 1.9 30 180 L1.7,0 M0,6.5 L4.2,6.5',
+  g: `M6.15,6.5 L6.15,-0.6 A3.55,-0.6 2.6 0 -150 N ${BOWL_LEFT}`,
+  h: 'M0,10 L0,0 M0,3.6 A2.9,3.6 2.9 180 0 L5.8,0',
+  i: 'M0,6.5 L0,0 D0,8.8',
+  j: 'M2.6,6.5 L2.6,-0.9 A0.3,-0.9 2.3 0 -130 D2.6,8.8',
+  k: 'M0,10 L0,0 M5,6.5 L0,2.6 M1.9,4.082 L5.4,0',
+  l: 'M0,10 L0,1.6 A1.6,1.6 1.6 180 270',
+  m: 'M0,6.5 L0,0 M0,4.1 A2.4,4.1 2.4 180 0 L4.8,0 M4.8,4.1 A7.2,4.1 2.4 180 0 L9.6,0',
+  n: 'M0,6.5 L0,0 M0,3.6 A2.9,3.6 2.9 180 0 L5.8,0',
+  o: 'E3.25,3.25 3.25,3.25 90 450',
+  p: `M0,6.5 L0,-3.2 N ${BOWL_RIGHT}`,
+  q: `M6.15,6.5 L6.15,-3.2 N ${BOWL_LEFT}`,
+  r: 'M0,6.5 L0,0 M0,3.9 A2.6,3.9 2.6 180 50',
+  s: 'E2.6,4.875 2.6,1.625 20 270 E2.6,1.625 2.6,1.625 90 -160',
+  t: 'M1.7,9 L1.7,1.7 A3.4,1.7 1.7 180 290 M0,6.5 L4.4,6.5',
+  u: 'M0,6.5 L0,2.9 A2.9,2.9 2.9 180 360 L5.8,6.5 M5.8,2.9 L5.8,0',
+  v: 'M0,6.5 L2.8,0 L5.6,6.5',
+  w: 'M0,6.5 L1.9,0 L3.8,5 L5.7,0 L7.6,6.5',
+  x: 'M0,0 L5.2,6.5 M0,6.5 L5.2,0',
+  y: 'M0,6.5 L2.919,0 M5.8,6.5 L1.5,-3.2',
+  z: 'M0,6.5 L5.2,6.5 L0,0 L5.2,0',
+};
+
+// [id, name, sign, drawing, extra search words]
+const GREEK = [
+  ['alpha', 'Alpha', 'α', 'M6.4,6.5 C5.4,2 4.4,0 2.9,0 C1.2,0 0,1.4 0,3.25 C0,5.1 1.2,6.5 2.9,6.5 C4.4,6.5 5.4,4.5 6.4,0'],
+  ['beta', 'Beta', 'β', 'M0,-3 L0,7.7 A2.3,7.7 2.3 180 -90 A2.3,2.7 2.7 90 -148.412'],
+  ['gamma', 'Gamma', 'γ', 'M0,6.5 L2.9,-0.6 L5.8,6.5 E2.9,-1.9 0.9,1.3 90 450'],
+  ['delta', 'Delta', 'δ', 'E3,3 3,3 50 410 C3.4,6.4 1.4,7.6 1.6,8.8 C1.8,10 3.6,10.2 5.2,9.4'],
+  ['epsilon', 'Epsilon', 'ε', 'E3,4.875 2.9,1.625 30 270 E3,1.625 2.9,1.625 90 330'],
+  ['zeta', 'Zeta', 'ζ', 'M0.6,10 L5,10 C1.5,7.5 0,5 0,3 C0,0.8 2,0.4 3.6,0 C5.2,-0.4 5.2,-2.4 3.4,-3'],
+  ['eta', 'Eta', 'η', 'M0,6.5 L0,0 M0,3.6 A2.9,3.6 2.9 180 0 L5.8,-3.2'],
+  ['theta', 'Theta', 'θ', 'E2.9,5 2.9,5 90 450 M0,5 L5.8,5'],
+  ['lambda', 'Lambda', 'λ', 'M0,10 Q1.4,10 2.4,7.5 L5.6,0 M2.912,6.3 L0,0'],
+  ['mu', 'Mu', 'μ', 'M0,6.5 L0,-3.2 M0,2.9 A2.9,2.9 2.9 180 360 L5.8,6.5 M5.8,2.9 L5.8,0', 'micro'],
+  ['xi', 'Xi', 'ξ', 'M0.8,10 L5,10 C2,9.6 0.6,8.6 0.6,7.4 C0.6,6.2 2.2,5.6 4.4,5.6 C1.6,5.4 0,4.2 0,2.6 C0,0.9 2,0.3 3.6,0 C5.2,-0.3 5.2,-2.4 3.4,-3'],
+  ['pi', 'Pi', 'π', 'M0,6.5 L7,6.5 M1.8,6.5 L1.8,0 M5,6.5 L5,1.2 A6.2,1.2 1.2 180 270', 'maths circle'],
+  ['rho', 'Rho', 'ρ', 'M0,-3.2 L0,3.25 A2.9,3.25 2.9 180 -180'],
+  ['sigma', 'Sigma', 'σ', 'E2.9,2.9 2.9,2.9 90 450 M2.9,5.8 L7,5.8'],
+  ['tau', 'Tau', 'τ', 'M0,6.5 L6,6.5 M3,6.5 L3,1.4 A4.4,1.4 1.4 180 290'],
+  ['phi', 'Phi', 'φ', 'E3.1,3.25 3.1,3.25 90 450 M3.1,9 L3.1,-3.2'],
+  ['psi', 'Psi', 'ψ', 'M0,6.5 L0,3.6 A3,3.6 3 180 360 L6,6.5 M3,9 L3,-3.2'],
+  ['omega', 'Omega', 'ω', 'M1.4,6.5 C-0.6,4.5 -0.4,0 2,0 C3.2,0 3.8,1.4 3.8,3.4 C3.8,1.4 4.4,0 5.6,0 C8,0 8.2,4.5 6.2,6.5'],
+  ['cap-gamma', 'Capital gamma', 'Γ', 'M0,0 L0,10 L5.6,10'],
+  ['cap-delta', 'Capital delta', 'Δ', 'M0,0 L3.6,10 L7.2,0 Z', 'change'],
+  ['cap-lambda', 'Capital lambda', 'Λ', 'M0,0 L3.6,10 L7.2,0'],
+  ['cap-xi', 'Capital xi', 'Ξ', 'M0,10 L6.4,10 M1,5 L5.4,5 M0,0 L6.4,0'],
+  ['cap-sigma', 'Capital sigma', 'Σ', 'M6.4,10 L0,10 L3.6,5 L0,0 L6.4,0', 'sum maths'],
+  ['cap-omega', 'Capital omega', 'Ω', 'M0,0 L2.46,0 L2.46,1.55 A3.9,5.5 4.2 250 -70 L5.34,0 L7.8,0', 'ohm end'],
+];
+
+// Old Germanic letters, the Elder Futhark (those that are not just a line, a
+// cross, an arrow or a diamond) and two Anglo-Saxon ones. [name, drawing]
+const RUNES = [
+  ['Fehu', 'M0,0 L0,10 M0,6.5 L4,10 M0,3 L4,6.5'],
+  ['Uruz', 'M0,0 L0,10 L4.5,6.5 L4.5,0'],
+  ['Thurisaz', 'M0,0 L0,10 M0,7.5 L3.5,5 L0,2.5'],
+  ['Ansuz', 'M0,0 L0,10 L4,7 M0,6.5 L4,3.5'],
+  ['Raido', 'M0,0 L0,10 L4,7.5 L0,5 L4.5,0'],
+  ['Wunjo', 'M0,0 L0,10 L4,7.5 L0,5'],
+  ['Hagalaz', 'M0,0 L0,10 M5,0 L5,10 M0,6.5 L5,3.5'],
+  ['Nauthiz', 'M2.5,0 L2.5,10 M0,6.5 L5,3.5'],
+  ['Jera', 'M3.2,9.5 L0,6.5 L3.2,3.5 M2.8,6.5 L6,3.5 L2.8,0.5'],
+  ['Eihwaz', 'M-0.2,2.4 L2.2,0 L2.2,10 L4.6,7.6'],
+  ['Perthro', 'M5,10 L2.6,7.6 L0,10 L0,0 L2.6,2.4 L5,0'],
+  ['Algiz', 'M3,0 L3,10 M0,10 L3,5.5 L6,10'],
+  ['Sowilo', 'M4,10 L0,6.5 L4,3.5 L0,0'],
+  ['Berkanan', 'M0,0 L0,10 L4,7.5 L0,5 L4,2.5 L0,0'],
+  ['Mannaz', 'M0,0 L0,10 L6,5 M6,0 L6,10 L0,5'],
+  ['Laguz', 'M0,0 L0,10 L4,6.5'],
+  ['Dagaz', 'M0,0 L0,10 L6,0 L6,10 L0,0'],
+  ['Othala', 'M6.4,6.6 L3.2,10 L0,6.6 L6.2,0 M6.4,6.6 L0.2,0'],
+  ['Gar', 'M0,0 L7,10 M0,10 L7,0 M3.5,8.7 L6.09,5 L3.5,1.3 L0.91,5 Z'],
+  ['Os', 'M0,0 L0,10 L3,7.6 L4.6,9.4 M0,6 L3,3.6 L4.6,5.4'],
+];
+
+// [id, name, sign, drawing, heading, extra search words]
+const MORE_SIGNS = [
+  ['brackets', 'Round brackets', '( )', 'M-2,10 B-2,0 0.3 |', 'Signs', 'parentheses'],
+  ['square-brackets', 'Square brackets', '[ ]', 'M-1.6,10 L-3.4,10 L-3.4,0 L-1.6,0 |', 'Signs'],
+  ['curly-brackets', 'Curly brackets', '{ }', 'M-1.4,10 C-2.6,10 -2.6,9 -2.6,8 L-2.6,6.4 C-2.6,5.6 -3,5 -3.8,5 C-3,5 -2.6,4.4 -2.6,3.6 L-2.6,2 C-2.6,1 -2.6,0 -1.4,0 |', 'Signs', 'braces'],
+  ['angle-brackets', 'Angle brackets', '< >', 'M-1.4,9 L-4,5 L-1.4,1 |', 'Signs', 'less greater than'],
+  ['copyright', 'Copyright sign', '©', 'O0,5 5 A0,5 2.6 50 310', 'Signs'],
+  ['registered', 'Registered sign', '®', 'O0,5 5 M-1.6,2.2 L-1.6,7.8 L0.2,7.8 A0.2,6.3 1.5 90 -90 L-1.6,4.8 M0.2,4.8 L2,2.2', 'Signs', 'trademark'],
+  ['paragraph', 'Paragraph sign', '¶', 'M2.8,0 L2.8,10 L5.2,10 L5.2,0 N A2.8,7.3 2.7 90 270', 'Signs', 'pilcrow'],
+  ['pound', 'Pound', '£', 'A3.6,7.6 2.4 20 180 L1.2,2.6 Q1.2,0.8 0,0 L6,0 M0,5 L4,5', 'Money', 'money sterling'],
+  ['yen', 'Yen', '¥', 'M0,10 L3.2,5 L6.4,10 M3.2,5 L3.2,0 M0.8,4 L5.6,4 M0.8,2 L5.6,2', 'Money', 'money yuan'],
+  ['cent', 'Cent', '¢', 'A3.4,5 3.2 50 310 M3.4,9.6 L3.4,0.4', 'Money', 'money'],
+  ['rupee', 'Rupee', '₹', 'M0,10 L6,10 M0,7.4 L6,7.4 M1.6,10 A1.6,7.4 2.6 90 -90 L0,4.8 L4.6,0', 'Money', 'money'],
+  ['bitcoin', 'Bitcoin', '₿', 'M0,1.2 L0,8.8 L3,8.8 A3,6.9 1.9 90 -90 L0,5 M3,5 L3.4,5 A3.4,3.1 1.9 90 -90 L0,1.2 M1.2,8.8 L1.2,10 M3,8.8 L3,10 M1.2,1.2 L1.2,0 M3,1.2 L3,0', 'Money', 'money crypto'],
+  ['won', 'Won', '₩', 'M0,10 L1.8,0 L4,7 L6.2,0 L8,10 M-0.6,6.2 L8.6,6.2 M-0.6,4 L8.6,4', 'Money', 'money'],
+  ['plus-minus', 'Plus or minus', '±', 'M0,6.5 L6,6.5 M3,9.5 L3,3.5 M0,1 L6,1', 'Maths'],
+  ['not-equal', 'Not equal', '≠', 'M0,6.8 L7,6.8 M0,3.2 L7,3.2 M5,9.4 L2,0.6', 'Maths'],
+  ['approx', 'About equal', '≈', 'M0,6 C1.2,8 2.4,8 3.5,6.6 C4.6,5.2 5.8,5.2 7,7.2 M0,2.8 C1.2,4.8 2.4,4.8 3.5,3.4 C4.6,2 5.8,2 7,4', 'Maths', 'approximately'],
+  ['less-equal', 'Less or equal', '≤', 'M6.4,9.4 L0,6 L6.4,2.6 M0,0.6 L6.4,0.6', 'Maths'],
+  ['greater-equal', 'Greater or equal', '≥', 'M0,9.4 L6.4,6 L0,2.6 M0,0.6 L6.4,0.6', 'Maths'],
+  ['root', 'Square root', '√', 'M0,4.4 L1.4,5.2 L3.2,0 L5.6,10 L9.4,10', 'Maths'],
+  ['integral', 'Integral', '∫', 'A5,8.2 1.6 30 180 L3.4,1.6 A1.8,1.6 1.6 0 -150', 'Maths'],
+  ['angle', 'Angle sign', '∠', 'M7,7 L0,0 L8,0 A0,0 3.4 0 45', 'Maths'],
+  ['squared', 'X squared', 'x²', 'M0,0 L5,6.5 M0,6.5 L5,0 N A7.4,8.6 1.2 160 -40 L6.2,6.6 L8.8,6.6', 'Maths', 'power'],
+  ['half', 'One half', '½', 'M0.6,8.6 L1.8,10 L1.8,5.6 M6.6,10 L1.6,0 N A6.6,3.2 1.4 160 -40 L5.2,0 L8.2,0', 'Maths', 'fraction'],
+  ['quarter', 'One quarter', '¼', 'M0.6,8.6 L1.8,10 L1.8,5.6 M6.6,10 L1.6,0 M7.4,0 L7.4,4.4 L5,1.4 L8.8,1.4', 'Maths', 'fraction'],
+  ['three-quarters', 'Three quarters', '¾', 'M0.5,10 L2.5,10 L1.3,8.2 A1.3,6.9 1.3 90 -150 M7,10 L2,0 M7.8,0 L7.8,4.4 L5.4,1.4 L9.2,1.4', 'Maths', 'fraction'],
+  ['tally', 'Tally marks', '卌', 'M0,0 L0,8 M2,0 L2,8 M4,0 L4,8 M6,0 L6,8 M-1.4,1.6 L7.4,6.4', 'Maths', 'count five score'],
+];
+
+// The numbers of a digital clock: seven bars, lit or not. a is the top bar,
+// then clockwise b, c, d, e, f, and g is the one in the middle.
+const BARS = {
+  a: 'M0.6,10 L4.4,10', b: 'M5,9.4 L5,5.6', c: 'M5,4.4 L5,0.6', d: 'M0.6,0 L4.4,0', e: 'M0,0.6 L0,4.4', f: 'M0,5.6 L0,9.4', g: 'M0.6,5 L4.4,5',
+};
+const DIGITAL = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abcdfg'];
+
 
 /** Centre the glyph left-right; keep the baseline and cap height where they are. */
 function glyph(d) {
@@ -73,12 +199,30 @@ function glyph(d) {
   return placeDrawing(drawing, { x: -(x0 + x1) / 10, y: -1, size: 1 / 5 });
 }
 
-const text = (id, name, cat, sign, d) => drawnShape({
-  id, name, cat, label: sign, tags: sign, draw: () => glyph(d), box: false, spacing: 0.12,
+const text = (id, name, cat, sign, d, extra = {}) => drawnShape({
+  id, name, cat, label: sign, tags: sign, draw: () => glyph(d), box: false, spacing: 0.12, ...extra,
 });
 
+/** Small letters hang below the box by this much (the tails of g, j, p, q and y). */
+const DROP = 0.64;
+
 export const TEXT_SHAPES = [
-  ...Object.entries(LETTERS).map(([ch, d]) => text(`letter-${ch.toLowerCase()}`, `Letter ${ch}`, 'letters', ch, d)),
-  ...Object.entries(DIGITS).map(([ch, d]) => text(`digit-${ch}`, `Number ${ch}`, 'numbers', ch, d)),
-  ...SIGNS.map(([id, name, sign, d]) => text(`sign-${id}`, name, 'numbers', sign, d)),
+  ...Object.entries(LETTERS).map(([ch, d]) => text(`letter-${ch.toLowerCase()}`, `Letter ${ch}`, 'letters', ch, d, { sub: 'Capital letters' })),
+  ...Object.entries(SMALL).map(([ch, d]) => text(`small-${ch}`, `Small letter ${ch}`, 'letters', ch, d, {
+    sub: 'Small letters', tags: `${ch} lowercase little`, drop: DROP,
+  })),
+  ...GREEK.map(([id, name, sign, d, words]) => text(`greek-${id}`, name, 'letters', sign, d, {
+    sub: 'Greek letters', tags: `${sign} greek letter${words ? ` ${words}` : ''}`, drop: id.startsWith('cap-') ? 0 : DROP,
+  })),
+  ...RUNES.map(([name, d]) => text(`rune-${name.toLowerCase()}`, `${name} rune`, 'letters', name, d, {
+    sub: 'Runes', tags: 'runes viking magic futhark letter',
+  })),
+  ...Object.entries(DIGITS).map(([ch, d]) => text(`digit-${ch}`, `Number ${ch}`, 'numbers', ch, d, { sub: 'Numbers' })),
+  ...DIGITAL.map((bars, n) => text(`digital-${n}`, `Digital ${n}`, 'numbers', String(n), [...bars].map((b) => BARS[b]).join(' '), {
+    sub: 'Digital numbers', tags: `${n} clock display led seven segment`,
+  })),
+  ...SIGNS.map(([id, name, sign, d, sub]) => text(`sign-${id}`, name, 'numbers', sign, d, { sub })),
+  ...MORE_SIGNS.map(([id, name, sign, d, sub, words]) => text(`sign-${id}`, name, 'numbers', sign, d, {
+    sub, tags: `${sign}${words ? ` ${words}` : ''}`,
+  })),
 ];

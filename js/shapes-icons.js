@@ -2,22 +2,7 @@
 // drawing in the language described in shape-kit.js ("drawings"), in whatever
 // units suit the picture — it is centred and scaled to fit by itself.
 
-import { P, RAD, drawnShape, parsePath, placeDrawing, joinDrawings } from './shape-kit.js';
-
-/** A drawing repeated `times` around the middle, the first copy turned by `first` degrees. */
-const spin = (d, times, first = 0) => joinDrawings(
-  ...Array.from({ length: times }, (_, i) => placeDrawing(parsePath(d), { turn: first + (360 * i) / times })),
-);
-
-const fix = (v) => Number(v.toFixed(4));
-const around = (cx, cy, r, deg) => `${fix(cx + r * Math.cos(deg * RAD))},${fix(cy + r * Math.sin(deg * RAD))}`;
-
-/** A closed ring of `k` arcs (bulge 1 = half circles), like the edge of a flower. */
-function scallop(cx, cy, r, k, bulge) {
-  let d = `M${around(cx, cy, r, 90)}`;
-  for (let i = 1; i <= k; i++) d += ` B${around(cx, cy, r, 90 + (360 * i) / k)} ${bulge}`;
-  return d;
-}
+import { P, drawnShape, parsePath, joinDrawings, spin, around, scallop, fix } from './shape-kit.js';
 
 // [id, name, drawing, extra fields]
 const SYMBOLS = [

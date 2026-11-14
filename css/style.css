@@ -109,8 +109,8 @@ input[type="color"] {
   #left > .cat > .cat-head, #left > .cat > .cat-bar { flex: none; }
   #left > .cat.open > .cat-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   #left > .cat.open > .cat-body > * { flex: none; }
-  /* the shapes: never less than a row of them (--one-row and --two-rows: the height of the category then) */
-  #left { --one-row: 334px; --two-rows: 402px; }
+  /* the shapes: never less than a row of them under its heading (--one-row and --two-rows: the height of the category then) */
+  #left { --one-row: 377px; --two-rows: 449px; }
   #left > #cat-add.open { flex: 1 1 auto; min-height: var(--one-row); }
   #left > #cat-add.open > .cat-body > .shape-grid { flex: 1 1 0; min-height: 0; max-height: none; }
   /*
@@ -246,18 +246,25 @@ input[type="color"] {
 .fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--bg); }
 
 /* ---------- shape library ---------- */
-.shape-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 6px 0; }
-.shape-tabs button { padding: 4px 2px; font-size: 12.5px; }
+.shape-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 6px 0; }
+.shape-tabs button { padding: 4px 1px; font-size: 12px; min-width: 0; }
 /* The grid scrolls by itself, so the scene list below stays in reach however many shapes there are. */
 .shape-grid {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-content: start;
   max-height: min(322px, 46vh); overflow-y: auto; scrollbar-width: thin; padding: 2px; margin: 0 -2px;
+  scroll-padding-top: 28px; /* a button reached with the Tab key does not stop under a heading */
 }
 .shape-grid button {
   padding: 4px 1px 3px; display: flex; flex-direction: column; align-items: center; gap: 1px;
   font-size: 10.5px; line-height: 1.1; white-space: normal; overflow-wrap: anywhere; min-width: 0;
 }
 .shape-grid canvas { width: 44px; height: 44px; }
+/* A heading inside a tab: it runs across the grid and stays at the top while its shapes scroll by. */
+.shape-sub {
+  grid-column: 1 / -1; position: sticky; top: -2px; z-index: 1; margin: 0 -2px; padding: 5px 4px 4px;
+  font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--panel);
+}
+.shape-sub small { margin-left: 6px; font-weight: 400; opacity: 0.75; }
 .shape-note { font-size: 12px; margin: 6px 0 0; }
 
 /* ---------- scene list: a tree, what is in a group sits under it ---------- */
