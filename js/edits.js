@@ -6,9 +6,9 @@
 
 import {
   viewMatrix, mulAffine, poseOfView, poseAt, applyMatrix, rotationMatrix, IDENTITY,
-  MAX_KEYS, MIN_KEY_GAP, MAX_START, MIN_EVERY, keyHasColor, keyHasSize,
+  MAX_KEYS, MIN_KEY_GAP, MAX_START, MIN_EVERY, keyHasColor, keyHasSize, lookAt,
 } from './motion.js';
-import { isGroup, createGroup, sceneTree, newId, localPoints, MAX_DEPTH } from './scene.js';
+import { isGroup, createGroup, sceneTree, newId, localPoints, rgbToHex, MAX_DEPTH } from './scene.js';
 
 /** A scene holds this many objects and groups at most (more are dropped when a file is opened). */
 export const MAX_OBJECTS = 500;
@@ -346,6 +346,34 @@ export function beginAt(node, at) {
 export function keptKeys(node, at) {
   const probe = { keys: clone(node.keys), pos: node.pos, rot: node.rot, scale: node.scale, spin: node.spin };
   return beginAt(probe, at).kept;
+}
+
+/**
+ * Cut what a node does off `at` seconds after it starts: its later keys go, and
+ * a key there holds the place and the look it has by then, so that all it did
+ * until then stays as it was. (No key is put there when one is less than 0.1
+ * seconds before it: there is no room for another.) A node that is through
+ * with its keys by then is left as it is. Returns how many keys went.
+ */
+export function endAt(node, at) {
+  const cut = node.keys.findIndex((k) => k.t > at + 1e-9);
+  if (cut < 0) return 0;
+  const next = node.keys[cut];
+  const gone = node.keys.length - cut;
+  let hold = null;
+  if (at - (cut ? node.keys[cut - 1].t : 0) >= MIN_KEY_GAP - 1e-9) {
+    hold = { t: round(at), ...tidyPose(poseAt(node, at)), ease: next.ease };
+    // on the way to a key that changes the colour or the size it has come part of the way
+    const look = isGroup(node) ? null : lookAt(node, at);
+    if (look && keyHasColor(next)) {
+      const [c1, c2] = [look.c1, look.c2].map(rgbToHex);
+      Object.assign(hold, { color: c1, color2: c2 === c1 ? null : c2 });
+    }
+    if (look && keyHasSize(next)) Object.assign(hold, { size: round(look.lo, 3), size2: look.hi > look.lo ? round(look.hi, 3) : null });
+  }
+  node.keys = node.keys.slice(0, cut);
+  if (hold) node.keys.push(hold);
+  return gone;
 }
 
 /** Remember what a node does (its keys), to give it to another one. null when it has no keys. */

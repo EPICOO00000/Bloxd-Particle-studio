@@ -7,10 +7,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createObject, createGroup, sanitizeScene, computeParticles, sceneTree, sceneDuration, isGroup } from '../js/scene.js';
-import { spanOf, poseAt, MAX_KEYS, MIN_KEY_GAP } from '../js/motion.js';
+import { spanOf, poseAt, lookAt, MAX_KEYS, MIN_KEY_GAP } from '../js/motion.js';
 import {
   groupNodes, ungroup, moveInto, duplicateNodes, mirrorNodes, stretchNodes, copyKeys, pasteKeys, movePivot, removeNodes,
-  topNodes, uniqueName, invAffine, MAX_OBJECTS,
+  topNodes, uniqueName, invAffine, endAt, MAX_OBJECTS,
 } from '../js/edits.js';
 import { MOVES, MOVE_BY_ID, applyMove, mostTimes, moveFields } from '../js/moves.js';
 
@@ -513,8 +513,191 @@ test('moves: a move starts at the time marker and knows what fits', () => {
   // what makes no sense says so
   assert.match(applyMove(scene(createObject('point', { id: 'p' })), 'p', 'flap').message, /single particle/);
   assert.ok(applyMove(scene(createObject('point', { id: 'p' })), 'p', 'bounce').ok);
-  assert.match(applyMove(scene(createGroup({ id: 'g' })), 'g', 'rise').message, /not for groups/);
+  assert.match(applyMove(scene(createGroup({ id: 'g' })), 'g', 'rise').message, /nothing in Group to fade/);
   assert.ok(applyMove(scene(createGroup({ id: 'g' })), 'g', 'flap').ok);
   assert.ok(!applyMove(fresh(), 'nobody', 'flap').ok);
   assert.ok(!applyMove(fresh(), 'o', 'dance').ok);
+});
+
+test('edits: what a node does can be cut off at a moment', () => {
+  const fresh = () => scene(createObject('circle', {
+    id: 'o', pos: [0, 0, 0], color: '#0000ff', size: 0.2,
+    keys: [key(1, { pos: [2, 0, 0], ease: 'linear' }), key(2, { pos: [2, 4, 0], ease: 'linear', color: '#ff0000', size: 1 }), key(3, { pos: [9, 9, 9] })],
+  }))[0];
+  const was = fresh();
+
+  // between two keys: the later ones go, and a key holds the place and the look it has by then
+  let o = fresh();
+  assert.equal(endAt(o, 1.5), 2);
+  assert.deepEqual(o.keys.map((k) => k.t), [1, 1.5]);
+  assert.deepEqual(o.keys[1], { t: 1.5, pos: [2, 2, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'linear', color: '#800080', color2: null, size: 0.6, size2: null });
+  for (const t of [0, 0.4, 1, 1.2, 1.5]) {
+    for (const part of ['pos', 'rot', 'scale']) assert.ok(dist(poseAt(o, t)[part], poseAt(was, t)[part]) < 1e-9, `where it is after ${t} s`);
+    const [now, then] = [lookAt(o, t), lookAt(was, t)];
+    // (a colour is written in whole numbers)
+    assert.ok(dist(now.c1, then.c1) < 0.9 && Math.abs(now.lo - then.lo) < 1e-9 && Math.abs(now.hi - then.hi) < 1e-9, `how it looks after ${t} s`);
+  }
+  assert.deepEqual(scene(clone(o))[0], o, 'the studio keeps the key as it is');
+
+  // a key that changes nothing about the look: the new one does not either
+  o = fresh();
+  assert.equal(endAt(o, 0.5), 3);
+  assert.deepEqual(o.keys, [{ t: 0.5, pos: [1, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'linear' }]);
+  // on the way to a key that eases: it stops where it is by then
+  o = fresh();
+  endAt(o, 2.5);
+  assert.deepEqual(o.keys.map((k) => [k.t, k.pos, k.ease]), [[1, [2, 0, 0], 'linear'], [2, [2, 4, 0], 'linear'], [2.5, [5.5, 6.5, 4.5], 'smooth']]);
+  assert.ok(!('color' in o.keys[2]) && !('size' in o.keys[2]), 'the colour and size of the key before go on');
+
+  // on a key, or just after one: no room for another key (they are 0.1 seconds apart at least)
+  o = fresh();
+  assert.equal(endAt(o, 2), 1);
+  assert.deepEqual(o.keys, was.keys.slice(0, 2));
+  o = fresh();
+  assert.equal(endAt(o, 1.05), 2);
+  assert.deepEqual(o.keys, was.keys.slice(0, 1));
+  o = fresh();
+  assert.equal(endAt(o, 0.05), 3);
+  assert.deepEqual(o.keys, []);
+  // after its last key: nothing to cut
+  o = fresh();
+  assert.equal(endAt(o, 3), 0);
+  assert.equal(endAt(o, 7), 0);
+  assert.deepEqual(o, was);
+
+  // a group: the place only
+  const [g] = scene(createGroup({ id: 'g', keys: [key(2, { rot: [0, 90, 0], scale: [3, 3, 3], ease: 'linear' })] }));
+  assert.equal(endAt(g, 1), 1);
+  assert.deepEqual(g.keys, [{ t: 1, pos: [0, 0, 0], rot: [0, 45, 0], scale: [2, 2, 2], ease: 'linear' }]);
+});
+
+test('moves: Rise and fade lifts a group as one, and what is in it fades', () => {
+  const fresh = () => scene(
+    createGroup({ id: 'g', name: 'Ghost', pos: [0, 2, 0] }),
+    createObject('circle', { id: 'body', name: 'Body', count: 8, parent: 'g', pos: [0, 0, 0] }),
+    // its keys go on after the group is up, and the second one makes it red
+    createObject('line', { id: 'arm', name: 'Arm', count: 5, parent: 'g', pos: [1, 0, 0], life: 3, keys: [key(1, { pos: [1, 1, 0], ease: 'linear' }), key(4, { pos: [4, 1, 0], ease: 'linear', color: '#ff0000' })] }),
+    createGroup({ id: 'hat', name: 'Hat', parent: 'g', pos: [0, 1, 0], rot: [0, 90, 0], start: 0.5 }),
+    // appears on the way and is gone again before the group is up
+    createObject('point', { id: 'tip', name: 'Tip', parent: 'hat', pos: [0, 1, 0], start: 0.25, life: 0.3 }),
+    // played three times, a second each: after 0.5, 1 and 1.5 seconds
+    createObject('point', { id: 'spark', name: 'Spark', parent: 'hat', pos: [1, 0, 0], repeat: 3, every: 0.5, life: 0.6 }),
+    createObject('point', { id: 'late', name: 'Late', parent: 'g', pos: [0, 0, 1], start: 5 }),
+    createObject('star', { id: 'out', name: 'Out', count: 10, pos: [6, 1, 0] }),
+  );
+  const was = fresh();
+  const objects = fresh();
+  const done = applyMove(objects, 'g', 'rise', { seconds: 2, height: 3 });
+  assert.ok(done.ok, done.message);
+  assert.equal(done.message, 'Rise and fade: Ghost now has 1 key. 4 objects in it fade away as it goes up. Not changed: 1 that is over before it begins or comes after it.');
+  const now = done.objects;
+  const [g, body, arm, hat, tip, spark, late, out] = now;
+  const tree = sceneTree(now);
+
+  // the group: one key, up. It has no lifetime and cannot fade
+  assert.deepEqual(g.keys, [{ t: 2, pos: [0, 5, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'out' }]);
+  assert.ok(!('fade' in g) && !('life' in g));
+  assert.deepEqual(hat, was[3], 'a group in it stays as it is');
+  // what is there from the start lasts until the group is up
+  assert.deepEqual([body.fade, spanOf(body)], [true, { start: 0, end: 2 }]);
+  assert.deepEqual({ ...body, fade: false, life: 6 }, was[1], 'nothing else about it changes');
+  // keys that go on after that are cut, with a key that holds where it is by then
+  assert.deepEqual(arm.keys.map((k) => [k.t, k.pos, k.color]), [[1, [1, 1, 0], undefined], [2, [2, 1, 0], '#ff8c31']]);
+  assert.deepEqual([arm.fade, spanOf(arm)], [true, { start: 0, end: 2 }]);
+  // what is gone earlier keeps its time
+  assert.deepEqual({ ...tip, fade: false }, was[4]);
+  assert.equal(tip.fade, true);
+  // played more than once: the last time is over when the group is up
+  assert.deepEqual([spark.fade, spark.life, spark.repeat, spark.every], [true, 0.3, 3, 0.5]);
+  assert.ok(Math.abs(tree.lastEnd(spark) - 2) < 1e-9);
+  // what only comes later, and what is not in the group
+  assert.deepEqual([late, out], [was[6], was[7]]);
+  assert.deepEqual(sanitizeScene({ objects: clone(now) }).objects, now, 'the studio would change it on loading');
+
+  // the picture: what was there, as it was, higher and higher (it slows down on the way up)
+  const inside = (objs, time) => Object.fromEntries(Object.entries(picture(objs, time)).filter(([name]) => !name.startsWith('out:')));
+  const up = (t) => 3 * (1 - (1 - t / 2) ** 2);
+  for (const t of [0.3, 0.9, 1.2, 1.7]) {
+    const before = inside(was, t);
+    assert.ok(Object.keys(before).length >= 13, `at ${t} s`);
+    same(before, inside(now, t), `at ${t} s`, 0.05, (pos) => [pos[0], pos[1] + up(t), pos[2]]);
+  }
+  assert.equal(Object.keys(inside(was, 0.9)).length, 8 + 5 + 1 + 1);
+  same(inside(was, null), inside(now, null), 'the still picture stays');
+  // gone when it is up
+  for (const t of [2, 2.05, 3.5]) assert.deepEqual(inside(now, t), {}, `at ${t} s`);
+  for (const id of ['body', 'arm', 'tip', 'spark']) assert.ok(tree.lastEnd(byId(now, id)) <= 2 + 1e-9, id);
+  // what comes later comes where the group is by then
+  assert.deepEqual(Object.keys(inside(now, 5.5)), ['late:0']);
+  assert.ok(dist(inside(now, 5.5)['late:0'], inside(was, 5.5)['late:0'].map((v, k) => v + (k === 1 ? 3 : 0))) < 0.004);
+
+  // with Repeat it keeps coming: every play of the group is the whole of it
+  const again = fresh();
+  Object.assign(again[0], { repeat: 2, every: 3 });
+  applyMove(again, 'g', 'rise', { seconds: 2, height: 3 });
+  same(inside(now, 0.9), inside(again, 3.9), 'the second time', 0.004);
+  assert.deepEqual(inside(again, 2.5), {});
+
+  // later on: the marker is 3 seconds after the group starts
+  const later = () => scene(
+    createGroup({ id: 'g', name: 'Ghost', pos: [0, 2, 0], keys: [key(1, { pos: [1, 2, 0] }), key(6, { pos: [9, 2, 0] })] }),
+    createObject('point', { id: 'flash', parent: 'g', life: 0.6 }), // over after a second
+    createObject('point', { id: 'short', parent: 'g', life: 2.4 }), // there for 4 seconds
+    createObject('point', { id: 'long', parent: 'g' }), // there for 10
+    createObject('point', { id: 'blink', parent: 'g', life: 0.12, repeat: 20, every: 0.2 }), // until 4 seconds
+    createObject('point', { id: 'new', parent: 'g', start: 4, life: 3 }), // from 4 to 9
+    createObject('point', { id: 'off', parent: 'g', hidden: true }),
+  );
+  const then = later();
+  const at3 = applyMove(then, 'g', 'rise', { seconds: 2, height: 1 }, 3);
+  assert.equal(at3.message, 'Rise and fade: Ghost now has 3 keys. 5 objects in it fade away as it goes up. Not changed: 1 that is over before it begins or comes after it.');
+  const start = poseAt(later()[0], 3).pos.map((v) => Math.round(v * 1000) / 1000);
+  assert.deepEqual(byId(then, 'g').keys.map((k) => [k.t, k.pos]), [[1, [1, 2, 0]], [3, start], [5, [start[0], start[1] + 1, start[2]]]]);
+  assert.deepEqual(byId(then, 'flash'), byId(later(), 'flash'), 'what is over before the move begins stays as it was');
+  const ends = Object.fromEntries(['short', 'long', 'blink', 'new', 'off'].map((id) => [id, [byId(then, id).fade, Math.round(sceneTree(then).lastEnd(byId(then, id)) * 1000) / 1000]]));
+  assert.deepEqual(ends, {
+    short: [true, 5], // there when the move begins: it lasts until the group is up
+    long: [true, 5],
+    blink: [true, 4], // what is played again and again keeps its time
+    new: [true, 5], // came on the way: cut off when the group is up
+    off: [true, 5], // hidden things too
+  });
+  assert.equal(byId(then, 'blink').life, 0.12);
+  assert.deepEqual(sanitizeScene({ objects: clone(then) }).objects, then);
+
+  // a group in a group goes up the way its own group sees "up", like an object does
+  const nested = scene(
+    createGroup({ id: 'top', rot: [0, 0, 90] }),
+    createGroup({ id: 'g', parent: 'top', pos: [1, 0, 0] }),
+    createObject('point', { id: 'p', parent: 'g' }),
+  );
+  assert.ok(applyMove(nested, 'g', 'rise', { seconds: 1, height: 2 }).ok);
+  assert.deepEqual(byId(nested, 'g').keys.map((k) => [k.t, k.pos]), [[1, [1, 2, 0]]]);
+  assert.deepEqual([byId(nested, 'p').fade, spanOf(byId(nested, 'p')).end], [true, 1]);
+  assert.deepEqual(byId(nested, 'top').keys, []);
+
+  // what cannot be done says so, and changes nothing
+  const refuse = (objs, at, settings, message) => {
+    const before = clone(objs);
+    const no = applyMove(objs, 'g', 'rise', settings, at);
+    assert.ok(!no.ok);
+    assert.match(no.message, message);
+    assert.deepEqual(objs, before, 'nothing changed');
+  };
+  refuse(scene(createGroup({ id: 'g', name: 'Box' }), createGroup({ id: 'h', parent: 'g' })), 0, {}, /nothing in Box to fade/);
+  refuse(fresh(), 16, {}, /Nothing in Ghost is there between 16 and 18 seconds/);
+  refuse(scene(createGroup({ id: 'g', name: 'Box' }), createObject('point', { id: 'p', parent: 'g', start: 5 })), 0, { seconds: 2 }, /Nothing in Box is there between 0 and 2 seconds/);
+  const full = scene(
+    createGroup({ id: 'g', keys: Array.from({ length: 12 }, (_, i) => key(0.5 + i * 0.5, { pos: [i, 0, 0] })) }),
+    createObject('point', { id: 'p', parent: 'g' }),
+  );
+  refuse(full, 6, {}, /no keys left/);
+
+  // every move works on a group
+  for (const move of MOVES) {
+    const objs = fresh();
+    const made = applyMove(objs, 'g', move.id);
+    assert.ok(made.ok, `${move.name}: ${made.message}`);
+    assert.deepEqual(sanitizeScene({ objects: clone(made.objects) }).objects, made.objects, move.name);
+  }
 });

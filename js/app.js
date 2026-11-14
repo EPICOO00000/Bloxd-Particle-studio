@@ -936,7 +936,7 @@ function moveWhen(node) {
 }
 
 function movesSection(node) {
-  const usable = MOVES.filter((m) => !(m.leaf && isGroup(node)) && !(m.shaped && node.shape === 'point'));
+  const usable = MOVES.filter((m) => !(m.shaped && node.shape === 'point'));
   if (!usable.some((m) => m.id === state.move.id)) state.move.id = usable[0].id;
   const box = h('div', {});
   const when = liveNote(moveWhen);
