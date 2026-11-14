@@ -85,9 +85,19 @@ input[type="color"] {
 .pill.bad { color: var(--bad); border-color: var(--bad); }
 
 /* ---------- layout ---------- */
-.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 288px minmax(0, 1fr) 304px; }
+/*
+ * The 3D view in the middle has all the room the panels leave, and the panels
+ * are only there while they are open (see the buttons in .docks): shut, their
+ * columns are empty and the 3D view is as wide as the window.
+ */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); }
 .panel { background: var(--panel); overflow-y: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; scrollbar-width: thin; }
-#left { border-right: 1px solid var(--line); }
+#left { grid-column: 1; width: 288px; border-right: 1px solid var(--line); }
+.stage { grid-column: 2; }
+#inspector { grid-column: 3; width: 304px; }
+/* a part of the left panel that is shut is not there at all: its button on the 3D view opens it */
+#left > .cat:not(.open) { display: none; }
+#left > #cat-add:not(.open) + #cat-scene { border-top: 0; }
 /*
  * The left panel shares its height between its two categories: the scene list
  * takes what it needs, up to a good part of the panel, and scrolls by itself;
@@ -160,16 +170,30 @@ input[type="color"] {
 .menu-item:hover { background: #33405f; border-color: var(--line); }
 .menu-item span { color: var(--muted); font-size: 12px; }
 
-.stage { position: relative; min-width: 0; min-height: 0; }
+.stage { position: relative; min-width: 0; min-height: 0; container-type: inline-size; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+/* the buttons that open and close the panels: in the corners of the 3D view, next to where their panel is */
+.docks { position: absolute; z-index: 3; display: flex; gap: 6px; }
+.docks-left { top: 10px; left: 10px; }
+.docks-right { top: 10px; right: 10px; }
+.docks-bottom { bottom: 8px; right: 10px; }
+.dock { padding: 5px 12px; border-radius: 999px; background: #1b2233eb; border-color: var(--line); box-shadow: 0 2px 8px #0005; }
+.dock:hover { background: var(--panel-2); border-color: #55617f; }
+/* open: marked the way the selected row of a list is */
+.dock[aria-pressed="true"] { background: #2d3d5e; border-color: var(--accent); color: #fff; }
+.dock[aria-pressed="true"]:hover { background: #35486f; }
 .hint {
-  position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); color: #dfe5f3; font-size: 12px;
+  position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 124px); color: #dfe5f3; font-size: 12px;
   pointer-events: none; background: #0d111cb8; border-radius: 6px; padding: 3px 8px;
 }
+/* (under the buttons in the corners, and between them where the 3D view is wide enough) */
 .playing {
-  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 48px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   background: #000a; border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; pointer-events: none;
 }
+@container (min-width: 700px) { .playing { top: 10px; } }
+/* a 3D view as narrow as a phone: no room for the line about the mouse (and a phone has none) */
+@container (max-width: 559px) { .hint { display: none; } }
 .toast {
   position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: calc(100% - 24px);
   background: #0d111cf2; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px;
@@ -358,10 +382,12 @@ dialog::backdrop { background: #000a; }
   /* one column: the 3D view, the timeline right under it, then the two panels */
   .layout { display: contents; }
   .stage { order: 1; flex: none; height: 52vh; height: max(260px, 52dvh); }
+  /* nothing open: the 3D view has the whole height */
+  body.bare .stage { flex: 1 1 auto; height: auto; min-height: 260px; }
   .timeline { order: 2; }
   #left { order: 3; }
   #inspector { order: 4; }
-  #left, #inspector { flex: none; border: 0; border-top: 1px solid var(--line); overflow: visible; }
+  #left, #inspector { flex: none; width: auto; border: 0; border-top: 1px solid var(--line); overflow: visible; }
   .shape-tabs { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
   .shape-grid { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); max-height: 300px; }
   .actions { margin-left: 0; }

@@ -1,5 +1,5 @@
 // Small helpers for building the page: elements, and the categories that open
-// and close (the page remembers which ones are open).
+// and close (the page remembers which ones are open, and which panels).
 
 export const $ = (sel) => document.querySelector(sel);
 
@@ -49,6 +49,11 @@ try { memory = JSON.parse(localStorage.getItem(MEMORY)) || {}; } catch { memory 
 const remember = () => {
   try { localStorage.setItem(MEMORY, JSON.stringify(memory)); } catch { /* private mode: it is forgotten on reload, no harm */ }
 };
+
+/** Whether something was open the last time (`fallback`: on a first visit). */
+export const recall = (id, fallback = false) => (typeof memory[id] === 'boolean' ? memory[id] : fallback);
+/** Remember that it is open, or shut. */
+export const keep = (id, on) => { memory[id] = on; remember(); };
 
 /** Make a category in the page open and close when its heading is clicked. `open`: how it is the first time. */
 export function wireCategory(section, open = false) {

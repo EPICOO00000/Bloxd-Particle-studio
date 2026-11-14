@@ -244,6 +244,12 @@ export function createTimeline(root, on) {
       }
       showHead();
     },
+    /** After the timeline was out of sight: lay it out for the room it has now, the selected row and the time marker in sight. */
+    reveal() {
+      shown = null;
+      api.render(model);
+      api.setTime(model.time, true);
+    },
     zoomBy(factor) {
       const before = zoom;
       zoom = Math.min(64, Math.max(1, zoom * factor));

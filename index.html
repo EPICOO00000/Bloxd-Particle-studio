@@ -40,9 +40,9 @@
 </header>
 
 <main class="layout">
-  <aside class="panel" id="left">
-    <section class="cat" id="cat-add" data-cat="add">
-      <button class="cat-head" type="button">
+  <aside class="panel" id="left" hidden>
+    <section class="cat" id="cat-add" data-cat="add" hidden>
+      <button class="cat-head" type="button" title="Close (1)">
         <span class="chev" aria-hidden="true"></span><span class="cat-title">Add</span><span class="cat-sum">particles and shapes</span>
       </button>
       <div class="cat-body">
@@ -54,9 +54,9 @@
         <p id="shape-note" class="muted shape-note" aria-live="polite" hidden></p>
       </div>
     </section>
-    <section class="cat" id="cat-scene" data-cat="scene">
+    <section class="cat" id="cat-scene" data-cat="scene" hidden>
       <div class="cat-bar">
-        <button class="cat-head" type="button">
+        <button class="cat-head" type="button" title="Close (2)">
           <span class="chev" aria-hidden="true"></span><span class="cat-title">Scene</span>
         </button>
         <button id="group" title="Put what is selected into a group (Ctrl+G). Ctrl+click selects several." disabled>Group</button>
@@ -71,16 +71,27 @@
 
   <div class="stage">
     <canvas id="view"></canvas>
-    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click a particle to select it &middot; Ctrl+click for several</div>
+    <!-- the buttons that open and close the big parts of the page -->
+    <div class="docks docks-left" role="group" aria-label="Open or close: add, scene">
+      <button id="show-add" class="dock" aria-pressed="false" title="Particles and shapes to put into the scene (1)">+ Add</button>
+      <button id="show-scene" class="dock" aria-pressed="false" title="The list of everything in the scene (2)">Scene</button>
+    </div>
+    <div class="docks docks-right" role="group" aria-label="Open or close: settings">
+      <button id="show-settings" class="dock" aria-pressed="false" title="Settings of what is selected (3)">Settings</button>
+    </div>
+    <div class="docks docks-bottom" role="group" aria-label="Open or close: timeline">
+      <button id="show-timeline" class="dock" aria-pressed="false" title="When things appear and how they move (4)">Timeline</button>
+    </div>
+    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click to select &middot; Ctrl+click for several</div>
     <div class="playing" id="playing" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <div class="fatal" id="fatal" hidden></div>
   </div>
 
-  <aside class="panel" id="inspector"></aside>
+  <aside class="panel" id="inspector" hidden></aside>
 </main>
 
-<section class="timeline" id="timeline" aria-label="Timeline">
+<section class="timeline" id="timeline" aria-label="Timeline" hidden>
   <div class="tl-bar">
     <button id="tl-home" title="Back to the start (Esc)">Start</button>
     <button id="tl-play" title="Play or pause (Space)">Play</button>
