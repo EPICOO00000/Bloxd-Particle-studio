@@ -20,6 +20,7 @@ import {
   MAX_REPEAT, MIN_EVERY, lookAt, viewMatrix, poseOfView,
 } from '../js/motion.js';
 import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
+import { applyMove } from '../js/moves.js';
 import { createParticle, frameAge } from './babylon-sim.mjs';
 import { sourceFiles, sourceHash } from '../tools/sources.mjs';
 import { dragonFile } from '../examples/dragon.mjs';
@@ -1391,6 +1392,46 @@ function wildScene(seed) {
   }));
   return scene(...objects);
 }
+
+test('groups: a group that rises and fades is played by the game the way the studio shows it', () => {
+  for (const fps of [60, 30, 20]) {
+    const objects = scene(
+      groupAt({ name: 'Ghost' }),
+      inGroup({ life: 6 }),
+      inGroup({ id: 'arm', name: 'Arm', shape: 'line', count: 5, pos: [1, 0, 0], keys: [ckey(1, { pos: [1, 1, 0], ease: 'linear' }), ckey(4, { pos: [4, 1, 0], ease: 'linear' })] }),
+      createGroup({ id: 'hat', parent: 'g', pos: [0, 1, 0], rot: [0, 90, 0], start: 0.5 }),
+      inGroup({ id: 'tip', name: 'Tip', shape: 'point', parent: 'hat', pos: [0, 1, 0], start: 0.25, life: 0.3 }),
+      inGroup({ id: 'spark', name: 'Spark', shape: 'point', parent: 'hat', pos: [1, 0, 0], repeat: 3, every: 0.5, life: 0.6 }),
+    );
+    // Rise and fade on the group (tests/edits.test.mjs says what that does to each of them)
+    assert.ok(applyMove(objects, 'g', 'rise', { seconds: 2, height: 3 }).ok);
+    const stats = playScene(objects, { fps });
+    assert.deepEqual(stats.map((s) => s.name), ['Ring', 'Arm', 'Tip', 'Spark']);
+    for (const s of stats) {
+      const label = `${s.name}, ${fps} fps`;
+      const ahead = s.fastest * frameAge(fps);
+      assert.equal(s.early, 0, `${label}: seen before its time`);
+      assert.equal(s.late, 0, `${label}: seen after its time`);
+      assert.ok(s.off <= 0.08 + ahead * 1.05, `${label}: ${s.off.toFixed(3)} off the path at ${s.offAt.toFixed(2)} s (one frame is ${ahead.toFixed(3)})`);
+      for (const plan of s.plans) assert.equal(plan.rough, '', label);
+    }
+    // a point of the ring: all there for the first 80 % of the two seconds, then less and less, and gone when the group is up
+    const [ring] = stats;
+    const h = frameAge(fps);
+    const engine = ring.calls.slice(0, ring.pieces).map((c) => ({ c, p: createParticle(c, () => 0.5) }));
+    const frame = h / LIFE_PER_SECOND;
+    let frames = 0;
+    for (let f = 1; f * frame < 2.4; f++) {
+      const t = f * frame;
+      const seen = engine.reduce((sum, e) => sum + (e.p.update(h) ? strength(e.p, e.c) : 0), 0);
+      if (t < 0.1) continue;
+      const want = t <= 1.6 ? 1 : t >= 2 ? 0 : (2 - t) / 0.4;
+      assert.ok(Math.abs(seen - want) <= frame / 0.4 + 0.03, `${fps} fps: after ${t.toFixed(2)} s the ring is seen ${seen.toFixed(2)}, wanted ${want.toFixed(2)}`);
+      frames++;
+    }
+    assert.ok(frames > 40);
+  }
+});
 
 test('groups: whatever the groups and the keys, every point is shown, and on its path', () => {
   let pieces = 0;

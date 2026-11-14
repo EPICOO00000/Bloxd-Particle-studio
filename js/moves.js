@@ -2,12 +2,14 @@
 // the object has at the time marker and replaces what it did after that moment.
 // Like everything in edits.js this works on the plain list of objects.
 
-import { MAX_KEYS, MIN_KEY_GAP, LIFE_PER_SECOND } from './motion.js';
+import { MAX_KEYS, MIN_KEY_GAP, LIFE_PER_SECOND, staySeconds } from './motion.js';
 import { isGroup, createGroup, sceneTree, MAX_DEPTH } from './scene.js';
-import { beginAt, keptKeys, uniqueName, MAX_OBJECTS } from './edits.js';
+import { beginAt, endAt, keptKeys, uniqueName, MAX_OBJECTS } from './edits.js';
 
 const round = (v, digits = 3) => Number(Number(v).toFixed(digits)) + 0;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const EPS = 1e-6;
 const AXES = ['X', 'Y', 'Z'];
 
 /** The settings a move can have. Every move has `seconds` (one go) and most have `times` (how many goes). */
@@ -26,7 +28,8 @@ const WAYS = [[1, 0.4, 0], [-0.3, 1, 0.5], [0.6, -0.5, -1], [-1, 0.2, 0.6], [0.4
 /**
  * The moves. `keys(ref, o, go)`: the keys of one go as [{ at (part of the go, 0 to 1), ...what changes, ease }],
  * `ref` being the place it starts from. `after`: keys that follow the last go. `once`: it has no "how often".
- * `shaped`: it turns or resizes, which a single particle does not show.
+ * `shaped`: it turns or resizes, which a single particle does not show. `fades`: when it is over the object is
+ * gone. A group has no particles to fade, so there the objects in it do (fadeInside).
  */
 export const MOVES = [
   {
@@ -80,10 +83,11 @@ export const MOVES = [
     ],
   },
   {
-    id: 'rise', name: 'Rise and fade', about: 'Drifts up and fades away, like smoke. With Repeat (under Time) it keeps coming.',
-    seconds: 2, once: true, leaf: true, fields: { height: 3 },
+    id: 'rise', name: 'Rise and fade', about: 'Drifts up and fades away, like smoke. With Repeat (under Time) it keeps coming. A group goes up as one, and the objects in it fade.',
+    seconds: 2, once: true, fades: true, fields: { height: 3 },
     keys: (ref, o) => [{ at: 1, pos: lifted(ref.pos, o.height), ease: 'out' }],
     then: (node, o, t0) => {
+      if (isGroup(node)) return; // (fadeInside sees to what is in it)
       node.fade = true;
       node.life = round(clamp((t0 + o.seconds) * LIFE_PER_SECOND, 0.05, 1000), 4); // gone when it is up
     },
@@ -138,7 +142,6 @@ export function applyMove(objects, id, moveId, raw = {}, at = 0) {
   const move = MOVE_BY_ID[moveId];
   const node = objects.find((o) => o.id === id);
   if (!move || !node) return { ok: false, message: 'Select an object first.', objects };
-  if (move.leaf && isGroup(node)) return { ok: false, message: `${move.name} is for objects, not for groups: a group cannot fade.`, objects };
   if (move.shaped && node.shape === 'point') {
     return { ok: false, message: `${move.name} turns or resizes a shape, and a single particle looks the same from every side. Try Bounce, Float, Shake or Orbit.`, objects };
   }
@@ -154,6 +157,9 @@ export function applyMove(objects, id, moveId, raw = {}, at = 0) {
         : `${node.name} has no keys left for this (an object can have ${MAX_KEYS}). Start the move earlier or remove keys.`,
     };
   }
+  // (worked out before anything is changed, so that a "no" leaves everything as it was)
+  const inside = move.fades && isGroup(node) ? fadeInside(objects, node, at, o.seconds) : null;
+  if (inside && !inside.ok) return { ok: false, objects, message: inside.message };
   const { t0, ref } = beginAt(node, at);
   const hold = { pos: ref.pos.slice(), rot: ref.rot.slice(), scale: ref.scale.slice() };
   const push = (t, change) => node.keys.push({ t: round(t), ...hold, ...JSON.parse(JSON.stringify(change)) });
@@ -164,7 +170,63 @@ export function applyMove(objects, id, moveId, raw = {}, at = 0) {
   }
   for (const { dt, ...change } of move.after ? move.after(ref, o) : []) push(t += dt, change);
   if (move.then) move.then(node, o, t0);
-  return { ok: true, objects, message: `${move.name}: ${node.name} now has ${node.keys.length} key${node.keys.length === 1 ? '' : 's'}.` };
+  const message = `${move.name}: ${node.name} now has ${node.keys.length} key${node.keys.length === 1 ? '' : 's'}.`;
+  return { ok: true, objects, message: inside ? `${message} ${inside.apply()}` : message };
+}
+
+/**
+ * A move that fades, on a group. A group has no particles, so it cannot fade:
+ * the objects in it do, at any depth. This works out what each of them needs
+ * so that nothing is left when the group is up, `seconds` after the move begins:
+ *   - what is there when the move begins lasts until the group is up, however
+ *     long it lasted before (as an object does that is given the move itself);
+ *   - what appears on the way, or is played more than once, keeps the time it
+ *     has, but is cut off when the group is up (the last time it is played);
+ *   - what is over before the move begins, or only comes when the group is up,
+ *     is not changed.
+ * All of them get Fade out. What they did until then stays as it was.
+ * Returns { ok: false, message } when nothing in the group can fade, else
+ * { ok: true, apply() }: apply() makes the changes and returns a sentence about them.
+ */
+function fadeInside(objects, group, at, seconds) {
+  const tree = sceneTree(objects);
+  const leaves = tree.leavesOf(group);
+  if (!leaves.length) return { ok: false, message: `There is nothing in ${group.name} to fade. Put objects into the group first.` };
+  const t0 = beginAt({ ...group, keys: clone(group.keys) }, at).t0; // (a copy: nothing is changed yet)
+  const end = round(t0 + seconds);
+  const todo = [];
+  let others = 0;
+  for (const leaf of leaves) {
+    // when it is played, on the clock of the group (the same every time the group is played)
+    const starts = tree.playsOf(leaf).map((play) => play.start - (play.ancestors.find((a) => a.node === group) || { start: 0 }).start);
+    const first = Math.min(...starts);
+    const last = Math.max(...starts);
+    const stay = staySeconds(leaf);
+    const until = round(end - last);
+    if (until < MIN_KEY_GAP || last + stay < t0 - EPS) {
+      others++;
+      continue;
+    }
+    const there = last - first < EPS && first <= t0 + EPS;
+    todo.push({ leaf, stay: there ? until : Math.min(stay, until) });
+  }
+  if (!todo.length) {
+    return { ok: false, message: `Nothing in ${group.name} is there between ${round(t0, 2)} and ${round(end, 2)} seconds. Move the time marker to a moment when you can see it, or make the move take longer.` };
+  }
+  return {
+    ok: true,
+    apply() {
+      for (const { leaf, stay } of todo) {
+        leaf.fade = true;
+        if (Math.abs(stay - staySeconds(leaf)) < EPS) continue;
+        endAt(leaf, stay);
+        leaf.life = round(clamp(stay * LIFE_PER_SECOND, 0.05, 1000), 4);
+      }
+      const n = todo.length;
+      const told = `${n} object${n === 1 ? '' : 's'} in it fade${n === 1 ? 's' : ''} away as it goes up.`;
+      return others ? `${told} Not changed: ${others} that ${others === 1 ? 'is' : 'are'} over before it begins or come${others === 1 ? 's' : ''} after it.` : told;
+    },
+  };
 }
 
 /** Orbit: the node goes into a new group that turns about a point next to it. */

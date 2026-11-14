@@ -230,7 +230,7 @@ press **Apply**. The studio works out the keys.
 | Shake | Trembles on the spot. |
 | Bounce | Jumps up and falls back. |
 | Float | Drifts gently up and down. |
-| Rise and fade | Drifts up and fades away. With Repeat it keeps coming, like smoke. |
+| Rise and fade | Drifts up and fades away. With Repeat it keeps coming, like smoke. A group goes up as one, and the objects in it fade. |
 
 A move starts from where the object is at the time marker and replaces what it
 did after that moment. So you can put the marker at 3 seconds and add a Bounce
@@ -239,6 +239,20 @@ afterwards as you like.
 
 An object can have 12 keys. The category says how often a move fits. For more,
 use Repeat.
+
+A group has no particles of its own, so it cannot fade. **Rise and fade** on a
+group lifts the group, and the objects in it fade, also those in groups inside
+it. Each of them gets Fade out, and:
+
+- what is there at the time marker lasts until the group is up: its lifetime
+  is set for that, and keys it has after that moment are removed;
+- what appears on the way up, or is played several times (Repeat), keeps the
+  time it has, and is only cut short if it would still be there when the group
+  is up.
+
+What is over before the marker, or only comes once the group is up, is not
+changed. The message after Apply says how many those are. Undo takes all of it
+back in one step.
 
 ### Colour and size at a key
 
