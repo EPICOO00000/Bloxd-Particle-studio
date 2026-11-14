@@ -43,19 +43,20 @@ The crate in the middle is your code block. One grid square is one block, and
 everything shows up in the game where you see it around the crate.
 
 **The 3D view has the whole window.** The rest of the studio is shut until you
-ask for it. Four buttons in the corners of the 3D view open and close its
-parts, and the 3D view makes room for what is open:
+ask for it. Four coloured buttons in the corners of the 3D view open and close
+its parts, and the 3D view makes room for what is open:
 
-| Button | Opens | Key |
-|---|---|---|
-| **+ Add** | Single particle and the shapes, on the left | 1 |
-| **Scene** | The list of everything in the scene, on the left | 2 |
-| **Settings** | The settings of what is selected, on the right | 3 |
-| **Timeline** | When things appear and how they move, at the bottom | 4 |
+| Button | Colour | Opens | Key |
+|---|---|---|---|
+| **+ Add** | green | Single particle and the shapes, on the left | 1 |
+| **Scene** | yellow | The list of everything in the scene, on the left | 2 |
+| **Settings** | purple | The settings of what is selected, on the right | 3 |
+| **Timeline** | red | When things appear and how they move, at the bottom | 4 |
 
-Press a button again to close its part. The studio remembers which parts you
-keep open. Nothing opens by itself: clicking an object selects it, and
-Settings shows it when you open that.
+Press a button again to close its part. A button stands out while its part is
+shut and looks pressed in, dark with a rim in its colour, while it is open. The
+studio remembers which parts you keep open. Nothing opens by itself: clicking
+an object selects it, and Settings shows it when you open that.
 
 **Categories.** The settings on the right are sorted into categories: Look,
 Shape, Place, Time and repeat, Keys, Ready-made moves, Motion, Group and

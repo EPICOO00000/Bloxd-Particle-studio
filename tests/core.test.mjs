@@ -1917,7 +1917,12 @@ test('the page fits together: every import exists, and so does every element the
   for (const [, id, key, el, button] of panels) {
     assert.ok(ids.has(el) && ids.has(button), `the ${id} panel and its button are in the page`);
     assert.match(html, new RegExp(`<button id="${button}" class="dock" aria-pressed="false"[^>]*\\(${key}\\)"`), `the ${id} button starts unpressed and names its key`);
+    // each of these buttons has a little picture and a colour of its own, so that it is found at a glance
+    assert.match(html, new RegExp(`<button id="${button}"[^>]*><svg class="dock-icon"[^>]*aria-hidden="true">.+?</svg>\\w+</button>`), `the ${id} button has its picture and its word`);
+    assert.match(css, new RegExp(`#${button} \\{ --c: #[0-9a-f]{6}; --ink: #[0-9a-f]{6}; --edge: #[0-9a-f]{6}; --well: #[0-9a-f]{6}; --glow: #[0-9a-f]{6}; \\}`), `the ${id} button has its colours`);
   }
+  const colours = panels.map(([, , , , button]) => new RegExp(`#${button} \\{ --c: (#[0-9a-f]{6})`).exec(css)[1]);
+  assert.equal(new Set(colours).size, panels.length, 'no two of them have the same colour');
 });
 
 test('START-HERE.html is built from the current sources', () => {

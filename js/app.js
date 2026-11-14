@@ -1028,7 +1028,7 @@ function nothingSelected() {
         h('li', {}, 'Press ', h('b', {}, '+ Add'), ' and pick a particle or a shape. Or open one of the ', h('b', {}, 'Examples'), ' at the top.'),
         h('li', {}, h('b', {}, 'Click'), ' it in the 3D view and drag the arrows to move it. Its settings appear here, in categories that open when you click them.'),
         h('li', {}, h('b', {}, 'Export code'), ', paste it into a code block in Bloxd and click the block.')),
-      note('The buttons in the corners of the 3D view open and close the parts of the page: + Add, Scene, Settings and Timeline. Shut, they leave the whole window to the 3D view.')),
+      note('The coloured buttons in the corners of the 3D view open and close the parts of the page: + Add, Scene, Settings and Timeline. Shut, they leave the whole window to the 3D view.')),
     category('show', 'Whole show', [
       row('Lasts', withUnit(numberOnEnter({
         get: duration, apply: stretchShow, min: 0.1, max: 6000, label: 'Seconds the whole show lasts',
@@ -1941,7 +1941,7 @@ async function start() {
   // the first time: where everything is
   if (!recall('welcomed')) {
     keep('welcomed', true);
-    toast('The buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
+    toast('The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
   }
   // Handy in the console and for tests. After changing studio.state by hand, call studio.redraw().
   window.studio = {

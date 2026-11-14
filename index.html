@@ -71,18 +71,18 @@
 
   <div class="stage">
     <canvas id="view"></canvas>
-    <!-- the buttons that open and close the big parts of the page -->
+    <!-- the buttons that open and close the big parts of the page (each has a colour of its own: see .dock) -->
     <div class="docks docks-left" role="group" aria-label="Open or close: add, scene">
-      <button id="show-add" class="dock" aria-pressed="false" title="Particles and shapes to put into the scene (1)">+ Add</button>
-      <button id="show-scene" class="dock" aria-pressed="false" title="The list of everything in the scene (2)">Scene</button>
+      <button id="show-add" class="dock" aria-pressed="false" title="Particles and shapes to put into the scene (1)"><svg class="dock-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.6v10.8M2.6 8h10.8"/></svg>Add</button>
+      <button id="show-scene" class="dock" aria-pressed="false" title="The list of everything in the scene (2)"><svg class="dock-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 3.6h7.3M6.2 8h7.3M6.2 12.4h7.3M2.6 3.6h.1M2.6 8h.1M2.6 12.4h.1"/></svg>Scene</button>
     </div>
     <div class="docks docks-right" role="group" aria-label="Open or close: settings">
-      <button id="show-settings" class="dock" aria-pressed="false" title="Settings of what is selected (3)">Settings</button>
+      <button id="show-settings" class="dock" aria-pressed="false" title="Settings of what is selected (3)"><svg class="dock-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.6h12M2 11.4h12"/><circle class="knob" cx="10.4" cy="4.6" r="2.1"/><circle class="knob" cx="5.6" cy="11.4" r="2.1"/></svg>Settings</button>
     </div>
     <div class="docks docks-bottom" role="group" aria-label="Open or close: timeline">
-      <button id="show-timeline" class="dock" aria-pressed="false" title="When things appear and how they move (4)">Timeline</button>
+      <button id="show-timeline" class="dock" aria-pressed="false" title="When things appear and how they move (4)"><svg class="dock-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.9"/><path d="M8 4.7V8l2.3 1.5"/></svg>Timeline</button>
     </div>
-    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click to select &middot; Ctrl+click for several</div>
+    <div class="hint">Drag to look around &middot; right-drag to slide &middot; wheel to zoom &middot; click to select<span class="hint-more"> &middot; Ctrl+click for several</span></div>
     <div class="playing" id="playing" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <div class="fatal" id="fatal" hidden></div>
