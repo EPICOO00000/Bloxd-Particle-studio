@@ -25,6 +25,17 @@
 //   shapes-extra.js   more basic shapes, 3D shapes, curves, patterns and effects
 // (letters with accents, Roman numerals, dice and punctuation are in
 // shapes-text.js, and the new pixel art is in shapes-pixel.js).
+// and, since it grew to 3,190:
+//   shapes-scripts.js  more letters: with accents, Greek, Cyrillic, hiragana, katakana, kanji, Hangul, Hebrew
+//   shapes-words.js    words, outline letters, Morse, Braille, flag signals, Pigpen, Ogham, typed faces
+//   shapes-count.js    bigger numbers, scores, dominoes, playing cards, clock times, more signs
+//   shapes-pixel2.js   more pixel art
+//   shapes-forms.js    more basic shapes, curves and patterns
+//   shapes-space.js    more 3D solids and buildings, and the tools for 3D models made of lines
+//   shapes-models.js   3D things, plants and animals
+//   shapes-magic.js    more effects
+//   shapes-emblems.js  more symbols and faces
+//   shapes-outdoors.js more nature and animals
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -44,6 +55,16 @@ import { MARK_SHAPES } from './shapes-marks.js';
 import { WILD_SHAPES } from './shapes-wild.js';
 import { GOODS_SHAPES } from './shapes-goods.js';
 import { EXTRA_SHAPES } from './shapes-extra.js';
+import { SCRIPT_SHAPES } from './shapes-scripts.js';
+import { WORD_SHAPES } from './shapes-words.js';
+import { COUNT_SHAPES } from './shapes-count.js';
+import { PIXEL2_SHAPES } from './shapes-pixel2.js';
+import { FORM_SHAPES } from './shapes-forms.js';
+import { SPACE_SHAPES } from './shapes-space.js';
+import { MODEL_SHAPES } from './shapes-models.js';
+import { MAGIC_SHAPES } from './shapes-magic.js';
+import { EMBLEM_SHAPES } from './shapes-emblems.js';
+import { OUTDOOR_SHAPES } from './shapes-outdoors.js';
 
 export { resample };
 
@@ -54,17 +75,18 @@ export { resample };
 export const CATEGORIES = [
   { id: 'basic', name: 'Basic', subs: ['More outlines', 'Shapes in shapes', 'More filled shapes', 'Lines'] },
   { id: 'solid', name: '3D', subs: ['More solids', 'Round things', 'Buildings', 'Things', 'Plants and animals'] },
-  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Accented capitals', 'Accented small letters', 'Greek letters', 'Runes'] },
-  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Digital numbers', 'Roman numerals', 'Dice', 'Signs', 'Punctuation', 'Money', 'Maths'] },
+  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Words', 'Outline letters', 'Accented capitals', 'Accented small letters', 'Greek letters', 'Cyrillic capitals', 'Cyrillic small letters', 'Hiragana', 'Katakana', 'Kanji', 'Hangul', 'Hebrew letters', 'Runes', 'Ogham', 'Morse code', 'Braille', 'Flag signals', 'Pigpen cipher'] },
+  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Bigger numbers', 'Digital numbers', 'Outline numbers', 'Circled numbers', 'Roman numerals', 'Mayan numbers', 'Scores', 'Dice', 'Dominoes',
+    'Playing cards', 'Clock times', 'Signs', 'Punctuation', 'Money', 'Maths'] },
   { id: 'symbols', name: 'Symbols', subs: ['Arrows', 'Signs', 'Hearts and sparkles', 'Music', 'Star signs', 'People and body'] },
-  { id: 'faces', name: 'Faces', subs: ['Smileys', 'Characters'] },
+  { id: 'faces', name: 'Faces', subs: ['Smileys', 'Characters', 'Text faces'] },
   { id: 'nature', name: 'Nature', subs: ['Sky and weather', 'Plants', 'Land and sea'] },
   { id: 'animals', name: 'Animals', subs: ['Pets and farm', 'Wild animals', 'Birds', 'Sea animals', 'Bugs', 'Dinosaurs and dragons'] },
   { id: 'food', name: 'Food', subs: ['Fruit and vegetables', 'Meals', 'Sweets', 'Drinks'] },
   { id: 'things', name: 'Things', subs: ['Tools', 'Weapons', 'Treasure and magic', 'Games and sport', 'Music', 'Home', 'Party and holidays'] },
   { id: 'travel', name: 'Travel', subs: ['Vehicles', 'Buildings'] },
   { id: 'costume', name: 'Costume', subs: ['Wings', 'On the head', 'Clothes'] },
-  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel numbers'] },
+  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel small letters', 'Pixel numbers', 'Pixel words'] },
   { id: 'curves', name: 'Curves', subs: ['More flat curves', 'More curves in 3D'] },
   { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Fractals'] },
   { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
@@ -329,6 +351,7 @@ export const SHAPES = (() => {
     ...FLAT_SHAPES, ...SOLID_SHAPES, ...CURVE_SHAPES, ...EFFECT_SHAPES,
     ...SIGN_SHAPES, ...LIVING_SHAPES, ...STUFF_SHAPES, ...PIXEL_SHAPES,
     ...MARK_SHAPES, ...WILD_SHAPES, ...GOODS_SHAPES, ...EXTRA_SHAPES,
+    ...SCRIPT_SHAPES, ...WORD_SHAPES, ...COUNT_SHAPES, ...PIXEL2_SHAPES, ...FORM_SHAPES, ...SPACE_SHAPES, ...MODEL_SHAPES, ...MAGIC_SHAPES, ...EMBLEM_SHAPES, ...OUTDOOR_SHAPES,
   ];
   const byId = new Map(all.map((s) => [s.id, s]));
   for (const [place, ids] of Object.entries(PLACES)) {
@@ -397,18 +420,25 @@ export function searchShapes(text) {
 // hyphen ("Screw-driver"), and not wherever the line happens to end. Every word of 9 letters or more
 // in a name needs a place here: the tests say which one is missing.
 const BREAKS = new Map((
-  'angler|fish arrow|head astro|naut attrac|tor auber|gine basket|ball battle|ments bino|culars boome|rang borro|mean '
-  + 'butter|fly capri|corn card|board cater|pillar checker|board cheq|uered choco|late christ|mas clapper|board '
-  + 'constel|lation control|ler croco|dile crois|sant cross|bones cross|hair cubocta|hedron dande|lion dodeca|hedron '
-  + 'dragon|fly ellip|soid epi|cycloid excla|mation explo|sion fire|works ginger|bread gradu|ation grave|stone '
-  + 'harmono|graph head|dress head|phones heart|beat heli|copter honey|comb horse|shoe hour|glass hyper|bola '
-  + 'hypo|cycloid icosa|hedron jelly|fish lemnis|cate light|house light|ning lissa|jous magni|fier magni|fying '
-  + 'metro|nome micro|phone milk|shake moun|tains mous|tache navi|gation obser|vatory octa|hedron para|chute '
-  + 'parallelo|gram penta|gram pine|apple propel|ler ptero|dactyl puffer|fish quatre|foil radi|ation rain|drops '
-  + 'rect|angle sagit|tarius sand|castle satel|lite screw|driver sier|pinski six|teenth skate|board sky|scraper '
-  + 'snow|flake space|ship spiro|graph stair|case stego|saurus stop|watch straw|berry sub|marine sum|moning '
-  + 'sun|flower super|shape sur|prised suspen|sion tele|scope tele|vision tetra|hedron thermo|meter tomb|stone '
-  + 'tooth|brush trape|zoid tri|angles tri|quetra tricera|tops triske|lion water|fall water|melon whirl|pool wrist|watch'
+  'angel|fish angler|fish ankylo|saurus antisnow|flake arma|dillo arrow|head astro|naut attrac|tor auber|gine '
+  + 'basket|ball battle|ments bino|culars bio|hazard blue|tooth book|shelf boome|rang borro|mean brief|case '
+  + 'butter|fly calcu|lator capri|corn card|board cart|ridge cater|pillar chame|leon checker|board cheq|uered '
+  + 'choco|late christ|mas clapper|board cobble|stones cochle|oid constel|lation control|ler croco|dile crois|sant '
+  + 'cross|bones cross|hair cubocta|hedron dande|lion dodeca|hedron dragon|fly drum|stick ellip|soid epi|cycloid '
+  + 'epi|spiral equal|iser excla|mation explo|sion feath|ered fibo|nacci fire|works flam|mable foot|baller '
+  + 'foot|print full|screen ginger|bread gradu|ation grass|hopper grave|stone grim|acing hammer|head harmono|graph '
+  + 'head|dress head|phones heart|beat heli|copter hepta|gram herring|bone hexa|flake honey|comb hop|scotch '
+  + 'horse|shoe hour|glass humming|bird hurri|cane hyper|bola hypo|cycloid icosa|hedron icosidode|cahedron '
+  + 'jelly|fish lemnis|cate light|house light|ning lissa|jous magni|fier magni|fying mandel|brot medi|tating '
+  + 'metro|nome micro|phone milk|shake mistle|toe moun|tains mous|tache navi|gation obser|vatory octa|hedron '
+  + 'para|chute parallelo|gram penta|flake penta|gram perspec|tive pine|apple propel|ler ptero|dactyl puffer|fish '
+  + 'pytha|goras quatre|foil radi|ation rain|drops rect|angle recy|cling sagit|tarius sand|castle satel|lite '
+  + 'scratch|ing screw|driver sier|pinski six|teenth skate|board skate|boarder sky|scraper snow|flake space|ship '
+  + 'spark|ling spino|saurus spiro|graph squint|ing stair|case stalac|tites stego|saurus stop|watch straw|berry '
+  + 'sub|marine succu|lent sum|moning sun|flower super|shape sur|prised suspen|sion sword|fish tele|scope '
+  + 'tele|vision ter|dragon tetra|hedron tetro|mino thermo|meter tomb|stone tooth|brush trape|zoid tri|angles '
+  + 'tricera|tops trilo|bite tri|quetra triske|lion trun|cated tschirn|hausen water|fall water|melon weight|lifter '
+  + 'wheel|chair whirl|pool wrist|watch'
 ).split(' ').map((word) => [word.replace('|', ''), word.indexOf('|')]));
 
 /** What stands under the picture of a shape: its sign or its name, with a soft hyphen where a long word may break. */

@@ -8,9 +8,9 @@
 // 3 x 3 of them, whichever fits the number asked for.
 
 /** The whole picture from its left half; the last column of the half is the middle and is not repeated. */
-const half = (text) => text.split('/').map((row) => row + [...row.slice(0, -1)].reverse().join('')).join('/');
+export const half = (text) => text.split('/').map((row) => row + [...row.slice(0, -1)].reverse().join('')).join('/');
 
-function sprite(sub, id, name, text, tags, label) {
+export function sprite(sub, id, name, text, tags, label) {
   const rows = text.split('/');
   const high = rows.length;
   const wide = Math.max(...rows.map((row) => row.length));
@@ -255,7 +255,7 @@ const MORE_SIGNS = [
 
 // The letters and numbers of an arcade machine: 7 dots wide and 7 high, the
 // upright strokes two dots thick. [id, name, picture, search words, sign]
-const LETTERS = [
+export const PIXEL_LETTERS = [
   ['letter-a', 'Pixel letter A', '..###../.##.##./##...##/##...##/#######/##...##/##...##', 'font text arcade', 'A'],
   ['letter-b', 'Pixel letter B', '######./##...##/##...##/######./##...##/##...##/######.', 'font text arcade', 'B'],
   ['letter-c', 'Pixel letter C', '..####./.##..##/##...../##...../##...../.##..##/..####.', 'font text arcade', 'C'],
@@ -284,7 +284,7 @@ const LETTERS = [
   ['letter-z', 'Pixel letter Z', '#######/....###/...###./..###../.###.../###..../#######', 'font text arcade', 'Z'],
 ];
 
-const NUMBERS = [
+export const PIXEL_NUMBERS = [
   ['digit-0', 'Pixel number 0', '..###../.#..##./##...##/##...##/##...##/.##..#./..###..', 'font text arcade', '0'],
   ['digit-1', 'Pixel number 1', '...##../..###../...##../...##../...##../...##../.######', 'font text arcade', '1'],
   ['digit-2', 'Pixel number 2', '.#####./##...##/....###/..####./.####../###..../#######', 'font text arcade', '2'],
@@ -318,6 +318,6 @@ export const PIXEL_SHAPES = [
   ...set('Faces', FACES),
   ...set('Nature and food', MORE_NATURE),
   ...set('Signs and things', MORE_SIGNS),
-  ...set('Pixel letters', LETTERS),
-  ...set('Pixel numbers', NUMBERS),
+  ...set('Pixel letters', PIXEL_LETTERS),
+  ...set('Pixel numbers', PIXEL_NUMBERS),
 ];
