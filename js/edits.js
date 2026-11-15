@@ -283,6 +283,208 @@ export function mirrorNodes(objects, ids, axis = 0) {
   return { objects: result.objects, ids: result.ids };
 }
 
+/** An array holds this many things at most, the first one counted. */
+export const MAX_ARRAY = 100;
+
+/**
+ * The ways a ring can lie, as the 3D view has them (X to the right, Y up, Z to the front):
+ * the axis it goes round, where the first one stands, where the next ones go from there,
+ * and which way that turns a thing about the axis.
+ */
+const RINGS = {
+  flat: { axis: 1, first: [0, 0, 1], next: [1, 0, 0], way: 1 }, // like a carousel: the first one at the front, then round to the right
+  front: { axis: 2, first: [0, 1, 0], next: [1, 0, 0], way: -1 }, // like a clock seen from the front: the first one at the top, then clockwise
+  side: { axis: 0, first: [0, 1, 0], next: [0, 0, 1], way: 1 }, // like a clock seen from the side: the first one at the top, then to the front
+};
+
+/** A slide as a matrix of the 3D view (`v` as the view has it). */
+const slideOf = (v) => [1, 0, 0, v[0], 0, 1, 0, v[1], 0, 0, 1, v[2]];
+/** A turn of `degrees` about an axis (0 X, 1 Y, 2 Z) as the nine numbers of a matrix. */
+function turnOf(axis, degrees) {
+  const a = (degrees * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  return axis === 0 ? [1, 0, 0, 0, cos, -sin, 0, sin, cos] : axis === 1 ? [cos, 0, sin, 0, 1, 0, -sin, 0, cos] : [cos, -sin, 0, sin, cos, 0, 0, 0, 1];
+}
+/** That turn about the point `c`, as a matrix of the 3D view. */
+function turnAbout(r, c) {
+  const t = [0, 1, 2].map((k) => c[k] - (r[3 * k] * c[0] + r[3 * k + 1] * c[1] + r[3 * k + 2] * c[2]));
+  return [r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2]];
+}
+
+/**
+ * What an array asks for, checked: { size, word, slides } for a row or a grid
+ * (how far each one is from the first, as positions are typed), { size, word,
+ * ring } for a ring, or { error }.
+ */
+function arrayPlan(spec) {
+  const whole = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
+  const three = (v) => (Array.isArray(v) && v.length === 3 ? v.map(Number) : [NaN, NaN, NaN]);
+  if (spec.kind === 'row') {
+    const count = whole(spec.count);
+    const step = three(spec.step);
+    if (!(count >= 2 && count <= MAX_ARRAY)) return { error: `A row has 2 to ${MAX_ARRAY} things in it.` };
+    if (!step.every((v) => Number.isFinite(v) && Math.abs(v) <= 500)) return { error: 'Type the step from one to the next, in blocks.' };
+    if (step.every((v) => Math.abs(v) < 1e-9)) return { error: 'With a step of 0 they would all be in the same place. Type a step.' };
+    return { size: count, word: 'row', slides: Array.from({ length: count }, (_, i) => step.map((v) => v * i)) };
+  }
+  if (spec.kind === 'grid') {
+    const counts = three(spec.counts).map(whole);
+    const gaps = three(spec.gaps);
+    const size = counts[0] * counts[1] * counts[2];
+    if (!counts.every((n) => n >= 1 && n <= MAX_ARRAY) || !(size >= 2 && size <= MAX_ARRAY)) return { error: `A grid has 2 to ${MAX_ARRAY} things in it.` };
+    if (!gaps.every((v) => Number.isFinite(v) && Math.abs(v) <= 500)) return { error: 'Type the gaps, in blocks.' };
+    if (counts.some((n, k) => n > 1 && Math.abs(gaps[k]) < 1e-9)) return { error: 'With a gap of 0 they would be in the same place. Type a gap.' };
+    const slides = [];
+    // row after row along X, the rows one behind the other along Z, then the next floor up
+    for (let y = 0; y < counts[1]; y++) for (let z = 0; z < counts[2]; z++) for (let x = 0; x < counts[0]; x++) slides.push([x * gaps[0], y * gaps[1], z * gaps[2]]);
+    return { size, word: 'grid', slides };
+  }
+  if (spec.kind === 'ring') {
+    const count = whole(spec.count);
+    const radius = Number(spec.radius);
+    const arc = spec.arc === undefined ? 360 : Number(spec.arc);
+    if (!(count >= 2 && count <= MAX_ARRAY)) return { error: `A ring has 2 to ${MAX_ARRAY} things in it.` };
+    if (!(radius >= 0.01 && radius <= 500)) return { error: 'Type the radius of the ring, in blocks.' };
+    if (!(arc >= 1 && arc <= 360)) return { error: 'The arc is 1 to 360 degrees: 360 is a full ring.' };
+    if (!RINGS[spec.plane || 'flat']) return { error: 'A ring lies flat or stands up.' };
+    return { size: count, word: 'ring', ring: { radius, arc, lie: RINGS[spec.plane || 'flat'], turn: spec.turn !== false } };
+  }
+  return { error: 'An array is a row, a grid or a ring.' };
+}
+
+/**
+ * After a turn about one axis the angles of a thing can often be said simply:
+ * what was typed, plus that turn. Where that says the same as what the turn
+ * gave, it is written that way (0, 180, 0 and not -180, 0, -180).
+ */
+function plainAngles(node, typed, axis, degrees) {
+  const poses = posesOf(node);
+  const wrap = (v) => {
+    if (node.spin) return v; // (angles as typed: full turns count)
+    const w = v % 360;
+    return w > 180 ? w - 360 : w <= -180 ? w + 360 : w;
+  };
+  const tries = typed.map((rot) => rot.map((v, k) => round(k === axis ? wrap(v + degrees) : v, 2)));
+  const same = poses.every((p, i) => {
+    const a = rotationMatrix(...tries[i]);
+    const b = rotationMatrix(...p.rot);
+    return a.every((v, k) => Math.abs(v - b[k]) < 5e-4);
+  });
+  if (same) poses.forEach((p, i) => { p.rot = tries[i]; });
+}
+
+/** How many things an array has in all (the first one counted), or 0 when it cannot be made. */
+export const arraySize = (spec) => arrayPlan(spec).size || 0;
+
+/**
+ * An array: copies of some objects (with all that is in them) in a row, a grid
+ * or a ring. The things must be in the same group, or in none.
+ *   { kind: 'row', count, step: [x, y, z] }                each one `step` further than the one before
+ *   { kind: 'grid', counts: [x, y, z], gaps: [x, y, z] }   that many along X, up along Y and along Z
+ *   { kind: 'ring', count, radius, plane, arc, turn }      on a circle around the place where the thing is
+ * A ring is made around where the thing starts (several things: around their
+ * middle), so the thing itself moves out onto the ring. `plane`: 'flat' like a
+ * carousel, 'front' like a clock seen from the front, 'side' like a clock seen
+ * from the side. `arc`: 360 for a full ring, less for a part of one, which has
+ * its middle where a full ring begins. `turn` (true unless false): each one is
+ * turned with the ring, also the way it flies (Move) and what its keys do.
+ * For all kinds:
+ *   delay  each one appears that many seconds after the one before
+ *   group  all of them go into a new group; its pivot is the middle of the ring, or of the row or grid
+ * Returns { objects, ids (the group, or all of them), group (its id or null), made (how many copies) } or { error }.
+ */
+export function arrayNodes(objects, ids, spec = {}) {
+  let tree = sceneTree(objects);
+  const tops = topNodes(objects, ids);
+  if (!tops.length) return { error: 'Select what the array is made of first.' };
+  const parent = tree.parentOf(tops[0]);
+  if (tops.some((n) => tree.parentOf(n) !== parent)) return { error: 'An array is made of things from one group. Select things that are in the same group, or in none.' };
+  const plan = arrayPlan(spec);
+  if (plan.error) return plan;
+  const delay = Number.isFinite(Number(spec.delay)) ? clamp(Number(spec.delay), 0, 60) : 0;
+  const inside = tops.reduce((n, top) => n + 1 + tree.insideOf(top).length, 0);
+  const room = MAX_OBJECTS - objects.length - (spec.group ? 1 : 0);
+  if ((plan.size - 1) * inside > room) {
+    const fit = Math.max(0, Math.floor(room / inside));
+    return { error: `A scene can hold ${MAX_OBJECTS} objects and groups: there is room for ${fit} ${fit === 1 ? 'copy' : 'copies'} of this.` };
+  }
+  let list = objects;
+  let group = null;
+  if (spec.group) {
+    const name = tops.length === 1 ? `${tops[0].name.slice(0, 32)} ${plan.word}` : plan.word.replace(/^./, (c) => c.toUpperCase());
+    const made = groupNodes(objects, tops.map((n) => n.id), name);
+    if (made.error) return made;
+    list = made.objects;
+    group = list.find((o) => o.id === made.id);
+    tree = sceneTree(list);
+  }
+  // the middle of a ring, as the group around the things sees it
+  const points = tops.length === 1 ? [tops[0].pos] : tops.flatMap((n) => pointsIn(tree, n));
+  const centre = [0, 1, 2].map((k) => (Math.min(...points.map((p) => p[k])) + Math.max(...points.map((p) => p[k]))) / 2);
+  const c = [centre[0], centre[1], -centre[2]];
+  // where each one goes: a matrix of the 3D view, and for a ring the turn in it
+  const angles = plan.ring
+    ? Array.from({ length: plan.size }, (_, i) => (plan.ring.arc >= 360 - 1e-9 ? (360 * i) / plan.size : -plan.ring.arc / 2 + (plan.ring.arc * i) / (plan.size - 1)))
+    : [];
+  const places = plan.slides
+    ? plan.slides.map((v) => ({ m: slideOf([v[0], v[1], -v[2]]), turn: null }))
+    : angles.map((angle) => {
+      const { radius, lie, turn } = plan.ring;
+      const out = slideOf(lie.first.map((v) => v * radius));
+      if (turn) {
+        const r = turnOf(lie.axis, lie.way * angle);
+        return { m: mulAffine(turnAbout(r, c), out), turn: r };
+      }
+      const a = (angle * Math.PI) / 180;
+      return { m: slideOf(lie.first.map((v, k) => radius * (v * Math.cos(a) + lie.next[k] * Math.sin(a)))), turn: null };
+    });
+  // the copies first, each right after the one before it, from the things as they are
+  const sets = tops.map((n) => withInside(tree, n));
+  const starts = tops.map(startOf);
+  let out = list.slice();
+  const latest = sets.slice();
+  const rows = [tops];
+  for (let i = 1; i < plan.size; i++) {
+    rows.push(sets.map((set, s) => {
+      const fresh = new Map(set.map((n) => [n.id, newId()]));
+      const made = set.map((n) => ({ ...clone(n), id: fresh.get(n.id), parent: fresh.get(n.parent) || n.parent }));
+      made[0].name = uniqueName(out, made[0].name);
+      const last = Math.max(...latest[s].map((n) => out.indexOf(n)));
+      out = [...out.slice(0, last + 1), ...made, ...out.slice(last + 1)];
+      latest[s] = made;
+      return made[0];
+    }));
+  }
+  // then every one to its place
+  rows.forEach((row, i) => {
+    const { m, turn } = places[i];
+    const stays = m.every((v, k) => Math.abs(v - IDENTITY[k]) < 1e-12);
+    row.forEach((node, s) => {
+      const typed = posesOf(node).map((p) => p.rot.slice());
+      if (!stays) rebase(node, m);
+      if (turn && node.shape !== 'point') plainAngles(node, typed, plan.ring.lie.axis, plan.ring.lie.way * angles[i]);
+      if (turn && node.move) {
+        const v = [node.move[0], node.move[1], -node.move[2]];
+        const w = [0, 1, 2].map((k) => turn[3 * k] * v[0] + turn[3 * k + 1] * v[1] + turn[3 * k + 2] * v[2]);
+        node.move = [w[0], w[1], -w[2]].map((x) => round(x));
+      }
+      if (i > 0 && delay > 0) node.start = round(clamp(starts[s] + i * delay, 0, MAX_START));
+    });
+  });
+  if (group) {
+    // the group turns about the middle of the ring, or of the whole row or grid
+    const shift = plan.slides ? [0, 1, 2].map((k) => (Math.min(...plan.slides.map((v) => v[k])) + Math.max(...plan.slides.map((v) => v[k]))) / 2) : centre;
+    movePivot(out, group.id, group.pos.map((v, k) => v + shift[k]));
+  }
+  return {
+    objects: out,
+    ids: group ? [group.id] : rows.flat().map((n) => n.id),
+    group: group ? group.id : null,
+    made: plan.size - 1,
+  };
+}
+
 /**
  * Make everything some nodes do take `factor` times as long: the same show,
  * slower (above 1) or faster (below 1). With `ids` null the whole scene; a

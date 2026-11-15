@@ -15,7 +15,7 @@ import {
 import { generateCode, LIMITS, PRECISIONS } from './codegen.js';
 import {
   uniqueName, topNodes, removeNodes, moveInto, groupNodes, ungroup, duplicateNodes, mirrorNodes, stretchNodes,
-  copyKeys, pasteKeys, movePivot,
+  copyKeys, pasteKeys, movePivot, arrayNodes, MAX_ARRAY,
 } from './edits.js';
 import { MOVES, MOVE_BY_ID, moveFields, mostTimes, applyMove } from './moves.js';
 import { EXAMPLES } from './examples-data.js';
@@ -48,6 +48,15 @@ const state = {
   dragging: false, // a row of the scene list is being dragged
   clip: null, // the keys remembered by Copy keys
   move: { id: 'flap', settings: {} }, // the ready-made move on show, and what was typed for each
+  // the Array category: what was typed for each kind (null: not typed yet, see arraySpec)
+  array: {
+    kind: 'row',
+    row: { count: 5, step: [null, null, null] },
+    grid: { counts: [3, 1, 3], gaps: [null, null, null] },
+    ring: { count: 8, radius: null, plane: 'flat', arc: 360, turn: true },
+    delay: 0,
+    group: true,
+  },
   style: { texture: 'glint', color: '#ffd24a' }, // look of the next new object
   export: { target: 'block', precision: 100, hideDist: 0, worldPos: [0, 0, 0], part: 0 },
 };
@@ -139,6 +148,7 @@ function commit() {
     history.push(now);
     if (history.length > 200) history.shift();
     future.length = 0;
+    arrayStep = null;
   }
   store();
   renderList();
@@ -152,6 +162,9 @@ function restore(json) {
   for (const g of state.objects) if (isGroup(g) && open.has(g.id)) g.open = open.get(g.id);
   history[history.length - 1] = snapshot(); // the step on top is exactly what is shown now
   pruneSelection();
+  // an array that went into a group, taken back: what it was made of is selected again, for a try with other numbers
+  if (!state.selection.length && arrayStep && arrayStep.at === history.length - 1) state.selection = arrayStep.ids.filter((id) => nodeOf(id));
+  arrayRest = false;
   reveal();
   stopPlaying();
   store();
@@ -230,7 +243,7 @@ function refresh() {
   // Not playing, time marker at the start: everything where it starts, fully
   // visible, to build with. Anywhere else: that moment, with the objects that
   // are not there then drawn see-through so they can still be picked.
-  if (!state.playing) viewport.setParticles(computeParticles(state.objects, state.time > 0 ? state.time : null, { ghosts: true }));
+  if (!state.playing) viewport.setParticles(arrayGhosts() || computeParticles(state.objects, state.time > 0 ? state.time : null, { ghosts: true }));
   const nodes = selectedNodes();
   const ids = [...new Set(nodes.flatMap((n) => tr.leavesOf(n)).map((leaf) => leaf.id))];
   // the handles sit where the object is at that moment; several objects have none
@@ -694,6 +707,7 @@ function headOf(node) {
     row('Name', name),
     h('div', { class: 'buttons' },
       h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
+      h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring' }, 'Array'),
       h('button', { onclick: () => { node.hidden = !node.hidden; commit(); renderInspector(); refresh(); } }, node.hidden ? 'Show' : 'Hide'),
       group ? h('button', { onclick: ungroupSelected, title: 'Take the group apart: what is in it stays (Ctrl+Shift+G)' }, 'Ungroup') : null,
       h('button', { class: 'danger', onclick: () => removeSelected(), title: group ? 'Delete the group and what is in it' : 'Delete' }, 'Delete')),
@@ -1011,6 +1025,185 @@ function arrangeSection(nodes) {
   ], { summary: h('span', {}, inGroup ? `in ${inGroup.name}` : '') });
 }
 
+// ------------------------------------------------------------------ settings on the right: arrays
+
+const ARRAY_KINDS = [['row', 'Row'], ['grid', 'Grid'], ['ring', 'Ring']];
+const RING_LIES = [['flat', 'Flat, like a carousel'], ['front', 'Upright, facing the front'], ['side', 'Upright, facing the side']];
+const PREVIEW = 0.45; // how visible the copies are drawn before the array is made
+let arrayHover = false; // the pointer is on the Array category: the 3D view shows what it would make
+let arrayRest = false; // an array was just made: nothing more is shown until a number changes or the pointer comes back
+let arrayStep = null; // the array made last, until the next edit: { at (where the scene before it stands in the history), ids (what it was made of) }
+
+/** What the Array category asks for. A step, a gap or a radius that nobody typed yet suits what is selected. */
+function arraySpec(nodes) {
+  const a = state.array;
+  const small = nodes.every((n) => n.shape === 'point'); // single particles stand closer together than shapes
+  const gap = small ? 0.5 : 2.5;
+  const all = { delay: a.delay, group: a.group };
+  if (a.kind === 'row') return { kind: 'row', count: a.row.count, step: a.row.step.map((v, k) => v ?? (k === 0 ? gap : 0)), ...all };
+  if (a.kind === 'grid') return { kind: 'grid', counts: a.grid.counts, gaps: a.grid.gaps.map((v) => v ?? gap), ...all };
+  return { kind: 'ring', count: a.ring.count, radius: a.ring.radius ?? (small ? 1.5 : 3), plane: a.ring.plane, arc: a.ring.arc, turn: a.ring.turn, ...all };
+}
+
+/** The scene as the array would leave it, with nothing changed: { objects, made, fresh (the ids that are new) }, or { error }. */
+function arrayTrial() {
+  const nodes = selectedNodes();
+  if (!nodes.length) return { error: '' };
+  const before = new Set(state.objects.map((o) => o.id));
+  const made = arrayNodes(clone(state.objects), nodes.map((n) => n.id), arraySpec(nodes));
+  if (made.error) return made;
+  return { ...made, fresh: new Set(made.objects.filter((o) => !before.has(o.id)).map((o) => o.id)) };
+}
+
+/** While the pointer is on the Array category: the particles of the scene as the array would leave it, the copies see-through. */
+function arrayGhosts() {
+  if (!arrayHover) return null;
+  const trial = arrayTrial();
+  if (trial.error !== undefined) return null;
+  const list = computeParticles(trial.objects, state.time > 0 ? state.time : null, { ghosts: true });
+  for (const p of list) {
+    if (!trial.fresh.has(p.id)) continue;
+    if (p.blend === 0) p.rgb = p.rgb.map((v) => v * PREVIEW); // (this blend takes no notice of how see-through a particle is)
+    p.alpha *= PREVIEW;
+  }
+  return list;
+}
+
+/** How many particles the game makes for a whole scene. */
+function particlesOf(objects) {
+  const tr = sceneTree(objects);
+  return tr.leaves().reduce((n, leaf) => n + costOf(leaf, tr), 0);
+}
+
+function makeArray() {
+  const nodes = selectedNodes();
+  if (!nodes.length) return;
+  const spec = arraySpec(nodes);
+  const made = arrayNodes(state.objects, nodes.map((n) => n.id), spec);
+  const group = made.group ? made.objects.find((o) => o.id === made.group) : null;
+  arrayRest = !made.error; // (the pointer is still on the button: it should not show the next array at once)
+  const done = take(made, {
+    ids: made.ids,
+    say: group
+      ? `${made.made + 1} in a ${spec.kind}, in the group ${group.name}. Move, turn or resize the group and they all come along.`
+      : `${made.made + 1} in a ${spec.kind}. They are all selected.`,
+  });
+  if (done) arrayStep = { at: history.length - 2, ids: nodes.map((n) => n.id) };
+}
+
+/** Open the Array category and bring it into view. */
+function showArray() {
+  keep('array', true);
+  renderInspector();
+  const section = $('#inspector [data-cat="array"]');
+  if (section) section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/** Copies of what is selected in a row, a grid or a ring. Works for one thing or for several. */
+function arraySection(nodes) {
+  const a = state.array;
+  const spec = () => arraySpec(nodes);
+  const said = h('p', { class: 'note', id: 'array-note', 'aria-live': 'polite' });
+  const go = h('button', { class: 'primary', id: 'make-array', onclick: makeArray }, 'Make array');
+  /** Say what the array would make, or why it cannot be made. */
+  const tell = () => {
+    const trial = arrayTrial();
+    go.disabled = trial.error !== undefined;
+    if (trial.error !== undefined) said.textContent = trial.error;
+    else {
+      const more = particlesOf(trial.objects) - particlesOf(state.objects);
+      said.textContent = `Makes ${trial.made} ${trial.made === 1 ? 'copy' : 'copies'}: ${plural(more, 'particle')} more. The 3D view shows them while the mouse is here.`;
+    }
+  };
+  /** A number, a choice or a tick was changed by hand. */
+  const typed = () => {
+    tell();
+    if (arrayHover) refresh();
+    if (arrayRest) {
+      arrayRest = false;
+      if (box.matches(':hover')) hover(true);
+    }
+  };
+  const hover = (on) => {
+    if (on && arrayRest) return;
+    if (arrayHover !== on) { arrayHover = on; refresh(); }
+  };
+  const number = (get, set, { min, max, step = 1, whole = false, label }) => {
+    const el = selectOnEntry(h('input', {
+      type: 'number', min, max, step, value: round(get(), 2), 'aria-label': label,
+      oninput: () => {
+        const v = Number(el.value);
+        if (el.value === '' || !Number.isFinite(v)) return;
+        set(Math.min(max, Math.max(min, whole ? Math.round(v) : v)));
+        typed();
+      },
+      onchange: () => { el.value = round(get(), 2); }, // what counts: a whole number, inside its limits
+    }));
+    return el;
+  };
+  const triple = (get, set, options, label) => h('div', { class: 'xyz' }, ['X', 'Y', 'Z'].map((axis, i) => h('div', { class: 'axis', 'data-axis': axis },
+    number(() => get()[i], (v) => set(i, v), { ...options, label: `${label} ${axis}` }))));
+  const box = h('div', {});
+  const build = () => {
+    let parts;
+    if (a.kind === 'row') {
+      parts = [
+        row('How many', withUnit(number(() => a.row.count, (v) => { a.row.count = v; }, { min: 2, max: MAX_ARRAY, whole: true, label: 'How many in the row' }), 'in all, with the first one')),
+        row('Step', triple(() => spec().step, (i, v) => { a.row.step[i] = v; }, { min: -500, max: 500, step: 0.5 }, 'Step along')),
+        note('Step: the blocks from one to the next. X goes to the right, Y up, Z to the back.'),
+      ];
+    } else if (a.kind === 'grid') {
+      parts = [
+        row('How many', triple(() => a.grid.counts, (i, v) => { a.grid.counts[i] = v; }, { min: 1, max: MAX_ARRAY, whole: true }, 'How many along')),
+        row('Gap', triple(() => spec().gaps, (i, v) => { a.grid.gaps[i] = v; }, { min: -500, max: 500, step: 0.5 }, 'Gap along')),
+        note('How many along X, Y (up) and Z, and the blocks between them. 3, 1, 3 is a floor of nine; 3, 3, 1 is a wall.'),
+      ];
+    } else {
+      const lies = h('select', { 'aria-label': 'How the ring lies', id: 'array-lies', onchange: () => { a.ring.plane = lies.value; lies.blur(); typed(); } },
+        RING_LIES.map(([id, name]) => h('option', { value: id }, name)));
+      lies.value = a.ring.plane;
+      const turn = h('input', { type: 'checkbox', checked: a.ring.turn, id: 'array-turn', onchange: () => { a.ring.turn = turn.checked; turn.blur(); typed(); } });
+      parts = [
+        row('How many', withUnit(number(() => a.ring.count, (v) => { a.ring.count = v; }, { min: 2, max: MAX_ARRAY, whole: true, label: 'How many in the ring' }), 'in all, with the first one')),
+        row('Radius', withUnit(number(() => spec().radius, (v) => { a.ring.radius = v; }, { min: 0.01, max: 500, step: 0.5, label: 'Radius of the ring' }), 'blocks')),
+        row('Ring', lies),
+        row('Arc', withUnit(number(() => a.ring.arc, (v) => { a.ring.arc = v; }, { min: 1, max: 360, step: 15, label: 'Arc of the ring in degrees' }), 'degrees: 360 is a full ring')),
+        h('label', { class: 'check line' }, turn, 'Turn each one with the ring'),
+        note('The ring is made around the place where it is now: it moves out onto the ring itself.'),
+      ];
+    }
+    const group = h('input', { type: 'checkbox', checked: a.group, id: 'array-group', onchange: () => { a.group = group.checked; group.blur(); typed(); } });
+    box.replaceChildren(...parts,
+      row('Each later', withUnit(number(() => a.delay, (v) => { a.delay = v; }, { min: 0, max: 60, step: 0.1, label: 'Seconds each one appears after the one before' }), 'seconds after the one before')),
+      h('label', { class: 'check line' }, group, 'Put them all in a group'),
+      said,
+      h('div', { class: 'buttons' }, go));
+  };
+  const kind = h('select', { 'aria-label': 'Kind of array', id: 'array-kind', onchange: () => { a.kind = kind.value; kind.blur(); build(); typed(); } },
+    ARRAY_KINDS.map(([id, name]) => h('option', { value: id }, name)));
+  kind.value = a.kind;
+  build();
+  const section = category('array', 'Array', [row('Kind', kind), box], { summary: h('span', {}, 'copies in a row, a grid or a ring') });
+  // What it would make is only worked out while the category is open: at once when it is shown, and a moment
+  // after an edit to what is selected (like the particle count at the top, it waits until the dragging stops).
+  const isOpen = () => section.classList.contains('open');
+  let wait = null; // (null: nothing said yet)
+  fields.push({
+    sync: () => {
+      if (!isOpen()) return;
+      if (wait === null) { wait = 0; tell(); return; }
+      clearTimeout(wait);
+      wait = setTimeout(() => { if (section.isConnected && isOpen()) tell(); }, 120);
+    },
+  });
+  section.querySelector('.cat-head').addEventListener('click', () => { if (isOpen()) tell(); });
+  const body = section.querySelector('.cat-body');
+  body.addEventListener('pointerenter', () => hover(true));
+  body.addEventListener('pointermove', () => hover(true));
+  body.addEventListener('pointerleave', () => { arrayRest = false; hover(false); });
+  return section;
+}
+
 const KEYBOARD = [
   ['W, E, R', 'move, rotate, resize'], ['Click', 'select; in a group: the group first, click again for what is in it'],
   ['Ctrl+click', 'select several'], ['Shift+click', 'in the lists: everything in between'], ['Ctrl+A', 'select everything'],
@@ -1042,6 +1235,7 @@ function nothingSelected() {
       note(h('b', {}, 'Groups: '), 'select several objects (Ctrl+click), press Group, and they move, turn and resize as one. A wing is a group; so is a whole dragon.'),
       note(h('b', {}, 'Ready-made moves: '), 'Flap, Pulse, Spin, Orbit and more work out the keys for you. Select something and open that category.'),
       note(h('b', {}, 'Repeat: '), 'under Time, an object or a whole group can be played again and again, for fire, smoke or rain.'),
+      note(h('b', {}, 'Array: '), 'select something and press Array for copies of it in a row, a grid or a ring.'),
     ]),
     category('keyboard', 'Keyboard and mouse', [
       h('dl', { class: 'keys' }, KEYBOARD.map(([keys, does]) => [h('dt', {}, keys), h('dd', {}, does)])),
@@ -1058,15 +1252,18 @@ function severalSelected(nodes) {
       h('div', { class: 'buttons' },
         h('button', { class: 'primary', onclick: groupSelected, title: 'Ctrl+G' }, 'Group'),
         h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
+        h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring' }, 'Array'),
         h('button', { onclick: () => { for (const n of nodes) n.hidden = !hidden; commit(); renderInspector(); refresh(); } }, hidden ? 'Show' : 'Hide'),
         h('button', { class: 'danger', onclick: () => removeSelected(), title: 'Delete' }, 'Delete')),
       note('Group them to move, turn and resize them as one, and to give them keys together.')),
     arrangeSection(nodes),
+    arraySection(nodes),
   ];
 }
 
 function renderInspector() {
   fields = [];
+  arrayHover = false; // (the Array category is made anew: the pointer has to come onto it again)
   const panel = $('#inspector');
   const nodes = selectedNodes();
   let parts;
@@ -1076,9 +1273,9 @@ function renderInspector() {
     const [node] = nodes;
     const def = SHAPE_BY_ID[node.shape];
     parts = isGroup(node)
-      ? [headOf(node), placeSection(node), timeSection(node), keysSection(node), movesSection(node), arrangeSection(nodes)]
+      ? [headOf(node), placeSection(node), timeSection(node), keysSection(node), movesSection(node), arrangeSection(nodes), arraySection(nodes)]
       : [headOf(node), lookSection(node), def ? shapeSection(def) : null, placeSection(node), timeSection(node), keysSection(node),
-        movesSection(node), motionSection(!!def), arrangeSection(nodes)];
+        movesSection(node), motionSection(!!def), arrangeSection(nodes), arraySection(nodes)];
   }
   const top = panel.scrollTop;
   panel.replaceChildren(...parts.filter(Boolean));
@@ -1842,6 +2039,10 @@ function bindUi() {
   $('#group').onclick = () => { groupSelected(); $('#group').blur(); };
   bindTimeline();
   $('#focus').onclick = () => viewport && viewport.focus(allPoints());
+  // after an array is made its copies-to-be are not shown again until the pointer has been somewhere else
+  document.addEventListener('pointermove', (e) => {
+    if (arrayRest && !(e.target instanceof Element && e.target.closest('[data-cat="array"] .cat-body'))) arrayRest = false;
+  });
   $('#export').onclick = openExport;
   $('#snap').checked = state.snap;
   $('#snap').onchange = () => { state.snap = $('#snap').checked; if (viewport) viewport.setSnap(state.snap); store(); };

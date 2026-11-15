@@ -60,7 +60,7 @@ an object selects it, and Settings shows it when you open that.
 
 **Categories.** The settings on the right are sorted into categories: Look,
 Shape, Place, Time and repeat, Keys, Ready-made moves, Motion, Group and
-mirror. Click the name of a category to open or close it. A closed one still
+mirror, Array. Click the name of a category to open or close it. A closed one still
 says in a few words what is in it, and the studio remembers which ones you keep
 open. Add and Scene share the height of the left panel when both are open,
 and the scene list scrolls by itself.
@@ -204,6 +204,48 @@ The mirror stands in the pivot of the group the object is in. Build one wing
 inside the group of the body and its twin lands on the other side of the body.
 Outside a group the mirror stands in the middle of the code block, and Y turns
 the copy upside down where it is.
+
+### Arrays
+
+**Array** makes copies of what is selected and sets them out in a pattern: a
+row, a grid or a ring.
+
+![A star with seven see-through copies in a ring around the place where it stands, and the Array category of the settings on the right](docs/array.png)
+
+1. Select an object, a group or several things.
+2. Press **Array** next to Duplicate. It opens the Array category at the end
+   of the settings.
+3. Choose the kind and type the numbers.
+4. Press **Make array**.
+
+| Kind | What you get | What you type |
+|---|---|---|
+| Row | Each one a step further than the one before. | How many in all, and the step along X, Y and Z. |
+| Grid | Rows, and floors of rows. 3, 1, 3 is a floor of nine; 3, 3, 1 is a wall. | How many along X, Y and Z, and the gaps between them. |
+| Ring | A circle around the place where the object is now. The object itself moves out onto the ring. | How many, the radius, how the ring lies and the arc. |
+
+A ring lies flat like a carousel, or stands upright and faces the front or the
+side. An arc of 360 is a full ring, 180 is half of one. With "Turn each one
+with the ring" ticked, every one is turned to its place on the ring, and so is
+the way it flies and what its keys do. Unticked, they all face the same way.
+
+"Each later" makes each one appear that many seconds after the one before: a
+row of pillars then rises one by one.
+
+"Put them all in a group" is ticked at first. The first one and its copies
+then go into a new group, so the array moves, turns and resizes as one thing.
+The pivot of that group is the middle of the ring, or of the row or grid, so
+the ready-made move Spin turns a ring around its middle. Untick it and the
+copies stand next to the first one, all selected.
+
+While the mouse is on the Array category, the 3D view shows the copies
+see-through where they would go. Nothing changes until you press
+**Make array**. Undo takes the whole array away in one step and selects what
+it was made of again, ready for other numbers.
+
+The copies are objects like any other, so every one costs its particles, and
+the category says how many that is. An array has 100 things at most. Things
+from different groups cannot go into one array.
 
 ### Repeat
 
@@ -481,7 +523,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
 | `js/viewport.js` | The 3D view (three.js) |
 | `js/timeline.js` | The timeline: bars, diamonds, the time marker |
-| `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, stretch time, copy and paste keys, move a pivot |
+| `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, array, stretch time, copy and paste keys, move a pivot |
 | `js/moves.js` | The ready-made moves |
 | `js/examples-data.js` | The scenes behind the Examples button. Written by `examples/build.mjs` |
 | `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window |

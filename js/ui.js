@@ -3,7 +3,7 @@
 
 export const $ = (sel) => document.querySelector(sel);
 
-/** Tiny DOM builder: h('div', { class: 'row' }, child, 'text') */
+/** Tiny DOM builder: h('div', { class: 'row' }, child, 'text'). Children may come in lists, and in lists inside lists. */
 export function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
@@ -13,7 +13,7 @@ export function h(tag, props = {}, ...children) {
     else if (k in el && k !== 'list') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) el.append(c);
+  for (const c of children.flat(Infinity)) if (c !== null && c !== undefined && c !== false) el.append(c);
   return el;
 }
 

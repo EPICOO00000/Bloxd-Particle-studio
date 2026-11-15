@@ -2300,6 +2300,22 @@ test('the page fits together: every import exists, and so does every element the
   assert.equal(new Set(colours).size, panels.length, 'no two of them have the same colour');
 });
 
+test('the page builder takes children in lists, and in lists inside lists', async () => {
+  // (a shape's own sliders and the list of keys are given that way: they must not end up as the text "[object ...]")
+  const had = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => ({ tag, kids: [], append(...list) { this.kids.push(...list); }, addEventListener() {}, setAttribute() {} }),
+  };
+  try {
+    const { h } = await import('../js/ui.js');
+    const el = h('div', { class: 'x' }, 'text', [h('p'), [h('b'), [h('i')]]], null, false, undefined, [[['deep']]]);
+    assert.deepEqual(el.kids.map((kid) => (typeof kid === 'string' ? kid : kid.tag)), ['text', 'p', 'b', 'i', 'deep']);
+    assert.equal(el.className, 'x');
+  } finally {
+    globalThis.document = had;
+  }
+});
+
 test('START-HERE.html is built from the current sources', () => {
   const dir = fileURLToPath(root);
   const html = fs.readFileSync(new URL('START-HERE.html', root), 'utf8');
