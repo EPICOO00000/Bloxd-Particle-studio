@@ -7,7 +7,7 @@
 
 import { drawnShape, parsePath, placeDrawing } from './shape-kit.js';
 
-const LETTERS = {
+export const LETTERS = {
   A: 'M0,0 L3.5,10 L7,0 M1.4,4 L5.6,4',
   B: 'M0,0 L0,10 L3,10 A3,7.5 2.5 90 -90 L0,5 M3,5 L3.5,5 A3.5,2.5 2.5 90 -90 L0,0',
   C: 'E4,5 4,5 50 310',
@@ -36,7 +36,7 @@ const LETTERS = {
   Z: 'M0,10 L6.5,10 L0,0 L6.5,0',
 };
 
-const DIGITS = {
+export const DIGITS = {
   0: 'E3,5 3,5 90 450',
   1: 'M0.5,7.5 L3,10 L3,0 M0.5,0 L5.5,0',
   2: 'A3,7 3 160 -45 L0,0 L6,0',
@@ -67,7 +67,7 @@ const SIGNS = [
 const BOWL_LEFT = 'A3.25,3.25 3.25 26.8 333.2'; // for a stem on the right, at x = 6.15
 const BOWL_RIGHT = 'A2.9,3.25 3.25 153.2 -153.2'; // for a stem on the left, at x = 0
 
-const SMALL = {
+export const SMALL = {
   a: `M6.15,6.5 L6.15,0 N ${BOWL_LEFT}`,
   b: `M0,10 L0,0 N ${BOWL_RIGHT}`,
   c: 'A3.25,3.25 3.25 45 315',
@@ -185,7 +185,7 @@ const MORE_SIGNS = [
 
 // The numbers of a digital clock: seven bars, lit or not. a is the top bar,
 // then clockwise b, c, d, e, f, and g is the one in the middle.
-const BARS = {
+export const BARS = {
   a: 'M0.6,10 L4.4,10', b: 'M5,9.4 L5,5.6', c: 'M5,4.4 L5,0.6', d: 'M0.6,0 L4.4,0', e: 'M0,0.6 L0,4.4', f: 'M0,5.6 L0,9.4', g: 'M0.6,5 L4.4,5',
 };
 const DIGITAL = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abcdfg'];
@@ -197,7 +197,7 @@ const DIGITAL = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'a
 // capital the mark stands above the box (`rise`), so that É lines up with E.
 
 const tidy = (v) => Number(v.toFixed(3));
-const MARKS = {
+export const MARKS = {
   grave: (x, y) => `M${tidy(x + 0.9)},${y} L${tidy(x - 0.9)},${tidy(y + 1.9)}`,
   acute: (x, y) => `M${tidy(x - 0.9)},${y} L${tidy(x + 0.9)},${tidy(y + 1.9)}`,
   circ: (x, y) => `M${tidy(x - 1.5)},${y} L${x},${tidy(y + 1.7)} L${tidy(x + 1.5)},${y}`,
@@ -301,9 +301,9 @@ const MORE_MATHS = [
   ['two-thirds', 'Two thirds', '⅔', 'A1.4,8.6 1.4 160 -40 L0,5.6 L3,5.6 M6.6,10 L1.6,0 M6,4.4 L8,4.4 L6.8,2.6 A6.8,1.3 1.3 90 -150', 'fraction'],
 ];
 
-/** Centre the glyph left-right; keep the baseline and cap height where they are. */
-function glyph(d) {
-  const drawing = parsePath(d);
+/** Centre the glyph left-right; keep the baseline and cap height where they are. `d` is the text of a drawing, a drawing, or a function that makes one. */
+export function glyph(d) {
+  const drawing = typeof d === 'string' ? parsePath(d) : typeof d === 'function' ? d() : d;
   let x0 = Infinity;
   let x1 = -Infinity;
   for (const [x] of [...drawing.polys.flat(), ...drawing.dots]) {
@@ -313,14 +313,14 @@ function glyph(d) {
   return placeDrawing(drawing, { x: -(x0 + x1) / 10, y: -1, size: 1 / 5 });
 }
 
-const text = (id, name, cat, sign, d, extra = {}) => drawnShape({
+export const text = (id, name, cat, sign, d, extra = {}) => drawnShape({
   id, name, cat, label: sign, tags: sign, draw: () => glyph(d), box: false, spacing: 0.12, ...extra,
 });
 
 /** Small letters hang below the box by this much (the tails of g, j, p, q and y). */
-const DROP = 0.64;
+export const DROP = 0.64;
 /** The accent of a capital letter stands above the box by this much. */
-const RISE = 0.6;
+export const RISE = 0.6;
 
 export const TEXT_SHAPES = [
   ...Object.entries(LETTERS).map(([ch, d]) => text(`letter-${ch.toLowerCase()}`, `Letter ${ch}`, 'letters', ch, d, { sub: 'Capital letters' })),

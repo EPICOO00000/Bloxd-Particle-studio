@@ -28,7 +28,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 1624 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 3190 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -70,7 +70,7 @@ and **Open** loads one, so you can keep several scenes or share them.
 
 ### Shapes
 
-There are 1624 shapes in 16 tabs. Click a tab to see its shapes. A tab is
+There are 3190 shapes in 16 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
 scroll through its shapes. Or type in the search box above the tabs to look
 through all of them at once: a name ("star", "dragon"), a letter, a number or a
@@ -81,26 +81,26 @@ sign ("A", "é", "7", "?"), the name of a tab ("animals") or a heading
 
 | Tab | How many | Under these headings |
 |---|---|---|
-| Basic | 103 | 34 at the top; More outlines 26; Shapes in shapes 18; More filled shapes 19; Lines 6 |
-| 3D | 121 | 31 at the top; More solids 15; Round things 10; Buildings 15; Things 35; Plants and animals 15 |
-| Letters | 157 | Capital letters 26; Small letters 26; Accented capitals 28; Accented small letters 29; Greek letters 28; Runes 20 |
-| Numbers | 96 | Numbers 10; Digital numbers 10; Roman numerals 12; Dice 6; Signs 12; Punctuation 18; Money 8; Maths 20 |
-| Symbols | 123 | Arrows 24; Signs 53; Hearts and sparkles 14; Music 9; Star signs 12; People and body 11 |
-| Faces | 51 | Smileys 31; Characters 20 |
-| Nature | 79 | Sky and weather 30; Plants 32; Land and sea 17 |
-| Animals | 105 | Pets and farm 20; Wild animals 25; Birds 14; Sea animals 18; Bugs 15; Dinosaurs and dragons 13 |
+| Basic | 159 | 34 at the top; More outlines 36; Shapes in shapes 29; More filled shapes 50; Lines 10 |
+| 3D | 195 | 31 at the top; More solids 29; Round things 14; Buildings 28; Things 67; Plants and animals 26 |
+| Letters | 755 | Capital letters 26; Small letters 26; Words 80; Outline letters 26; Accented capitals 56; Accented small letters 58; Greek letters 49; Cyrillic capitals 37; Cyrillic small letters 37; Hiragana 46; Katakana 46; Kanji 47; Hangul 40; Hebrew letters 27; Runes 20; Ogham 20; Morse code 36; Braille 26; Flag signals 26; Pigpen cipher 26 |
+| Numbers | 335 | Numbers 10; Bigger numbers 30; Digital numbers 16; Outline numbers 10; Circled numbers 20; Roman numerals 20; Mayan numbers 20; Scores 22; Dice 6; Dominoes 28; Playing cards 54; Clock times 12; Signs 17; Punctuation 18; Money 18; Maths 34 |
+| Symbols | 202 | Arrows 34; Signs 92; Hearts and sparkles 24; Music 15; Star signs 12; People and body 25 |
+| Faces | 109 | Smileys 47; Characters 38; Text faces 24 |
+| Nature | 109 | Sky and weather 38; Plants 44; Land and sea 27 |
+| Animals | 160 | Pets and farm 31; Wild animals 36; Birds 24; Sea animals 26; Bugs 22; Dinosaurs and dragons 21 |
 | Food | 74 | Fruit and vegetables 24; Meals 21; Sweets 17; Drinks 12 |
 | Things | 164 | Tools 29; Weapons 18; Treasure and magic 20; Games and sport 29; Music 16; Home 30; Party and holidays 22 |
 | Travel | 75 | Vehicles 37; Buildings 38 |
 | Costume | 53 | Wings 7; On the head 22; Clothes 24 |
-| Pixel art | 228 | Game items 55; Creatures 37; Faces 7; Nature and food 40; Signs and things 44; Pixel letters 26; Pixel numbers 19 |
-| Curves | 57 | 17 at the top; More flat curves 27; More curves in 3D 13 |
-| Patterns | 45 | Tilings 19; Borders 12; Fractals 14 |
-| Effects | 93 | 21 at the top; Magic circles 23; Rings and shields 10; Elements 18; Floating things 21 |
+| Pixel art | 457 | Game items 100; Creatures 60; Faces 14; Nature and food 73; Signs and things 92; Pixel letters 26; Pixel small letters 26; Pixel numbers 30; Pixel words 36 |
+| Curves | 82 | 17 at the top; More flat curves 46; More curves in 3D 19 |
+| Patterns | 101 | Tilings 37; Borders 33; Fractals 31 |
+| Effects | 160 | 21 at the top; Magic circles 50; Rings and shields 17; Elements 26; Floating things 46 |
 
-[All 1624 shapes by name](docs/shapes.md).
+[All 3190 shapes by name](docs/shapes.md).
 
-Every shape has a "How many" slider for the number of particles. 190 of them
+Every shape has a "How many" slider for the number of particles. 228 of them
 have settings of their own, such as the points of a star, the petals of a
 flower or the turns of a helix. A Pixel art picture has one particle for every
 dot, so its "How many" goes in steps: with 4 times as many, every dot is a
@@ -470,7 +470,12 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes-icons.js`, `js/shapes-signs.js`, `js/shapes-living.js`, `js/shapes-stuff.js` | Pictures: symbols and faces, nature and animals, food, things, travel and costume |
 | `js/shapes-marks.js`, `js/shapes-wild.js`, `js/shapes-goods.js` | More pictures for the same tabs, in the same order |
 | `js/shapes-extra.js` | More shapes made from formulas, for the Basic, 3D, Curves, Patterns and Effects tabs |
-| `js/shapes-pixel.js` | Pixel art: pictures written as rows of dots |
+| `js/shapes-pixel.js`, `js/shapes-pixel2.js` | Pixel art: pictures written as rows of dots |
+| `js/shapes-scripts.js` | More letters: with accents, Greek, Cyrillic, hiragana, katakana, kanji, Hangul and Hebrew |
+| `js/shapes-words.js` | Words, outline letters and numbers, Morse code, Braille, flag signals, Pigpen, Ogham, typed faces |
+| `js/shapes-count.js` | Bigger numbers, circled numbers, scores, dominoes, playing cards, clock times, Mayan numbers, more signs |
+| `js/shapes-forms.js`, `js/shapes-space.js`, `js/shapes-models.js`, `js/shapes-magic.js` | Still more shapes made from formulas: basic shapes, curves and patterns; 3D solids and buildings; 3D things; effects |
+| `js/shapes-emblems.js`, `js/shapes-outdoors.js` | Still more pictures: symbols and faces, nature and animals |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
