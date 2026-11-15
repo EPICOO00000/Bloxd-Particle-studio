@@ -6,7 +6,81 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=9fe0adcf">
+<!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
+<!--
+  Every script is asked for with its version in its address. A browser keeps the files of a page
+  for some minutes: without the versions, a reload after an update runs the new page with old scripts.
+  (A browser that does not know import maps asks for the plain addresses, as before.)
+-->
+<script type="importmap" id="versions">
+{"imports": {
+  "./js/app.js": "./js/app.js?v=fe83f5d9",
+  "./js/assets.js": "./js/assets.js?v=034af7d6",
+  "./js/codegen.js": "./js/codegen.js?v=008794e1",
+  "./js/edits.js": "./js/edits.js?v=adc71334",
+  "./js/examples-data.js": "./js/examples-data.js?v=724fab64",
+  "./js/motion.js": "./js/motion.js?v=ade6a4aa",
+  "./js/moves.js": "./js/moves.js?v=65b3b429",
+  "./js/scene.js": "./js/scene.js?v=f80e4984",
+  "./js/shape-kit.js": "./js/shape-kit.js?v=afc224e9",
+  "./js/shapes-count.js": "./js/shapes-count.js?v=c62132ce",
+  "./js/shapes-curves.js": "./js/shapes-curves.js?v=3ea7d503",
+  "./js/shapes-effects.js": "./js/shapes-effects.js?v=0385b511",
+  "./js/shapes-emblems.js": "./js/shapes-emblems.js?v=af9372fd",
+  "./js/shapes-extra.js": "./js/shapes-extra.js?v=12813905",
+  "./js/shapes-flat.js": "./js/shapes-flat.js?v=8c4c65d9",
+  "./js/shapes-forms.js": "./js/shapes-forms.js?v=2c89112a",
+  "./js/shapes-geo.js": "./js/shapes-geo.js?v=18acba7d",
+  "./js/shapes-goods.js": "./js/shapes-goods.js?v=d59fbc0e",
+  "./js/shapes-icons.js": "./js/shapes-icons.js?v=94ad530d",
+  "./js/shapes-living.js": "./js/shapes-living.js?v=96d8f550",
+  "./js/shapes-magic.js": "./js/shapes-magic.js?v=4d5f20ec",
+  "./js/shapes-marks.js": "./js/shapes-marks.js?v=32579b50",
+  "./js/shapes-models.js": "./js/shapes-models.js?v=00bbd5a9",
+  "./js/shapes-outdoors.js": "./js/shapes-outdoors.js?v=231a866b",
+  "./js/shapes-pixel.js": "./js/shapes-pixel.js?v=3c775e85",
+  "./js/shapes-pixel2.js": "./js/shapes-pixel2.js?v=d5f82444",
+  "./js/shapes-scripts.js": "./js/shapes-scripts.js?v=a93677a7",
+  "./js/shapes-signs.js": "./js/shapes-signs.js?v=11c7cc7c",
+  "./js/shapes-solid.js": "./js/shapes-solid.js?v=31dec678",
+  "./js/shapes-space.js": "./js/shapes-space.js?v=81225bb9",
+  "./js/shapes-stuff.js": "./js/shapes-stuff.js?v=1419ae59",
+  "./js/shapes-text.js": "./js/shapes-text.js?v=38f8ff62",
+  "./js/shapes-wild.js": "./js/shapes-wild.js?v=c6eb32f0",
+  "./js/shapes-words.js": "./js/shapes-words.js?v=99a944a2",
+  "./js/shapes.js": "./js/shapes.js?v=eea98c2f",
+  "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
+  "./js/ui.js": "./js/ui.js?v=10b9fe96",
+  "./js/viewport.js": "./js/viewport.js?v=64237430",
+  "./vendor/OrbitControls.js": "./vendor/OrbitControls.js?v=e9c4f268",
+  "./vendor/TransformControls.js": "./vendor/TransformControls.js?v=c37314f3",
+  "./vendor/three.module.min.js": "./vendor/three.module.min.js?v=08fd7545"
+}}
+</script>
+<!--
+  The page itself can be an old copy too. So it asks which version is the newest (version.txt is
+  never taken from the browser's store) and loads again, once, when it is not that one. The scene
+  is kept in the browser, so nothing is lost by that.
+-->
+<script id="newest">
+(function () {
+  var mine = '8cb1df39dd2b';
+  if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
+  var asked = Date.now();
+  fetch('version.txt', { cache: 'no-store' }).then(function (answer) {
+    return answer.ok ? answer.text() : '';
+  }).then(function (text) {
+    var newest = text.trim();
+    if (!/^[0-9a-f]{12}$/.test(newest) || newest === mine) return;
+    if (Date.now() - asked > 5000) return; // a late answer: somebody is at work on the page by now, so next time
+    if (sessionStorage.getItem('bps-newest') === newest) return; // went for that one already: no going round in circles
+    sessionStorage.setItem('bps-newest', newest);
+    location.reload();
+  }).catch(function () { /* no network, or nothing may be stored: the page works as it is */ });
+})();
+</script>
+<!-- web only: end -->
 </head>
 <body>
 <header class="topbar">
@@ -21,6 +95,8 @@
       <button data-mode="scale" title="Resize (R)">Resize</button>
     </div>
     <label class="check" title="Snap to quarter blocks, 15 degrees"><input type="checkbox" id="snap"> Snap</label>
+    <span class="sep"></span>
+    <button id="array" title="Copies of what is selected in a row, a grid or a ring (A)">Array</button>
     <span class="sep"></span>
     <button id="play" title="Play what happens when the block is clicked (Space)">Play</button>
     <button id="focus" title="Center the view (F)">Center</button>
@@ -161,6 +237,6 @@
 </dialog>
 
 <input type="file" id="file" accept=".json,application/json" hidden>
-<script type="module" src="js/app.js"></script>
+<script type="module">import './js/app.js';</script>
 </body>
 </html>

@@ -79,6 +79,10 @@ const selectedObject = () => nodeOf(state.selected);
 const selectedNodes = () => state.objects.filter((o) => state.selection.includes(o.id));
 const startOf = (node) => (node.start > 0 ? node.start : 0);
 const plural = (n, word) => `${n.toLocaleString('en')} ${word}${n === 1 ? '' : 's'}`;
+/** A small screen has one column: the 3D view on top, the panels under it. */
+const isSmall = () => window.matchMedia('(max-width: 900px)').matches;
+/** There is a mouse: a pointer can rest on something. */
+const canHover = () => window.matchMedia('(hover: hover)').matches;
 
 function starterScene() {
   return [
@@ -707,7 +711,7 @@ function headOf(node) {
     row('Name', name),
     h('div', { class: 'buttons' },
       h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
-      h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring' }, 'Array'),
+      h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring (A)' }, 'Array'),
       h('button', { onclick: () => { node.hidden = !node.hidden; commit(); renderInspector(); refresh(); } }, node.hidden ? 'Show' : 'Hide'),
       group ? h('button', { onclick: ungroupSelected, title: 'Take the group apart: what is in it stays (Ctrl+Shift+G)' }, 'Ungroup') : null,
       h('button', { class: 'danger', onclick: () => removeSelected(), title: group ? 'Delete the group and what is in it' : 'Delete' }, 'Delete')),
@@ -1088,7 +1092,10 @@ function makeArray() {
       ? `${made.made + 1} in a ${spec.kind}, in the group ${group.name}. Move, turn or resize the group and they all come along.`
       : `${made.made + 1} in a ${spec.kind}. They are all selected.`,
   });
-  if (done) arrayStep = { at: history.length - 2, ids: nodes.map((n) => n.id) };
+  if (!done) return;
+  arrayStep = { at: history.length - 2, ids: nodes.map((n) => n.id) };
+  // one column on a small screen: the 3D view is above the settings, so back up to see what was made
+  if (isSmall()) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /** Open the Array category and bring it into view. */
@@ -1096,7 +1103,25 @@ function showArray() {
   keep('array', true);
   renderInspector();
   const section = $('#inspector [data-cat="array"]');
-  if (section) section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (!section) return;
+  section.classList.add('flash'); // (a moment of light, so the eye finds what the button opened)
+  section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/**
+ * The Array button in the bar at the top, and the key A. The settings are shut
+ * until they are asked for, so the tool has a button that is always in sight:
+ * it opens the settings on the Array category, or says what to select first.
+ */
+function arrayTool() {
+  if (!state.selection.length) {
+    toast(`Array makes copies of what is selected, in a row, a grid or a ring. ${state.objects.length
+      ? 'Select something first: click it in the 3D view.' : 'Add a particle or a shape first.'}`);
+    return;
+  }
+  $('#toast').hidden = true; // (whatever it said, "select something first" for one, is answered)
+  showPanel('settings', true);
+  showArray();
 }
 
 /** Copies of what is selected in a row, a grid or a ring. Works for one thing or for several. */
@@ -1112,7 +1137,7 @@ function arraySection(nodes) {
     if (trial.error !== undefined) said.textContent = trial.error;
     else {
       const more = particlesOf(trial.objects) - particlesOf(state.objects);
-      said.textContent = `Makes ${trial.made} ${trial.made === 1 ? 'copy' : 'copies'}: ${plural(more, 'particle')} more. The 3D view shows them while the mouse is here.`;
+      said.textContent = `Makes ${trial.made} ${trial.made === 1 ? 'copy' : 'copies'}: ${plural(more, 'particle')} more.${canHover() && !isSmall() ? ' The 3D view shows them while the mouse is here.' : ''}`;
     }
   };
   /** A number, a choice or a tick was changed by hand. */
@@ -1207,7 +1232,7 @@ function arraySection(nodes) {
 const KEYBOARD = [
   ['W, E, R', 'move, rotate, resize'], ['Click', 'select; in a group: the group first, click again for what is in it'],
   ['Ctrl+click', 'select several'], ['Shift+click', 'in the lists: everything in between'], ['Ctrl+A', 'select everything'],
-  ['Ctrl+G', 'group what is selected'], ['Ctrl+Shift+G', 'take the group apart'], ['Ctrl+D', 'duplicate'], ['Delete', 'delete'],
+  ['Ctrl+G', 'group what is selected'], ['Ctrl+Shift+G', 'take the group apart'], ['Ctrl+D', 'duplicate'], ['A', 'array: copies in a row, a grid or a ring'], ['Delete', 'delete'],
   ['Ctrl+Z, Ctrl+Y', 'undo, redo'], ['Space', 'play or pause'], ['K', 'add a key at the time marker'],
   ['Left, Right', 'move the time marker (Shift: a whole second)'], ['Esc', 'back to the start, then select nothing'], ['F', 'center the view'],
   ['1, 2, 3, 4', 'open or close Add, Scene, Settings, Timeline'],
@@ -1235,7 +1260,7 @@ function nothingSelected() {
       note(h('b', {}, 'Groups: '), 'select several objects (Ctrl+click), press Group, and they move, turn and resize as one. A wing is a group; so is a whole dragon.'),
       note(h('b', {}, 'Ready-made moves: '), 'Flap, Pulse, Spin, Orbit and more work out the keys for you. Select something and open that category.'),
       note(h('b', {}, 'Repeat: '), 'under Time, an object or a whole group can be played again and again, for fire, smoke or rain.'),
-      note(h('b', {}, 'Array: '), 'select something and press Array for copies of it in a row, a grid or a ring.'),
+      note(h('b', {}, 'Array: '), 'select something and press Array at the top, or the key A, for copies of it in a row, a grid or a ring.'),
     ]),
     category('keyboard', 'Keyboard and mouse', [
       h('dl', { class: 'keys' }, KEYBOARD.map(([keys, does]) => [h('dt', {}, keys), h('dd', {}, does)])),
@@ -1252,7 +1277,7 @@ function severalSelected(nodes) {
       h('div', { class: 'buttons' },
         h('button', { class: 'primary', onclick: groupSelected, title: 'Ctrl+G' }, 'Group'),
         h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
-        h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring' }, 'Array'),
+        h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring (A)' }, 'Array'),
         h('button', { onclick: () => { for (const n of nodes) n.hidden = !hidden; commit(); renderInspector(); refresh(); } }, hidden ? 'Show' : 'Hide'),
         h('button', { class: 'danger', onclick: () => removeSelected(), title: 'Delete' }, 'Delete')),
       note('Group them to move, turn and resize them as one, and to give them keys together.')),
@@ -2004,7 +2029,7 @@ function showPanel(id, on = !shown[id]) {
   if (id === 'timeline' && timeline) timeline.reveal();
   if (id === 'scene') showSelectedRow();
   // one column on a small screen: the part that opened may be below the edge
-  if (window.matchMedia('(max-width: 900px)').matches) $(panel.el).scrollIntoView({ block: 'nearest' });
+  if (isSmall()) $(panel.el).scrollIntoView({ block: 'nearest' });
 }
 
 /**
@@ -2037,6 +2062,7 @@ function bindUi() {
   $('#redo').onclick = redo;
   $('#play').onclick = togglePlay;
   $('#group').onclick = () => { groupSelected(); $('#group').blur(); };
+  $('#array').onclick = () => { arrayTool(); $('#array').blur(); };
   bindTimeline();
   $('#focus').onclick = () => viewport && viewport.focus(allPoints());
   // after an array is made its copies-to-be are not shown again until the pointer has been somewhere else
@@ -2127,6 +2153,7 @@ function bindUi() {
     else if (key === 'w') setMode('translate');
     else if (key === 'e') setMode('rotate');
     else if (key === 'r') setMode('scale');
+    else if (key === 'a') arrayTool();
     else if (key === 'f') $('#focus').click();
     else if (key === ' ') { e.preventDefault(); togglePlay(); }
     else if (key === 'k') addKeyHere();
