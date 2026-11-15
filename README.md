@@ -213,10 +213,13 @@ row, a grid or a ring.
 ![A star with seven see-through copies in a ring around the place where it stands, and the Array category of the settings on the right](docs/array.png)
 
 1. Select an object, a group or several things.
-2. Press **Array** next to Duplicate. It opens the Array category at the end
-   of the settings.
+2. Press **Array** in the top bar, or the key A. The settings open on the
+   Array category, which is the last one. With nothing selected, the button
+   says what to do first.
 3. Choose the kind and type the numbers.
 4. Press **Make array**.
+
+The same button is next to Duplicate in the settings.
 
 | Kind | What you get | What you type |
 |---|---|---|
@@ -241,7 +244,8 @@ copies stand next to the first one, all selected.
 While the mouse is on the Array category, the 3D view shows the copies
 see-through where they would go. Nothing changes until you press
 **Make array**. Undo takes the whole array away in one step and selects what
-it was made of again, ready for other numbers.
+it was made of again, ready for other numbers. On a small screen the 3D view
+is above the settings, so the page goes back up to it when the array is made.
 
 The copies are objects like any other, so every one costs its particles, and
 the category says how many that is. An array has 100 things at most. Things
@@ -362,6 +366,7 @@ for **Open**.
 | Ctrl+A | Select everything |
 | Ctrl+G, Ctrl+Shift+G | Group what is selected, take the group apart |
 | Ctrl+D | Duplicate, with all that is in it |
+| A | Array: copies of what is selected in a row, a grid or a ring |
 | Delete or Backspace | Delete what is selected, or the key whose diamond was clicked last |
 | Ctrl+Z, Ctrl+Shift+Z (or Ctrl+Y) | Undo, Redo |
 | F | Center the view |
@@ -489,13 +494,24 @@ three.js included in `vendor/`.
 npm start        # serve the folder on http://localhost:8080
 npm test         # unit tests
 npm install      # once, before the next command
-npm run build    # rebuild START-HERE.html
+npm run build    # rebuild START-HERE.html and the versions in index.html
 ```
 
 `START-HERE.html` is built from the other files. After changing anything in
 `index.html`, `js/`, `css/`, `vendor/` or `textures/`, run `npm run build`;
 `npm test` fails while the file is out of date. After changing an example, run
 `node examples/build.mjs` first.
+
+The same command writes versions into `index.html`. A web server lets a
+browser keep files for some minutes (GitHub Pages: ten), so after an update a
+reload used to run the new page with the old scripts: a new button that did
+nothing. Now the address of every script and of the style sheet ends in a
+version made from what is in the file (`js/app.js?v=1a2b3c4d`), so a file that
+changed is fetched and the others are not. The scripts name each other plainly;
+the list at the top of `index.html` adds the versions. `version.txt` holds the
+version of the whole site: a page asks for it when it opens, and loads itself
+again, once, when it is not the newest. `npm test` fails while the versions are
+out of date. `START-HERE.html` has none of this.
 
 A scene is a flat list of objects. A group is an entry with the shape `group`,
 and what is in it names the group as its `parent`. `sceneTree()` in
@@ -504,6 +520,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | Path | What it is |
 |---|---|
 | `index.html`, `css/style.css` | The page and its looks |
+| `version.txt` | The version of the site. A page that the browser kept asks for it to know whether it is the newest. Written by `npm run build` |
 | `js/shapes.js` | The shape library: the first 24 shapes, the tabs and the search. Each shape returns a list of points |
 | `js/shape-kit.js` | The geometry tools the shapes are built from, and the small drawing language used for letters and pictures |
 | `js/shapes-geo.js` | Shapes made from formulas: more basic outlines, 3D shapes, curves and effects |
@@ -532,7 +549,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second |
-| `tools/` | Local server, the single-file build, and `shape-list.mjs`, which writes the list of shapes |
+| `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |
 | `examples/` | The scripts that write the examples, and the dragon as a scene file |

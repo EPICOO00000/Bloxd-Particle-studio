@@ -71,7 +71,7 @@ input[type="color"] {
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; white-space: nowrap; }
 .brand img { width: 24px; height: 24px; image-rendering: pixelated; }
 /* a laptop-sized window: the name makes room, so the bar stays one row */
-@media (max-width: 1350px) { .brand span { display: none; } }
+@media (max-width: 1420px) { .brand span { display: none; } }
 .tools, .actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .actions { margin-left: auto; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
@@ -156,6 +156,10 @@ input[type="color"] {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cat.open > .cat-head .cat-sum { opacity: 0.55; }
+/* a category that a button somewhere else has just opened: a moment of light, so the eye finds it */
+@keyframes cat-flash { from { background-color: rgba(79, 141, 255, 0.3); } to { background-color: rgba(79, 141, 255, 0); } }
+.cat.flash { animation: cat-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) { .cat.flash { animation: none; } }
 .cat-body { display: none; padding: 0 0 12px; }
 .cat.open > .cat-body { display: block; }
 .cat-body > h3:first-child { margin-top: 2px; }

@@ -1,14 +1,20 @@
 // Builds START-HERE.html: the whole studio in one file (code, styles and
 // pictures inside), which works when opened straight from a folder, offline.
+// Before that it writes into index.html the version of every file the page
+// asks for, and the version of the whole site into version.txt (see
+// tools/sources.mjs for why).
 // Run with: npm run build   (needs `npm install` once, for esbuild)
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sourceFiles, sourceHash } from './sources.mjs';
+import { sourceFiles, sourceHash, stamp } from './sources.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+
+const stamped = stamp(root);
+if (stamped.length) console.log(`versions written: ${stamped.join(', ')}`);
 
 const bundle = await build({
   entryPoints: [path.join(root, 'js/app.js')],
@@ -41,11 +47,18 @@ const swap = (html, find, replacement) => {
   if (!html.includes(find)) throw new Error(`index.html no longer contains: ${find}`);
   return html.split(find).join(replacement);
 };
+// what is found once by a pattern, taken out or replaced
+const swapMatch = (html, pattern, replacement) => {
+  if (!pattern.test(html)) throw new Error(`index.html no longer contains: ${pattern}`);
+  return html.replace(pattern, () => replacement);
+};
 let html = read('index.html').replace(/\r\n/g, '\n');
 html = swap(html, 'textures/glint.png', assets['textures/glint.png']);
-html = swap(html, '<link rel="stylesheet" href="css/style.css">', `<style>\n${read('css/style.css')}</style>`);
+// one file has no versions of files to ask for, and no newer copy on a server
+html = swapMatch(html, /<!-- web only: start[\s\S]*?<!-- web only: end -->\n/, '');
+html = swapMatch(html, /<link rel="stylesheet" href="css\/style\.css\?v=[0-9a-f]+">/, `<style>\n${read('css/style.css')}</style>`);
 html = swap(html, '<meta charset="utf-8">', `<meta charset="utf-8">\n<!--\n${notices}\n-->\n<meta name="bps-sources" content="${sourceHash(root)}">`);
-html = swap(html, '<script type="module" src="js/app.js"></script>',
+html = swap(html, '<script type="module">import \'./js/app.js\';</script>',
   `<script>window.BPS_ASSETS=${JSON.stringify(assets)}</script>\n<script>${js}</script>`);
 
 fs.writeFileSync(path.join(root, 'START-HERE.html'), html);

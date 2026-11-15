@@ -22,7 +22,7 @@ import {
 import { generateCode, LIMITS, PRECISIONS } from '../js/codegen.js';
 import { applyMove } from '../js/moves.js';
 import { createParticle, frameAge } from './babylon-sim.mjs';
-import { sourceFiles, sourceHash } from '../tools/sources.mjs';
+import { sourceFiles, sourceHash, fileVersions, siteVersion, pageWith } from '../tools/sources.mjs';
 import { dragonFile } from '../examples/dragon.mjs';
 import { examplesFile } from '../examples/build.mjs';
 import { shapeList, shapeTable } from '../tools/shape-list.mjs';
@@ -2300,6 +2300,24 @@ test('the page fits together: every import exists, and so does every element the
   assert.equal(new Set(colours).size, panels.length, 'no two of them have the same colour');
 });
 
+test('a tool that lives in the settings has a button that is always in sight', () => {
+  // (the settings are shut until they are asked for: with its button only in there, nobody finds the Array tool)
+  const html = fs.readFileSync(new URL('index.html', root), 'utf8');
+  const app = fs.readFileSync(new URL('js/app.js', root), 'utf8');
+  const bar = /<header class="topbar">([\s\S]*?)<\/header>/.exec(html)[1];
+  assert.match(bar, /<button id="array" title="[^"]*\(A\)">Array<\/button>/, 'Array is in the top bar and names its key');
+  assert.match(app, /\$\('#array'\)\.onclick = \(\) => \{ arrayTool\(\);/, 'the button is wired');
+  assert.match(app, /else if \(key === 'a'\) arrayTool\(\);/, 'and so is the key A');
+  // pressed, it opens the settings first (they may be shut), then the category in them
+  const tool = /\nfunction arrayTool\(\) \{([\s\S]*?)\n\}/.exec(app)[1];
+  const opens = tool.indexOf("showPanel('settings', true)");
+  assert.ok(opens > -1 && opens < tool.indexOf('showArray()'), 'the settings open before the category is shown');
+  assert.match(tool, /Select something first/, 'with nothing selected it says what to do');
+  // the key is in the list of keys of the page and in the one of the README
+  assert.match(app, /\['A', 'array: /);
+  assert.match(fs.readFileSync(new URL('README.md', root), 'utf8'), /^\| A \| Array: /m);
+});
+
 test('the page builder takes children in lists, and in lists inside lists', async () => {
   // (a shape's own sliders and the list of keys are given that way: they must not end up as the text "[object ...]")
   const had = globalThis.document;
@@ -2314,6 +2332,124 @@ test('the page builder takes children in lists, and in lists inside lists', asyn
   } finally {
     globalThis.document = had;
   }
+});
+
+test('the page asks for its files by their versions, and they are the current ones', () => {
+  // A browser keeps the files of a page for some minutes. Asked for by plain addresses, a reload after an
+  // update ran the new page with the old scripts: a new button that did nothing. (See tools/sources.mjs.)
+  const dir = fileURLToPath(root);
+  const html = fs.readFileSync(new URL('index.html', root), 'utf8').replace(/\r\n/g, '\n');
+  const versions = fileVersions(dir);
+  const site = siteVersion(dir);
+  assert.equal(pageWith(html, versions, site), html, 'the versions in index.html are out of date: run "npm run build"');
+  assert.equal(fs.readFileSync(new URL('version.txt', root), 'utf8'), `${site}\n`, 'version.txt is out of date: run "npm run build"');
+  assert.match(site, /^[0-9a-f]{12}$/);
+  // the version of the site is not made from the versions written into the page (it would never settle)
+  assert.equal(pageWith(pageWith(html, [], ''), versions, site), html);
+  assert.notEqual(pageWith(html, [], ''), html);
+
+  // every script there is has its version in the map, and the style sheet in its address
+  const scripts = sourceFiles(dir).filter((f) => f.endsWith('.js'));
+  const map = JSON.parse(/<script type="importmap" id="versions">([\s\S]*?)<\/script>/.exec(html)[1]).imports;
+  assert.deepEqual(Object.keys(map), scripts.map((f) => `./${f}`));
+  const versionOf = Object.fromEntries(versions);
+  for (const file of scripts) {
+    assert.match(versionOf[file], /^[0-9a-f]{8}$/);
+    assert.equal(map[`./${file}`], `./${file}?v=${versionOf[file]}`);
+  }
+  assert.ok(html.includes(`<link rel="stylesheet" href="css/style.css?v=${versionOf['css/style.css']}">`));
+  // a version is made from what is in the file, and from nothing else
+  const text = fs.readFileSync(new URL('js/ui.js', root), 'utf8').replace(/\r\n/g, '\n');
+  assert.equal(versionOf['js/ui.js'], crypto.createHash('sha256').update(text).digest('hex').slice(0, 8));
+
+  // The map is there before anything is imported, and nothing gets past it: a script named by
+  // src= is not looked up in the map, so the first one is imported as well.
+  assert.ok(html.indexOf('<script type="importmap"') < html.indexOf('<script type="module"'));
+  assert.equal(html.split('<script type="importmap"').length, 2, 'one map: a second one is not read by every browser');
+  assert.ok(!/<script[^>]+\ssrc=/.test(html), 'a script with src= is fetched by its plain address');
+  assert.ok(html.includes(`<script type="module">import './js/app.js';</script>`));
+  // every import in the scripts names a file of the map, plainly: the browser adds the version
+  let imports = 0;
+  for (const file of scripts) {
+    const src = fs.readFileSync(new URL(file, root), 'utf8');
+    assert.ok(!/\bimport\s*\(/.test(src.replace(/\/\/.*$/gm, '')) || file.startsWith('vendor/'), `${file} imports while it runs`);
+    for (const m of src.matchAll(/\bfrom\s*'(\.{1,2}\/[^']*)'/g)) {
+      imports++;
+      const target = new URL(m[1], new URL(file, 'http://site/')).pathname.slice(1);
+      assert.ok(!m[1].includes('?'), `${file} imports ${m[1]} with a version of its own`);
+      assert.ok(scripts.includes(target), `${file} imports ${m[1]}, which is not a file of the map`);
+    }
+  }
+  assert.ok(imports > 60, `${imports} imports checked`);
+
+  // the single file has none of this: there is no server to ask
+  const single = fs.readFileSync(new URL('START-HERE.html', root), 'utf8');
+  assert.ok(!/importmap|version\.txt|web only/.test(single));
+});
+
+test('a page that the browser kept asks whether it is the newest, and loads itself again once', async () => {
+  const html = fs.readFileSync(new URL('index.html', root), 'utf8');
+  const check = /<script id="newest">([\s\S]*?)<\/script>/.exec(html)[1];
+  const mine = /var mine = '([0-9a-f]{12})';/.exec(check)[1];
+  assert.equal(mine, siteVersion(fileURLToPath(root)));
+  // (never from the browser's store: that copy would be as old as the page)
+  assert.ok(check.includes("fetch('version.txt', { cache: 'no-store' })"));
+  const OLD = 'aaaaaaaaaaaa';
+  const NEW = 'bbbbbbbbbbbb';
+  const NEWER = 'cccccccccccc';
+  // one visit: the page has the version `page`, the server answers `served` (null: no network)
+  const visit = async (page, served, { store = {}, protocol = 'https:', locked = false, found = true, after = 300 } = {}) => {
+    const seen = { asked: 0, reloads: 0 };
+    let clock = 1000000;
+    const storage = {
+      getItem: (key) => { if (locked) throw new Error('storage is off'); return key in store ? store[key] : null; },
+      setItem: (key, value) => { if (locked) throw new Error('storage is off'); store[key] = String(value); },
+    };
+    const sandbox = {
+      location: { protocol, reload: () => { seen.reloads++; } },
+      sessionStorage: storage,
+      Date: { now: () => clock },
+      fetch: async (url, options) => {
+        seen.asked++;
+        clock += after; // (the answer takes this many milliseconds)
+        assert.equal(url, 'version.txt');
+        assert.deepEqual({ ...options }, { cache: 'no-store' });
+        if (served === null) throw new TypeError('Failed to fetch');
+        return { ok: found, text: async () => served };
+      },
+    };
+    sandbox.window = sandbox;
+    vm.runInNewContext(check.replace(`var mine = '${mine}'`, `var mine = '${page}'`), sandbox);
+    await new Promise((done) => setTimeout(done, 10));
+    return seen;
+  };
+  // the newest already: nothing happens
+  assert.deepEqual(await visit(NEW, `${NEW}\n`), { asked: 1, reloads: 0 });
+  // an old copy: it loads itself again, and remembers which version it went for
+  const tab = {};
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { store: tab }), { asked: 1, reloads: 1 });
+  assert.deepEqual(tab, { 'bps-newest': NEW });
+  // the same old page came back (a server that is slow to hand out the new one): not again, no going round in circles
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { store: tab }), { asked: 1, reloads: 0 });
+  // the new page came: all is well
+  assert.deepEqual(await visit(NEW, `${NEW}\n`, { store: tab }), { asked: 1, reloads: 0 });
+  // a later update, in the same tab: once more
+  assert.deepEqual(await visit(NEW, `${NEWER}\n`, { store: tab }), { asked: 1, reloads: 1 });
+  assert.deepEqual(await visit(NEW, `${NEWER}\n`, { store: tab }), { asked: 1, reloads: 0 });
+  // an answer that comes late: somebody is at work on the page by then, so it stays, and goes for it on the next visit
+  const slow = {};
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { store: slow, after: 5001 }), { asked: 1, reloads: 0 });
+  assert.deepEqual(slow, {});
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { store: slow, after: 5000 }), { asked: 1, reloads: 1 });
+  // nothing to go by: the page stays as it is
+  assert.deepEqual(await visit(OLD, null), { asked: 1, reloads: 0 }, 'no network');
+  assert.deepEqual(await visit(OLD, '<!DOCTYPE html><title>Not found</title>', { found: false }), { asked: 1, reloads: 0 }, 'no such file');
+  assert.deepEqual(await visit(OLD, '<!DOCTYPE html><title>Sign in</title>'), { asked: 1, reloads: 0 }, 'something else than a version');
+  assert.deepEqual(await visit(OLD, ''), { asked: 1, reloads: 0 }, 'an empty answer');
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { locked: true }), { asked: 1, reloads: 0 }, 'nothing can be remembered: it could go round in circles');
+  // opened from a folder, or a page without a version: it does not ask at all
+  assert.deepEqual(await visit(OLD, `${NEW}\n`, { protocol: 'file:' }), { asked: 0, reloads: 0 });
+  assert.deepEqual(await visit('', `${NEW}\n`), { asked: 0, reloads: 0 });
 });
 
 test('START-HERE.html is built from the current sources', () => {
