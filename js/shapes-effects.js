@@ -434,7 +434,7 @@ const ELEMENTS = [
 // ---------------------------------------------------------------- floating things
 
 /** Small flat pictures floating in the air: `places` are [x, y, z, size, turn in degrees]. */
-function floaters(d, places) {
+export function floaters(d, places) {
   const glyph = drawingNet(fitDrawing(typeof d === 'string' ? parsePath(d) : d));
   return joinNets(...places.map(([x, y, z, size, turn = 0]) => {
     const [c, t] = [Math.cos(turn * RAD), Math.sin(turn * RAD)];

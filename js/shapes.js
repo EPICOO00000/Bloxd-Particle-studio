@@ -18,6 +18,13 @@
 //   shapes-living.js  more nature, and animals
 //   shapes-stuff.js   food, more things, travel and costumes
 //   shapes-pixel.js   pixel art
+// and, since it grew to 1,624:
+//   shapes-marks.js   still more symbols and faces
+//   shapes-wild.js    still more nature and animals
+//   shapes-goods.js   still more food, things, travel and costumes
+//   shapes-extra.js   more basic shapes, 3D shapes, curves, patterns and effects
+// (letters with accents, Roman numerals, dice and punctuation are in
+// shapes-text.js, and the new pixel art is in shapes-pixel.js).
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -33,6 +40,10 @@ import { SIGN_SHAPES } from './shapes-signs.js';
 import { LIVING_SHAPES } from './shapes-living.js';
 import { STUFF_SHAPES } from './shapes-stuff.js';
 import { PIXEL_SHAPES } from './shapes-pixel.js';
+import { MARK_SHAPES } from './shapes-marks.js';
+import { WILD_SHAPES } from './shapes-wild.js';
+import { GOODS_SHAPES } from './shapes-goods.js';
+import { EXTRA_SHAPES } from './shapes-extra.js';
 
 export { resample };
 
@@ -43,8 +54,8 @@ export { resample };
 export const CATEGORIES = [
   { id: 'basic', name: 'Basic', subs: ['More outlines', 'Shapes in shapes', 'More filled shapes', 'Lines'] },
   { id: 'solid', name: '3D', subs: ['More solids', 'Round things', 'Buildings', 'Things', 'Plants and animals'] },
-  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Greek letters', 'Runes'] },
-  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Digital numbers', 'Signs', 'Money', 'Maths'] },
+  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Accented capitals', 'Accented small letters', 'Greek letters', 'Runes'] },
+  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Digital numbers', 'Roman numerals', 'Dice', 'Signs', 'Punctuation', 'Money', 'Maths'] },
   { id: 'symbols', name: 'Symbols', subs: ['Arrows', 'Signs', 'Hearts and sparkles', 'Music', 'Star signs', 'People and body'] },
   { id: 'faces', name: 'Faces', subs: ['Smileys', 'Characters'] },
   { id: 'nature', name: 'Nature', subs: ['Sky and weather', 'Plants', 'Land and sea'] },
@@ -53,7 +64,7 @@ export const CATEGORIES = [
   { id: 'things', name: 'Things', subs: ['Tools', 'Weapons', 'Treasure and magic', 'Games and sport', 'Music', 'Home', 'Party and holidays'] },
   { id: 'travel', name: 'Travel', subs: ['Vehicles', 'Buildings'] },
   { id: 'costume', name: 'Costume', subs: ['Wings', 'On the head', 'Clothes'] },
-  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Nature and food', 'Signs and things'] },
+  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel numbers'] },
   { id: 'curves', name: 'Curves', subs: ['More flat curves', 'More curves in 3D'] },
   { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Fractals'] },
   { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
@@ -66,7 +77,8 @@ export const CATEGORIES = [
  * Optional: label (short name under the picture), tags (extra search words),
  * tidy (the shape rounds "How many" to a count that fits its pattern),
  * sub (the heading it stands under in its tab), drop (how far it hangs below
- * the -1..1 box: the tails of g, j, p, q and y).
+ * the -1..1 box: the tails of g, j, p, q and y), rise (how far it stands above
+ * the box: the accent of a capital letter).
  */
 const FIRST_SHAPES = [
   {
@@ -316,6 +328,7 @@ export const SHAPES = (() => {
     ...FIRST_SHAPES, ...GEO_SHAPES, ...TEXT_SHAPES, ...ICON_SHAPES,
     ...FLAT_SHAPES, ...SOLID_SHAPES, ...CURVE_SHAPES, ...EFFECT_SHAPES,
     ...SIGN_SHAPES, ...LIVING_SHAPES, ...STUFF_SHAPES, ...PIXEL_SHAPES,
+    ...MARK_SHAPES, ...WILD_SHAPES, ...GOODS_SHAPES, ...EXTRA_SHAPES,
   ];
   const byId = new Map(all.map((s) => [s.id, s]));
   for (const [place, ids] of Object.entries(PLACES)) {
@@ -378,6 +391,32 @@ export function searchShapes(text) {
     found.push([rank, order, SHAPES[order]]);
   });
   return found.sort((p, q) => p[0] - q[0] || p[1] - q[1]).map((f) => f[2]);
+}
+
+// Where a long word under a picture may break. On a narrow button it then breaks there, with a
+// hyphen ("Screw-driver"), and not wherever the line happens to end. Every word of 9 letters or more
+// in a name needs a place here: the tests say which one is missing.
+const BREAKS = new Map((
+  'angler|fish arrow|head astro|naut attrac|tor auber|gine basket|ball battle|ments bino|culars boome|rang borro|mean '
+  + 'butter|fly capri|corn card|board cater|pillar checker|board cheq|uered choco|late christ|mas clapper|board '
+  + 'constel|lation control|ler croco|dile crois|sant cross|bones cross|hair cubocta|hedron dande|lion dodeca|hedron '
+  + 'dragon|fly ellip|soid epi|cycloid excla|mation explo|sion fire|works ginger|bread gradu|ation grave|stone '
+  + 'harmono|graph head|dress head|phones heart|beat heli|copter honey|comb horse|shoe hour|glass hyper|bola '
+  + 'hypo|cycloid icosa|hedron jelly|fish lemnis|cate light|house light|ning lissa|jous magni|fier magni|fying '
+  + 'metro|nome micro|phone milk|shake moun|tains mous|tache navi|gation obser|vatory octa|hedron para|chute '
+  + 'parallelo|gram penta|gram pine|apple propel|ler ptero|dactyl puffer|fish quatre|foil radi|ation rain|drops '
+  + 'rect|angle sagit|tarius sand|castle satel|lite screw|driver sier|pinski six|teenth skate|board sky|scraper '
+  + 'snow|flake space|ship spiro|graph stair|case stego|saurus stop|watch straw|berry sub|marine sum|moning '
+  + 'sun|flower super|shape sur|prised suspen|sion tele|scope tele|vision tetra|hedron thermo|meter tomb|stone '
+  + 'tooth|brush trape|zoid tri|angles tri|quetra tricera|tops triske|lion water|fall water|melon whirl|pool wrist|watch'
+).split(' ').map((word) => [word.replace('|', ''), word.indexOf('|')]));
+
+/** What stands under the picture of a shape: its sign or its name, with a soft hyphen where a long word may break. */
+export function shapeCaption(shape) {
+  return (shape.label || shape.name).replace(/[A-Za-z]{9,}/g, (word) => {
+    const at = BREAKS.get(word.toLowerCase());
+    return at ? `${word.slice(0, at)}\u00AD${word.slice(at)}` : word;
+  });
 }
 
 export const MAX_COUNT = 600;

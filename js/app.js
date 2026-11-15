@@ -3,7 +3,7 @@
 // edits.js and moves.js, the code generator in codegen.js and the 3D view in
 // viewport.js.
 
-import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, MAX_COUNT } from './shapes.js';
+import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, shapeCaption, MAX_COUNT } from './shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, BLEND_MODES, LIFE_PER_SECOND, createObject, sanitizeScene,
   computeParticles, sceneDuration, sceneTree, isGroup, rgbToHex, localPoints,
@@ -1565,12 +1565,14 @@ function drawShapeIcon(canvas, shape) {
   const ctx = canvas.getContext('2d');
   const pts = shapePoints(shape.id, shape.count, defaultParams(shape.id));
   const solid = shape.group === 'solid';
-  // a letter with a tail (g, y) reaches below the box: the picture is made a little smaller and lifted, so the tail shows
+  // a letter with a tail (g, y) reaches below the box and the accent of a capital (É) above it:
+  // the picture is made a little smaller and moved, so the tail or the accent shows
   const drop = shape.drop || 0;
-  const reach = (solid ? 31 : 38) / (1 + drop / 2); // 3D shapes are drawn turned, so they need room for their corners
+  const rise = shape.rise || 0;
+  const reach = (solid ? 31 : 38) / (1 + (drop + rise) / 2); // 3D shapes are drawn turned, so they need room for their corners
   const dot = pts.length > 110 ? 3 : pts.length > 60 ? 4 : 5;
   const cy = Math.cos(0.6), sy = Math.sin(0.6), cx = Math.cos(0.45), sx = Math.sin(0.45);
-  const dy = shape.id === 'dome' ? 0.35 : -drop / 2;
+  const dy = shape.id === 'dome' ? 0.35 : (rise - drop) / 2;
   ctx.fillStyle = '#e8ecf5';
   for (const [x0, y0, z0] of pts) {
     let x = x0, y = y0;
@@ -1616,6 +1618,9 @@ function bindShapePicker() {
     blank.delete(canvas);
     if (watch) watch.unobserve(canvas);
     drawShapeIcon(canvas, shape);
+    // a drawn shape measures its number of particles the first time it is asked for: the hint that
+    // names the number is written here, when the button comes into view, so a long tab opens quickly
+    canvas.parentNode.title = `${shape.name}: ${shape.count} particles`;
   };
   const watch = typeof IntersectionObserver === 'function'
     ? new IntersectionObserver((seen) => { for (const e of seen) if (e.isIntersecting) draw(e.target); }, { root: grid, rootMargin: '260px 0px' })
@@ -1623,16 +1628,14 @@ function bindShapePicker() {
 
   const button = (s) => {
     if (!made.has(s.id)) {
-      // a soft hyphen lets "Dodecahedron" break as "Dodeca-hedron" on a narrow button
-      const caption = (s.label || s.name).replace(/(\w{4})(hedron)/, '$1\u00AD$2');
       const picture = h('canvas', { width: 88, height: 88 });
+      made.set(s.id, h('button', {
+        title: s.name, 'aria-label': `Add ${s.name}`, 'data-shape': s.id,
+        onclick: () => addObject(s.id),
+      }, picture, h('span', {}, shapeCaption(s)))); // (a long word in it breaks where it reads well)
       blank.set(picture, s);
       if (watch) watch.observe(picture);
       else draw(picture);
-      made.set(s.id, h('button', {
-        title: `${s.name}: ${s.count} particles`, 'aria-label': `Add ${s.name}`, 'data-shape': s.id,
-        onclick: () => addObject(s.id),
-      }, picture, h('span', {}, caption)));
     }
     return made.get(s.id);
   };

@@ -28,7 +28,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 924 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 1624 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -70,44 +70,47 @@ and **Open** loads one, so you can keep several scenes or share them.
 
 ### Shapes
 
-There are 924 shapes in 16 tabs. Click a tab to see its shapes. A tab is
+There are 1624 shapes in 16 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
 scroll through its shapes. Or type in the search box above the tabs to look
 through all of them at once: a name ("star", "dragon"), a letter, a number or a
-sign ("A", "7", "?"), the name of a tab ("animals") or a heading ("weapons").
-Enter adds the first shape found.
+sign ("A", "é", "7", "?"), the name of a tab ("animals") or a heading
+("weapons"). Enter adds the first shape found.
 
 ![The Add panel: the 16 tabs, and the Animals tab with its headings](docs/shapes.png)
 
 | Tab | How many | Under these headings |
 |---|---|---|
-| Basic | 82 | 34 at the top; More outlines 20; Shapes in shapes 10; More filled shapes 14; Lines 4 |
-| 3D | 106 | 31 at the top; More solids 15; Round things 10; Buildings 14; Things 22; Plants and animals 14 |
-| Letters | 96 | Capital letters 26; Small letters 26; Greek letters 24; Runes 20 |
-| Numbers | 56 | Numbers 10; Digital numbers 10; Signs 12; Money 8; Maths 16 |
-| Symbols | 81 | Arrows 13; Signs 35; Hearts and sparkles 7; Music 7; Star signs 12; People and body 7 |
-| Faces | 33 | Smileys 22; Characters 11 |
-| Nature | 41 | Sky and weather 17; Plants 18; Land and sea 6 |
-| Animals | 51 | Pets and farm 10; Wild animals 14; Birds 5; Sea animals 8; Bugs 9; Dinosaurs and dragons 5 |
-| Food | 32 | Fruit and vegetables 12; Meals 9; Sweets 7; Drinks 4 |
-| Things | 72 | Tools 14; Weapons 7; Treasure and magic 9; Games and sport 12; Music 7; Home 13; Party and holidays 10 |
-| Travel | 29 | Vehicles 15; Buildings 14 |
-| Costume | 23 | Wings 3; On the head 10; Clothes 10 |
-| Pixel art | 70 | Game items 22; Creatures 19; Nature and food 15; Signs and things 14 |
-| Curves | 49 | 17 at the top; More flat curves 22; More curves in 3D 10 |
-| Patterns | 31 | Tilings 13; Borders 7; Fractals 11 |
-| Effects | 72 | 21 at the top; Magic circles 15; Rings and shields 9; Elements 13; Floating things 14 |
+| Basic | 103 | 34 at the top; More outlines 26; Shapes in shapes 18; More filled shapes 19; Lines 6 |
+| 3D | 121 | 31 at the top; More solids 15; Round things 10; Buildings 15; Things 35; Plants and animals 15 |
+| Letters | 157 | Capital letters 26; Small letters 26; Accented capitals 28; Accented small letters 29; Greek letters 28; Runes 20 |
+| Numbers | 96 | Numbers 10; Digital numbers 10; Roman numerals 12; Dice 6; Signs 12; Punctuation 18; Money 8; Maths 20 |
+| Symbols | 123 | Arrows 24; Signs 53; Hearts and sparkles 14; Music 9; Star signs 12; People and body 11 |
+| Faces | 51 | Smileys 31; Characters 20 |
+| Nature | 79 | Sky and weather 30; Plants 32; Land and sea 17 |
+| Animals | 105 | Pets and farm 20; Wild animals 25; Birds 14; Sea animals 18; Bugs 15; Dinosaurs and dragons 13 |
+| Food | 74 | Fruit and vegetables 24; Meals 21; Sweets 17; Drinks 12 |
+| Things | 164 | Tools 29; Weapons 18; Treasure and magic 20; Games and sport 29; Music 16; Home 30; Party and holidays 22 |
+| Travel | 75 | Vehicles 37; Buildings 38 |
+| Costume | 53 | Wings 7; On the head 22; Clothes 24 |
+| Pixel art | 228 | Game items 55; Creatures 37; Faces 7; Nature and food 40; Signs and things 44; Pixel letters 26; Pixel numbers 19 |
+| Curves | 57 | 17 at the top; More flat curves 27; More curves in 3D 13 |
+| Patterns | 45 | Tilings 19; Borders 12; Fractals 14 |
+| Effects | 93 | 21 at the top; Magic circles 23; Rings and shields 10; Elements 18; Floating things 21 |
 
-[All 924 shapes by name](docs/shapes.md).
+[All 1624 shapes by name](docs/shapes.md).
 
-Every shape has a "How many" slider for the number of particles. 165 of them
+Every shape has a "How many" slider for the number of particles. 190 of them
 have settings of their own, such as the points of a star, the petals of a
 flower or the turns of a helix. A Pixel art picture has one particle for every
 dot, so its "How many" goes in steps: with 4 times as many, every dot is a
 block of 2 by 2 particles, with 9 times as many a block of 3 by 3.
 
 To write a word, add its letters one after the other. Each new shape takes the
-next free place in a row, so the letters line up by themselves.
+next free place in a row, so the letters line up by themselves. Letters with an
+accent (é, à, ç, ñ, ü, ø and more) are in the Letters tab under their own
+headings. Commas, full stops and the other marks are in the Numbers tab under
+Punctuation.
 
 ### Timing
 
@@ -463,8 +466,10 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shape-kit.js` | The geometry tools the shapes are built from, and the small drawing language used for letters and pictures |
 | `js/shapes-geo.js` | Shapes made from formulas: more basic outlines, 3D shapes, curves and effects |
 | `js/shapes-flat.js`, `js/shapes-curves.js`, `js/shapes-solid.js`, `js/shapes-effects.js` | More of the same: flat shapes and patterns, curves, 3D shapes, effects |
-| `js/shapes-text.js` | Letters (capital, small, Greek, runes), numbers and signs |
+| `js/shapes-text.js` | Letters (capital, small, with accents, Greek, runes), numbers, Roman numerals, dice, punctuation and signs |
 | `js/shapes-icons.js`, `js/shapes-signs.js`, `js/shapes-living.js`, `js/shapes-stuff.js` | Pictures: symbols and faces, nature and animals, food, things, travel and costume |
+| `js/shapes-marks.js`, `js/shapes-wild.js`, `js/shapes-goods.js` | More pictures for the same tabs, in the same order |
+| `js/shapes-extra.js` | More shapes made from formulas, for the Basic, 3D, Curves, Patterns and Effects tabs |
 | `js/shapes-pixel.js` | Pixel art: pictures written as rows of dots |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
@@ -506,12 +511,14 @@ A pixel art picture is one line in `js/shapes-pixel.js`: its rows from top to
 bottom with `/` between them, `#` for a dot and `.` for none.
 
 A new heading is a name in the `subs` of its tab, in `CATEGORIES` in
-`js/shapes.js`. The headings show in that order.
+`js/shapes.js`. The headings show in that order. A name with a word of nine
+letters or more also needs a place where that word may break under its picture:
+add it to `BREAKS` in the same file ("screw|driver").
 
 Then run `node tools/shape-list.mjs`, which writes `docs/shapes.md` again and
 prints the table above, `npm test`, which checks every shape, and
 `npm run build`. The tests know how many shapes there are, so update the number
-there and in the two places in this file.
+there and in the three places in this file.
 
 ## Credits and licence
 

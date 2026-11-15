@@ -122,6 +122,10 @@ const GREEK = [
   ['cap-xi', 'Capital xi', 'Ξ', 'M0,10 L6.4,10 M1,5 L5.4,5 M0,0 L6.4,0'],
   ['cap-sigma', 'Capital sigma', 'Σ', 'M6.4,10 L0,10 L3.6,5 L0,0 L6.4,0', 'sum maths'],
   ['cap-omega', 'Capital omega', 'Ω', 'M0,0 L2.46,0 L2.46,1.55 A3.9,5.5 4.2 250 -70 L5.34,0 L7.8,0', 'ohm end'],
+  ['cap-theta', 'Capital theta', 'Θ', 'E3.75,5 3.75,5 90 450 M1.6,5 L5.9,5'],
+  ['cap-pi', 'Capital pi', 'Π', 'M-0.6,10 L7,10 M0.6,10 L0.6,0 M5.8,10 L5.8,0', 'product maths'],
+  ['cap-phi', 'Capital phi', 'Φ', 'E3.75,5 3.75,3.3 90 450 M3.75,10 L3.75,0'],
+  ['cap-psi', 'Capital psi', 'Ψ', 'M0,10 L0,6.6 A3.3,6.6 3.3 180 360 L6.6,10 M3.3,10 L3.3,0'],
 ];
 
 // Old Germanic letters, the Elder Futhark (those that are not just a line, a
@@ -186,6 +190,116 @@ const BARS = {
 };
 const DIGITAL = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abcdfg'];
 
+// ---------------------------------------------------------------- accents
+//
+// A letter with an accent is the plain letter with a mark above it (or, for the
+// cedilla, below it). A small letter has room for the mark inside the box. On a
+// capital the mark stands above the box (`rise`), so that É lines up with E.
+
+const tidy = (v) => Number(v.toFixed(3));
+const MARKS = {
+  grave: (x, y) => `M${tidy(x + 0.9)},${y} L${tidy(x - 0.9)},${tidy(y + 1.9)}`,
+  acute: (x, y) => `M${tidy(x - 0.9)},${y} L${tidy(x + 0.9)},${tidy(y + 1.9)}`,
+  circ: (x, y) => `M${tidy(x - 1.5)},${y} L${x},${tidy(y + 1.7)} L${tidy(x + 1.5)},${y}`,
+  tilde: (x, y) => `M${tidy(x - 1.9)},${tidy(y + 0.4)} C${tidy(x - 1.3)},${tidy(y + 1.9)} ${tidy(x - 0.5)},${tidy(y + 1.7)} ${x},${tidy(y + 0.95)} C${tidy(x + 0.5)},${tidy(y + 0.2)} ${tidy(x + 1.3)},${y} ${tidy(x + 1.9)},${tidy(y + 1.5)}`,
+  uml: (x, y) => `D${tidy(x - 1.2)},${tidy(y + 0.9)} D${tidy(x + 1.2)},${tidy(y + 0.9)}`,
+  ring: (x, y) => `O${x},${tidy(y + 1.05)} 0.95`,
+  cedil: (x) => `M${x},0 L${x},-0.9 Q${tidy(x + 1.25)},-1.3 ${tidy(x + 0.75)},-2.3 Q${tidy(x + 0.25)},-3 ${tidy(x - 0.85)},-2.7`,
+};
+// search words; the mark that leans back has none of its own, because its usual name would
+// answer to "small letter g" (its id still ends in "grave")
+const MARK_WORDS = {
+  grave: 'accent', acute: 'acute accent', circ: 'circumflex accent hat', tilde: 'tilde accent wave',
+  uml: 'umlaut diaeresis dots accent', ring: 'ring accent', cedil: 'cedilla accent',
+};
+// where the mark sits, left to right
+const MIDDLE = { a: 3.5, c: 4, e: 2.9, i: 2, n: 3.25, o: 3.75, u: 3.25 };
+const MIDDLE_SMALL = { a: 3.1, c: 3.25, e: 3.25, i: 0, n: 2.9, o: 3.25, u: 2.9 };
+
+// [letter, mark, small sign, capital sign]; the ids are the names these have in HTML (small-eacute, letter-eacute)
+const ACCENTED = [
+  ['a', 'grave', 'à', 'À'], ['a', 'acute', 'á', 'Á'], ['a', 'circ', 'â', 'Â'], ['a', 'tilde', 'ã', 'Ã'], ['a', 'uml', 'ä', 'Ä'], ['a', 'ring', 'å', 'Å'],
+  ['c', 'cedil', 'ç', 'Ç'],
+  ['e', 'grave', 'è', 'È'], ['e', 'acute', 'é', 'É'], ['e', 'circ', 'ê', 'Ê'], ['e', 'uml', 'ë', 'Ë'],
+  ['i', 'grave', 'ì', 'Ì'], ['i', 'acute', 'í', 'Í'], ['i', 'circ', 'î', 'Î'], ['i', 'uml', 'ï', 'Ï'],
+  ['n', 'tilde', 'ñ', 'Ñ'],
+  ['o', 'grave', 'ò', 'Ò'], ['o', 'acute', 'ó', 'Ó'], ['o', 'circ', 'ô', 'Ô'], ['o', 'tilde', 'õ', 'Õ'], ['o', 'uml', 'ö', 'Ö'],
+  ['u', 'grave', 'ù', 'Ù'], ['u', 'acute', 'ú', 'Ú'], ['u', 'circ', 'û', 'Û'], ['u', 'uml', 'ü', 'Ü'],
+];
+
+function accented(letter, mark, small) {
+  const plain = small ? (letter === 'i' ? 'M0,6.5 L0,0' : SMALL[letter]) : LETTERS[letter.toUpperCase()]; // an i loses its dot
+  const x = (small ? MIDDLE_SMALL : MIDDLE)[letter];
+  return `${plain} N ${mark === 'cedil' ? MARKS.cedil(x) : MARKS[mark](x, small ? 7.7 : 11)}`;
+}
+
+// Letters that are two in one, or struck through. [id, name, sign, drawing, search words]
+const JOINED_CAPITALS = [
+  ['aelig', 'Letter Æ', 'Æ', 'M0,0 L4,10 L8.4,10 M4,10 L4,0 L8.4,0 M2,5 L7.6,5', 'ae ash nordic'],
+  ['oelig', 'Letter Œ', 'Œ', 'E4.4,5 4.4,5 90 270 L8.8,0 M4.4,0 L4.4,10 L8.8,10 M4.4,5 L7.8,5', 'oe french'],
+  ['oslash', 'Letter Ø', 'Ø', 'E3.75,5 3.75,5 90 450 M0.6,0 L6.9,10', 'slashed o nordic'],
+];
+const JOINED_SMALL = [
+  ['aelig', 'Small letter æ', 'æ', 'M4.75,6.5 L4.75,0 N E2.5,3.25 2.5,3.25 25.84 334.16 N M4.75,3.25 L9.5,3.25 E7,3.25 2.5,3.25 0 154.16 N E7,3.25 2.5,3.25 205.84 320', 'ae ash nordic'],
+  ['oelig', 'Small letter œ', 'œ', 'E2.6,3.25 2.6,3.25 90 450 M5.2,3.25 L9.6,3.25 E7,3.25 2.6,3.25 0 147.8 N E7,3.25 2.6,3.25 212.2 320', 'oe french'],
+  ['oslash', 'Small letter ø', 'ø', 'E3.25,3.25 3.25,3.25 90 450 M0.5,-0.3 L6,6.8', 'slashed o nordic'],
+  ['szlig', 'Small letter ß', 'ß', 'M0,0 L0,7.7 A2.3,7.7 2.3 180 -90 A2.3,2.7 2.7 90 -148.4', 'ss sharp s eszett deutsch'],
+];
+
+// ---------------------------------------------------------------- more numbers and signs
+
+// Roman numerals, the way a clock face has them: with a bar above and below.
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+function roman(numeral) {
+  let x = 0;
+  let d = '';
+  for (const ch of numeral) {
+    if (ch === 'I') d += `M${x},0 L${x},10 `;
+    else if (ch === 'V') d += `M${x},10 L${tidy(x + 2)},0 L${tidy(x + 4)},10 `;
+    else d += `M${x},0 L${tidy(x + 4)},10 M${x},10 L${tidy(x + 4)},0 `;
+    x = tidy(x + (ch === 'I' ? 1.4 : 5.4));
+  }
+  const end = tidy(x - 1.4 + 0.8);
+  return `${d}M-0.8,10 L${end},10 M-0.8,0 L${end},0`;
+}
+
+// The six faces of a dice: where the spots are, on a 3 by 3 grid.
+const SPOTS = ['', '5', '37', '357', '1379', '13579', '134679'];
+const DICE_FACE = 'M-3.4,5 L3.4,5 Q5,5 5,3.4 L5,-3.4 Q5,-5 3.4,-5 L-3.4,-5 Q-5,-5 -5,-3.4 L-5,3.4 Q-5,5 -3.4,5 Z';
+const diceFace = (n) => `${DICE_FACE} ${[...SPOTS[n]].map((k) => `D${((k - 1) % 3 - 1) * 2.6},${(1 - Math.floor((k - 1) / 3)) * 2.6}`).join(' ')}`;
+
+const STOP = 'O0,0.6 0.6';
+const COMMA = 'O0,0.6 0.6 M0.6,0.6 Q0.7,-1.1 -0.6,-2';
+
+// [id, name, sign, drawing, search words, extra fields]. The comma and the semicolon hang below the line.
+const PUNCTUATION = [
+  ['stop', 'Full stop', '.', STOP, 'period dot point', { count: 12, min: 4 }],
+  ['comma', 'Comma', ',', COMMA, 'pause', { count: 16, min: 6, drop: 0.42 }],
+  ['colon', 'Colon', ':', `${STOP} O0,5.4 0.6`, 'two dots time', { count: 16, min: 6 }],
+  ['semicolon', 'Semicolon', ';', `${COMMA} O0,5.4 0.6`, 'dot comma', { count: 22, min: 8, drop: 0.42 }],
+  ['ellipsis', 'Ellipsis', '…', `${STOP} O2.8,0.6 0.6 O5.6,0.6 0.6`, 'three dots wait', { count: 21, min: 9 }],
+  ['apostrophe', 'Apostrophe', '\'', 'M0,10 L0,7.2', 'single quote', { count: 12, min: 3 }],
+  ['quotes', 'Quotation marks', '"', 'M0,10 L0,7.2 M1.9,10 L1.9,7.2', 'double quote speech', { count: 14, min: 4 }],
+  ['guillemet-left', 'Left guillemet', '«', 'M2.6,7.2 L0,4.4 L2.6,1.6 M5.6,7.2 L3,4.4 L5.6,1.6', 'french quotes angle'],
+  ['guillemet-right', 'Right guillemet', '»', 'M0,7.2 L2.6,4.4 L0,1.6 M3,7.2 L5.6,4.4 L3,1.6', 'french quotes angle'],
+  ['hyphen', 'Hyphen', '-', 'M0,4 L3.4,4', 'dash minus', { count: 12, min: 3 }],
+  ['underscore', 'Underscore', '_', 'M0,0 L6,0', 'underline low line', { count: 14, min: 3 }],
+  ['slash', 'Slash', '/', 'M0,0 L4.6,10', 'stroke divide or'],
+  ['backslash', 'Backslash', '\\', 'M0,10 L4.6,0', 'reverse stroke'],
+  ['asterisk', 'Asterisk', '*', 'M0,5.4 L0,9.6 M-1.82,6.45 L1.82,8.55 M-1.82,8.55 L1.82,6.45', 'star times note'],
+  ['tilde', 'Tilde', '~', 'M0,4.4 C1,6.4 2.2,6.2 3.2,5 C4.2,3.8 5.4,3.6 6.4,5.6', 'wave about'],
+  ['degree', 'Degree sign', '°', 'O0,8.6 1.4', 'temperature angle celsius'],
+  ['exclaim-turned', 'Upside-down exclamation mark', '¡', 'M0,0 L0,6.8 D0,9.5', 'spanish inverted'],
+  ['question-turned', 'Upside-down question mark', '¿', 'A3,2.8 2.8 340 130 Q3,6.2 3,7 D3,9.5', 'spanish inverted'],
+];
+
+// [id, name, sign, drawing, search words]
+const MORE_MATHS = [
+  ['less', 'Less than', '<', 'M5.6,8.6 L0,5 L5.6,1.4', 'smaller compare'],
+  ['greater', 'Greater than', '>', 'M0,8.6 L5.6,5 L0,1.4', 'bigger more compare'],
+  ['third', 'One third', '⅓', 'M0.6,8.6 L1.8,10 L1.8,5.6 M6.6,10 L1.6,0 M6,4.4 L8,4.4 L6.8,2.6 A6.8,1.3 1.3 90 -150', 'fraction'],
+  ['two-thirds', 'Two thirds', '⅔', 'A1.4,8.6 1.4 160 -40 L0,5.6 L3,5.6 M6.6,10 L1.6,0 M6,4.4 L8,4.4 L6.8,2.6 A6.8,1.3 1.3 90 -150', 'fraction'],
+];
 
 /** Centre the glyph left-right; keep the baseline and cap height where they are. */
 function glyph(d) {
@@ -205,6 +319,8 @@ const text = (id, name, cat, sign, d, extra = {}) => drawnShape({
 
 /** Small letters hang below the box by this much (the tails of g, j, p, q and y). */
 const DROP = 0.64;
+/** The accent of a capital letter stands above the box by this much. */
+const RISE = 0.6;
 
 export const TEXT_SHAPES = [
   ...Object.entries(LETTERS).map(([ch, d]) => text(`letter-${ch.toLowerCase()}`, `Letter ${ch}`, 'letters', ch, d, { sub: 'Capital letters' })),
@@ -225,4 +341,25 @@ export const TEXT_SHAPES = [
   ...MORE_SIGNS.map(([id, name, sign, d, sub, words]) => text(`sign-${id}`, name, 'numbers', sign, d, {
     sub, tags: `${sign}${words ? ` ${words}` : ''}`,
   })),
+  // added when the library grew to 1,624 shapes
+  ...ACCENTED.map(([letter, mark, , sign]) => text(`letter-${letter}${mark}`, `Letter ${sign}`, 'letters', sign, accented(letter, mark, false), {
+    sub: 'Accented capitals', tags: `${sign} ${letter} ${MARK_WORDS[mark]}`, ...(mark === 'cedil' ? { drop: DROP } : { rise: RISE }),
+  })),
+  ...JOINED_CAPITALS.map(([id, name, sign, d, words]) => text(`letter-${id}`, name, 'letters', sign, d, { sub: 'Accented capitals', tags: `${sign} ${words}` })),
+  ...ACCENTED.map(([letter, mark, sign]) => text(`small-${letter}${mark}`, `Small letter ${sign}`, 'letters', sign, accented(letter, mark, true), {
+    sub: 'Accented small letters', tags: `${sign} ${letter} ${MARK_WORDS[mark]} lowercase little`, drop: DROP,
+  })),
+  ...JOINED_SMALL.map(([id, name, sign, d, words]) => text(`small-${id}`, name, 'letters', sign, d, {
+    sub: 'Accented small letters', tags: `${sign} ${words} lowercase little`, drop: DROP,
+  })),
+  ...ROMAN.map((numeral, i) => text(`roman-${i + 1}`, `Roman ${i + 1}`, 'numbers', numeral, roman(numeral), {
+    sub: 'Roman numerals', tags: `${numeral} ${i + 1} numeral clock latin`,
+  })),
+  ...[1, 2, 3, 4, 5, 6].map((n) => drawnShape({
+    id: `dice-${n}`, name: `Dice face ${n}`, cat: 'numbers', sub: 'Dice', draw: diceFace(n), tags: `${n} die spots pips game roll`,
+  })),
+  ...PUNCTUATION.map(([id, name, sign, d, words, extra]) => text(`sign-${id}`, name, 'numbers', sign, d, {
+    sub: 'Punctuation', tags: `${sign} ${words}`, ...extra,
+  })),
+  ...MORE_MATHS.map(([id, name, sign, d, words]) => text(`sign-${id}`, name, 'numbers', sign, d, { sub: 'Maths', tags: `${sign} ${words}` })),
 ];
