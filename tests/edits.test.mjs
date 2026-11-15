@@ -10,7 +10,7 @@ import { createObject, createGroup, sanitizeScene, computeParticles, sceneTree, 
 import { spanOf, poseAt, lookAt, MAX_KEYS, MIN_KEY_GAP } from '../js/motion.js';
 import {
   groupNodes, ungroup, moveInto, duplicateNodes, mirrorNodes, stretchNodes, copyKeys, pasteKeys, movePivot, removeNodes,
-  topNodes, uniqueName, invAffine, endAt, MAX_OBJECTS,
+  topNodes, uniqueName, invAffine, endAt, MAX_OBJECTS, arrayNodes, arraySize, MAX_ARRAY,
 } from '../js/edits.js';
 import { MOVES, MOVE_BY_ID, applyMove, mostTimes, moveFields } from '../js/moves.js';
 
@@ -269,6 +269,207 @@ test('edits: a mirror copy is the same thing on the other side, at every moment'
   for (const t of [null, 0.4, 0.9, 1.4, 2.2]) {
     same(picture(whole, t), picture(twin.objects, t), `a whole group, at ${t}`, 0.004, flip(0, 0.5), renamed({ z: inside[0].id, puff: inside[1].id }));
   }
+});
+
+test('edits: an array is copies in a row, a grid or a ring, at every moment', () => {
+  const renamed = (map) => (name) => `${map[name.split(':')[0]]}:${name.split(':')[1]}`;
+  const times = [null, 0.3, 0.8, 1.2, 1.6, 2.1, 3.5];
+  // something that is turned, sized, moves by keys and then flies off
+  const arrow = () => scene(createObject('arrow', {
+    id: 'a', name: 'Arrow', count: 12, pos: [3, 2, 1], rot: [20, 30, 40], scale: [1, 2, 1.5], life: 2.4, move: [1, 0.5, -0.25],
+    keys: [key(0.8, { pos: [4, 3, 1], rot: [20, 30, 130], scale: [1, 1, 1] }), key(1.6, { pos: [4, 3, 3], rot: [60, -30, 130], ease: 'in' })],
+  }));
+  const names = (objects) => objects.map((o) => o.name);
+  const leaves = (objects) => objects.filter((o) => !isGroup(o));
+
+  // ---- a row: each one a step further, the first one stays
+  const step = [2.5, 0.5, -1];
+  const row = arrayNodes(arrow(), ['a'], { kind: 'row', count: 4, step });
+  assert.equal(row.made, 3);
+  assert.equal(row.group, null);
+  assert.deepEqual(names(row.objects), ['Arrow', 'Arrow 2', 'Arrow 3', 'Arrow 4']);
+  assert.deepEqual(row.ids, row.objects.map((o) => o.id), 'without a group, all of them are selected');
+  assert.equal(new Set(row.objects.map((o) => o.id)).size, 4);
+  for (const t of times) {
+    row.objects.forEach((copy, i) => {
+      same(picture(arrow(), t), picture(row.objects, t), `row, number ${i + 1}, at ${t}`, 0.004, (pos) => pos.map((v, k) => v + i * step[k]), renamed({ a: copy.id }));
+    });
+  }
+  assert.deepEqual(sanitizeScene({ objects: clone(row.objects) }).objects, row.objects);
+
+  // each one later than the one before: the same show, that much later
+  const late = arrayNodes(arrow(), ['a'], { kind: 'row', count: 3, step: [2, 0, 0], delay: 0.4 });
+  assert.deepEqual(late.objects.map((o) => o.start), [0, 0.4, 0.8]);
+  for (const t of [0.3, 0.8, 1.2, 1.6]) {
+    late.objects.forEach((copy, i) => {
+      same(picture(arrow(), t), picture(late.objects, t + i * 0.4), `later, number ${i + 1}, at ${t}`, 0.004, (pos) => [pos[0] + 2 * i, pos[1], pos[2]], renamed({ a: copy.id }));
+    });
+  }
+
+  // ---- a grid: along X first, then the rows behind it along Z, then the next floor
+  const star = () => scene(createObject('star', { id: 's', name: 'Star', count: 10, pos: [1, 2, 3] }));
+  const grid = arrayNodes(star(), ['s'], { kind: 'grid', counts: [3, 2, 2], gaps: [2, 3, 4] });
+  assert.equal(grid.objects.length, 12);
+  assert.deepEqual(names(grid.objects), ['Star', ...Array.from({ length: 11 }, (_, i) => `Star ${i + 2}`)]);
+  const want = [];
+  for (let y = 0; y < 2; y++) for (let z = 0; z < 2; z++) for (let x = 0; x < 3; x++) want.push([1 + 2 * x, 2 + 3 * y, 3 + 4 * z]);
+  assert.deepEqual(grid.objects.map((o) => o.pos), want);
+  assert.equal(arraySize({ kind: 'grid', counts: [3, 2, 2], gaps: [2, 3, 4] }), 12);
+  // a count of 1 along an axis needs no gap there
+  assert.equal(arrayNodes(star(), ['s'], { kind: 'grid', counts: [1, 1, 5], gaps: [0, 0, 1] }).objects.length, 5);
+
+  // ---- a ring: around the place where the thing is, which moves out onto the ring itself
+  const R = 3;
+  const C = [3, 2, 1];
+  const turnedBy = {
+    // flat like a carousel: the first one at the front (towards -Z), then round to the right
+    flat: (deg) => (pos) => {
+      const a = (deg * Math.PI) / 180;
+      const d = [pos[0] - C[0], pos[1] - C[1], pos[2] - R - C[2]];
+      return [C[0] + d[0] * Math.cos(a) - d[2] * Math.sin(a), C[1] + d[1], C[2] + d[0] * Math.sin(a) + d[2] * Math.cos(a)];
+    },
+    // like a clock seen from the front: the first one at the top, then clockwise
+    front: (deg) => (pos) => {
+      const a = (deg * Math.PI) / 180;
+      const d = [pos[0] - C[0], pos[1] + R - C[1], pos[2] - C[2]];
+      return [C[0] + d[0] * Math.cos(a) + d[1] * Math.sin(a), C[1] - d[0] * Math.sin(a) + d[1] * Math.cos(a), C[2] + d[2]];
+    },
+    // like a clock seen from the side: the first one at the top, then to the front
+    side: (deg) => (pos) => {
+      const a = (deg * Math.PI) / 180;
+      const d = [pos[0] - C[0], pos[1] + R - C[1], pos[2] - C[2]];
+      return [C[0] + d[0], C[1] + d[1] * Math.cos(a) + d[2] * Math.sin(a), C[2] - d[1] * Math.sin(a) + d[2] * Math.cos(a)];
+    },
+  };
+  const placedAt = {
+    flat: (deg) => [C[0] + R * Math.sin((deg * Math.PI) / 180), C[1], C[2] - R * Math.cos((deg * Math.PI) / 180)],
+    front: (deg) => [C[0] + R * Math.sin((deg * Math.PI) / 180), C[1] + R * Math.cos((deg * Math.PI) / 180), C[2]],
+    side: (deg) => [C[0], C[1] + R * Math.cos((deg * Math.PI) / 180), C[2] - R * Math.sin((deg * Math.PI) / 180)],
+  };
+  for (const plane of ['flat', 'front', 'side']) {
+    // turned with the ring: the whole show is turned, keys and flight too
+    const ring = arrayNodes(arrow(), ['a'], { kind: 'ring', count: 5, radius: R, plane });
+    assert.equal(ring.objects.length, 5);
+    for (const t of times) {
+      ring.objects.forEach((copy, i) => {
+        same(picture(arrow(), t), picture(ring.objects, t), `${plane} ring, number ${i + 1}, at ${t}`, 0.02, turnedBy[plane](72 * i), renamed({ a: copy.id }));
+      });
+    }
+    assert.deepEqual(sanitizeScene({ objects: clone(ring.objects) }).objects, ring.objects);
+    // not turned: each one only stands at its place on the ring
+    const still = arrayNodes(arrow(), ['a'], { kind: 'ring', count: 5, radius: R, plane, turn: false });
+    for (const t of times) {
+      still.objects.forEach((copy, i) => {
+        const to = placedAt[plane](72 * i);
+        same(picture(arrow(), t), picture(still.objects, t), `${plane} ring not turned, number ${i + 1}, at ${t}`, 0.004, (pos) => pos.map((v, k) => v + to[k] - C[k]), renamed({ a: copy.id }));
+        assert.deepEqual(copy.rot, [20, 30, 40]);
+        assert.deepEqual(copy.move, [1, 0.5, -0.25]);
+      });
+    }
+    // a part of a ring has its middle where a full ring begins
+    const arc = arrayNodes(arrow(), ['a'], { kind: 'ring', count: 3, radius: R, plane, arc: 180, turn: false });
+    [-90, 0, 90].forEach((deg, i) => assert.ok(dist(arc.objects[i].pos, placedAt[plane](deg)) < 0.002, `${plane} arc, number ${i + 1}`));
+  }
+  // the angles stay plain where they can: a turn about the axis is added to what was typed
+  const plain = arrayNodes(scene(createObject('heart', { id: 'h', pos: [0.5, 2.5, 0.5], move: [0, 0, -1] })), ['h'], { kind: 'ring', count: 4, radius: 2 });
+  assert.deepEqual(plain.objects.map((o) => o.rot), [[0, 0, 0], [0, 90, 0], [0, 180, 0], [0, -90, 0]]);
+  assert.deepEqual(plain.objects.map((o) => o.pos), [[0.5, 2.5, -1.5], [2.5, 2.5, 0.5], [0.5, 2.5, 2.5], [-1.5, 2.5, 0.5]]);
+  assert.deepEqual(plain.objects.map((o) => o.move), [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]], 'what flies outwards flies outwards all round');
+  // a single particle has a place and nothing else
+  const dots = arrayNodes(scene(createObject('point', { id: 'p', pos: [0, 1, 0] })), ['p'], { kind: 'ring', count: 4, radius: 1, plane: 'front' });
+  assert.deepEqual(dots.objects.map((o) => o.pos), [[0, 2, 0], [1, 1, 0], [0, 0, 0], [-1, 1, 0]]);
+
+  // ---- in a group of their own: nothing is anywhere else, and the group turns about the middle
+  for (const spec of [{ kind: 'ring', count: 5, radius: R, plane: 'flat' }, { kind: 'row', count: 4, step }, { kind: 'grid', counts: [2, 2, 1], gaps: [3, 3, 3] }]) {
+    const loose = arrayNodes(arrow(), ['a'], spec);
+    const held = arrayNodes(arrow(), ['a'], { ...spec, group: true });
+    assert.equal(held.objects.length, loose.objects.length + 1);
+    const group = held.objects[0];
+    assert.ok(isGroup(group));
+    assert.equal(group.name, `Arrow ${spec.kind}`);
+    assert.deepEqual(held.ids, [group.id]);
+    assert.equal(held.group, group.id);
+    assert.ok(leaves(held.objects).every((o) => o.parent === group.id));
+    assert.deepEqual(names(leaves(held.objects)), names(loose.objects));
+    const twin = Object.fromEntries(loose.objects.map((o, i) => [o.id, leaves(held.objects)[i].id]));
+    for (const t of times) same(picture(loose.objects, t), picture(held.objects, t), `${spec.kind} in a group, at ${t}`, 0.004, (pos) => pos, renamed(twin));
+    if (spec.kind === 'ring') assert.ok(dist(group.pos, C) < 0.002, 'the pivot is the middle of the ring');
+    else {
+      const all = Object.values(picture(held.objects));
+      const middle = [0, 1, 2].map((k) => (Math.min(...all.map((q) => q[k])) + Math.max(...all.map((q) => q[k]))) / 2);
+      assert.ok(dist(group.pos, middle) < 0.02, `the pivot is the middle of the ${spec.kind}`);
+    }
+    assert.deepEqual(sanitizeScene({ objects: clone(held.objects) }).objects, held.objects);
+  }
+
+  // ---- several things, in a group: the copies stay in that group, each after its original, with what is in it
+  const wing = () => scene(
+    createGroup({ id: 'g', name: 'Wing', pos: [2, 3, 0], keys: [key(1, { pos: [2, 5, 0] })] }),
+    createObject('line', { id: 'bone', name: 'Bone', count: 5, parent: 'g', pos: [1, 0, 0] }),
+    createGroup({ id: 'tip', name: 'Tip', parent: 'g', pos: [2, 0, 0] }),
+    createObject('star', { id: 'claw', name: 'Claw', count: 10, parent: 'tip' }),
+    createObject('circle', { id: 'ring', name: 'Ring', count: 6, pos: [0, 5, 0] }),
+  );
+  const two = arrayNodes(wing(), ['bone', 'tip', 'claw'], { kind: 'row', count: 3, step: [0, 1.5, 0] }); // (the claw is in the tip: it is not copied twice)
+  assert.deepEqual(names(two.objects), ['Wing', 'Bone', 'Bone 2', 'Bone 3', 'Tip', 'Claw', 'Tip 2', 'Claw', 'Tip 3', 'Claw', 'Ring']);
+  assert.equal(two.made, 2);
+  assert.equal(two.ids.length, 6);
+  const tree = sceneTree(two.objects);
+  for (const id of two.ids) assert.equal(byId(two.objects, id).parent, 'g');
+  const tips = two.objects.filter((o) => /^Tip/.test(o.name));
+  const claws = two.objects.filter((o) => o.name === 'Claw');
+  tips.forEach((tip, i) => assert.deepEqual(tree.insideOf(tip), [claws[i]]));
+  for (const t of [null, 0.5, 1, 1.5]) {
+    [0, 1, 2].forEach((i) => {
+      const twin = { bone: two.objects.filter((o) => /^Bone/.test(o.name))[i].id, claw: claws[i].id };
+      const copied = Object.fromEntries(Object.entries(picture(wing(), t)).filter(([name]) => !name.startsWith('ring:')));
+      same(copied, picture(two.objects, t), `several, number ${i + 1}, at ${t}`, 0.004, (pos) => [pos[0], pos[1] + 1.5 * i, pos[2]], renamed(twin));
+    });
+  }
+  const only = (objects, id) => Object.fromEntries(Object.entries(picture(objects)).filter(([name]) => name.startsWith(`${id}:`)));
+  for (const id of ['ring', 'bone', 'claw']) same(only(wing(), id), only(two.objects, id), `${id} stays where it is`);
+  // a ring of several goes around their middle
+  const pair = scene(createObject('point', { id: 'p', pos: [0, 1, 0] }), createObject('point', { id: 'q', pos: [2, 1, 0] }));
+  const round = arrayNodes(pair, ['p', 'q'], { kind: 'ring', count: 2, radius: 4 });
+  assert.deepEqual(round.objects.map((o) => o.pos), [[0, 1, -4], [2, 1, 4], [2, 1, -4], [0, 1, 4]]);
+
+  // ---- what cannot be made says why, and changes nothing
+  const refused = (objects, ids, spec, why) => {
+    const before = clone(objects);
+    const made = arrayNodes(objects, ids, spec);
+    assert.match(made.error, why, JSON.stringify(spec));
+    assert.deepEqual(objects, before, `nothing changed: ${JSON.stringify(spec)}`);
+  };
+  refused(arrow(), [], { kind: 'row', count: 3, step }, /Select/);
+  refused(wing(), ['bone', 'ring'], { kind: 'row', count: 3, step }, /same group/);
+  refused(arrow(), ['a'], { kind: 'row', count: 1, step }, /2 to 100/);
+  refused(arrow(), ['a'], { kind: 'row', count: MAX_ARRAY + 1, step }, /2 to 100/);
+  refused(arrow(), ['a'], { kind: 'row', count: 3, step: [0, 0, 0] }, /step/);
+  refused(arrow(), ['a'], { kind: 'row', count: 3 }, /step/);
+  refused(arrow(), ['a'], { kind: 'grid', counts: [0, 2, 2], gaps: [1, 1, 1] }, /grid/);
+  refused(arrow(), ['a'], { kind: 'grid', counts: [1, 1, 1], gaps: [1, 1, 1] }, /grid/);
+  refused(arrow(), ['a'], { kind: 'grid', counts: [20, 20, 1], gaps: [1, 1, 1] }, /2 to 100/);
+  refused(arrow(), ['a'], { kind: 'grid', counts: [2, 2, 1], gaps: [1, 0, 1] }, /gap/);
+  refused(arrow(), ['a'], { kind: 'ring', count: 6, radius: 0 }, /radius/);
+  refused(arrow(), ['a'], { kind: 'ring', count: 6, radius: 2, arc: 0 }, /arc/);
+  refused(arrow(), ['a'], { kind: 'ring', count: 6, radius: 2, plane: 'slanted' }, /ring/);
+  refused(arrow(), ['a'], { kind: 'spiral', count: 6 }, /row, a grid or a ring/);
+  assert.equal(arraySize({ kind: 'row', count: 1, step }), 0);
+  assert.equal(arraySize({ kind: 'ring', count: 7, radius: 2 }), 7);
+  // a scene holds 500 objects and groups
+  const many = () => Array.from({ length: MAX_OBJECTS - 3 }, (_, i) => createObject('point', { id: `p${i}`, pos: [i, 0, 0] }));
+  assert.equal(arrayNodes(many(), ['p0'], { kind: 'row', count: 4, step: [0, 1, 0] }).objects.length, MAX_OBJECTS);
+  refused(many(), ['p0'], { kind: 'row', count: 5, step: [0, 1, 0] }, /room for 3 copies/);
+  refused(many(), ['p0'], { kind: 'row', count: 4, step: [0, 1, 0], group: true }, /room for 2 copies/);
+  assert.equal(arrayNodes(many(), ['p0'], { kind: 'row', count: 3, step: [0, 1, 0], group: true }).objects.length, MAX_OBJECTS);
+  refused(many(), ['p0', 'p1'], { kind: 'row', count: 3, step: [0, 1, 0] }, /room for 1 copy /);
+  // groups go 8 deep: a group of their own does not fit in the deepest one
+  const deep = () => scene(
+    ...Array.from({ length: 8 }, (_, i) => createGroup({ id: `g${i}`, name: `Level ${i}`, parent: i ? `g${i - 1}` : null })),
+    createObject('point', { id: 'p', parent: 'g7' }),
+  );
+  refused(deep(), ['p'], { kind: 'row', count: 3, step, group: true }, /8 deep/);
+  assert.equal(arrayNodes(deep(), ['p'], { kind: 'row', count: 3, step }).objects.length, 11);
 });
 
 test('edits: stretching makes the same show slower or faster', () => {
