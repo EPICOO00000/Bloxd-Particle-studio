@@ -66,8 +66,8 @@ export const DEFAULTS = {
   hidden: false,
   // An object can also have (js/forms.js; only there when used, so old files stay as they are):
   //   deform : [{ kind, ... }] deformers of the Shape Studio, worked through in order on its points
-  //   path   : { nodes, closed, smooth, mode } with shape 'path': a line drawn in the Shape Studio
-  //   points : [[x, y, z], ...] with shape 'cloud': loose points
+  //   path   : { nodes, closed, smooth, mode } with shape 'own:path': a line drawn in the Shape Studio
+  //   points : [[x, y, z], ...] with shape 'own:cloud': loose points
   // time (js/motion.js)
   start: 0, // seconds after the click until it appears
   fadeIn: false,

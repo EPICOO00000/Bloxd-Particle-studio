@@ -476,7 +476,7 @@ export const DEFORMERS = [
   },
   {
     id: 'shift', name: 'Move, turn, resize inside', group: 'More of it',
-    about: 'Moves, turns and resizes the points before the next deformer: a Mirror or a Repeat after it then works from another place.',
+    about: 'Moves, turns and resizes the points before the next tool: a Mirror or a Repeat after it then works from another place.',
     fields: [vec('move', 'Move', [0, 0, 0]), vec('turn', 'Turn', [0, 0, 0], 15, -3600, 3600), vec('size', 'Size', [1, 1, 1], 0.1, -20, 20)],
     apply: (points, s) => {
       const m = matrixOf(s.turn);

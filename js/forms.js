@@ -4,10 +4,10 @@
 //
 // A form is one of
 //   a shape of the library : shape (its id), count, params        (js/shapes.js)
-//   a path                 : shape 'path', count, path: { nodes, closed, smooth, mode }
+//   a path                 : shape 'own:path', count, path: { nodes, closed, smooth, mode }
 //                            a line drawn in the Shape Studio: `count` particles
 //                            spread along it (or inside it, or spun around)
-//   a cloud                : shape 'cloud', points: [[x, y, z], ...]
+//   a cloud                : shape 'own:cloud', points: [[x, y, z], ...]
 //                            loose points, each placed by hand or baked from other shapes
 // and each can have deformers on top: deform: [{ kind, ... }]     (js/deform.js)
 //
@@ -19,8 +19,10 @@ import { shapePoints, SHAPE_BY_ID, defaultParams, MAX_COUNT } from './shapes.js'
 import { resample, fillPoints, lathe } from './shape-kit.js';
 import { applyDeformers, sanitizeDeform, measure, MAX_POINTS } from './deform.js';
 
-export const PATH = 'path';
-export const CLOUD = 'cloud';
+// (The ids of the library are made of small letters, digits and "-". The colon
+// keeps these two out of their way: the library has a picture called "cloud".)
+export const PATH = 'own:path';
+export const CLOUD = 'own:cloud';
 /** A form that is not a shape of the library: drawn or put together in the Shape Studio. */
 export const isCustom = (shape) => shape === PATH || shape === CLOUD;
 

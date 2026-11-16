@@ -705,12 +705,14 @@ export function morphNodes(objects, ids, spec = {}) {
   const to = round(from + time);
   if (needs === 2) a.keys.push({ t: from, pos: last.pos.slice(), rot: last.rot.slice(), scale: last.scale.slice(), ease: 'smooth' });
   const look = lookAt(a, from);
-  const key = { t: to, ...target, ease: 'smooth', form: clone(b.shape === 'point' ? cloudOf([[0, 0, 0]]) : formOf(b)) };
+  const key = { t: to, ...target, ease: 'smooth' };
   const sizes = [b.size, b.size2 === null || b.size2 === undefined ? b.size : b.size2];
   if (rgbToHex(look.c1) !== b.color || rgbToHex(look.c2) !== (b.color2 || b.color)) Object.assign(key, { color: b.color, color2: b.color2 || null });
   if (Math.abs(look.lo - Math.min(...sizes)) > 1e-9 || Math.abs(look.hi - Math.max(...sizes)) > 1e-9) {
     Object.assign(key, { size: b.size, size2: b.size2 ?? null });
   }
+  // (the form last, the order in which a loaded file has the fields of a key)
+  key.form = clone(b.shape === 'point' ? cloudOf([[0, 0, 0]]) : formOf(b));
   a.keys.push(key);
   // it stays for a while as what it has become: as long as the second one would have, but two seconds are enough
   a.life = round(clamp(Math.max(a.life, (to + Math.min(2, staySeconds(b))) * LIFE_PER_SECOND), 0.05, 1000), 2);

@@ -18,7 +18,7 @@
 // When your own code sets a callback the nodes use too, both run: the nodes
 // first, then yours.
 
-import { generateCode, typedLine } from './codegen.js';
+import { generateCode, typedLine, outsideTexts } from './codegen.js';
 
 export const CATS = [
   { id: 'event', name: 'Events', colour: '#f2a31c', about: 'Something happens in the game: a run starts here.' },
@@ -30,8 +30,11 @@ export const CATS = [
 
 /** A graph has at most this many nodes. */
 export const MAX_NODES = 120;
-/** World Code can be this long in one file. */
-export const WORLD_CHARS = 64000;
+/**
+ * World Code can be this long, all its files together. (The game's changelog:
+ * 16,000 at first, 64,000 since March 2026, 512,000 since August 2026.)
+ */
+export const WORLD_CHARS = 512000;
 
 // ---------------------------------------------------------------- what a run knows
 
@@ -49,7 +52,11 @@ export const PLACES = [
 export const FACINGS = [
   { id: 'none', name: 'as built', needs: [] },
   { id: 'look', name: 'the way the player looks', needs: ['player'], code: 'api.getPlayerFacingInfo(playerId).dir' },
-  { id: 'toTarget', name: 'from the player to what it is about', needs: ['player', 'target'], code: 'psWay(api.getPosition(playerId), api.getPosition(targetId))', uses: ['psWay'] },
+  // (a click can be about nothing: then there is no way to turn to, and the scene plays as built)
+  {
+    id: 'toTarget', name: 'from the player to what it is about', needs: ['player', 'target'], uses: ['psWay'],
+    code: 'psWay(api.getPosition(playerId), targetId == null ? null : api.getPosition(targetId))',
+  },
   { id: 'random', name: 'a random way round', needs: [], code: 'psSpin()', uses: ['psSpin'] },
 ];
 
@@ -183,7 +190,8 @@ export const NODE_TYPES = [
     },
   },
   {
-    id: 'every', name: 'Every', cat: 'event', about: 'Runs again and again, for as long as the world is open. It has no player: use "For each player" after it.',
+    id: 'every', name: 'Every', cat: 'event',
+    about: 'Runs at once, and then again and again, for as long as the world is open. It has no player: use "For each player" after it.',
     fields: [number('seconds', 'Every', 2, 0.05, 3600, 0.1, 'seconds')], event: { callback: 'tick', params: ['ms'], gives: [] },
   },
   {
@@ -292,9 +300,13 @@ export const NODE_TYPES = [
       for (const name of facing.uses || []) c.use(name);
       let way = facing.code || '';
       if (way && v.upright && facing.id !== 'random') { way = `psFlat(${way})`; c.use('psFlat'); }
+      const turned = way ? `, ${way}` : '';
+      // a fixed place is known here: the numbers, with what it is moved by worked in
+      if (v.place === 'fixed') return [`psPlay([${v.pos.map((x, i) => num(x + v.shift[i])).join(', ')}]${turned})`, ...c.then('out')];
+      // (a place the game is asked for can be missing: a mob that is gone, a click into the air)
       const moved = v.shift.some((x) => x !== 0);
       const at = moved ? `[at[0] + ${num(v.shift[0])}, at[1] + ${num(v.shift[1])}, at[2] + ${num(v.shift[2])}]` : 'at';
-      return ['{', `  const at = ${place}`, `  if (at) psPlay(${at}${way ? `, ${way}` : ''})`, '}', ...c.then('out')];
+      return ['{', `  const at = ${place}`, `  if (at) psPlay(${at}${turned})`, '}', ...c.then('out')];
     },
   },
   // ---- actions
@@ -434,8 +446,8 @@ const HELPERS = {
       '}',
     ],
   },
-  psWay: { lines: ['const psWay = (from, to) => to.map((v, j) => v - from[j])'] },
-  psFlat: { lines: ['const psFlat = (way) => [way[0], 0, way[2]]'] },
+  psWay: { lines: ['const psWay = (from, to) => (from && to ? to.map((v, j) => v - from[j]) : null)'] },
+  psFlat: { lines: ['const psFlat = (way) => (way ? [way[0], 0, way[2]] : null)'] },
   psSpin: {
     lines: [
       'const psSpin = () => {',
@@ -613,7 +625,7 @@ export function compileGraph(graph, options = {}) {
         tickLines.push(
           `// ${type.name} ${num(node.values.seconds)} seconds`,
           `psEvery[${n}] -= ms`,
-          `if (psEvery[${n}] <= 0) {`,
+          `if (psEvery[${n}] < 0) {`,
           `  psEvery[${n}] += ${Math.round(node.values.seconds * 1000)}`,
           ...body.map(indent),
           '}',
@@ -637,25 +649,41 @@ export function compileGraph(graph, options = {}) {
     const h = HELPERS[name];
     helpers.push(...(typed && h.typed ? h.typed : h.lines));
   }
-  if (timers) helpers.push(`const psEvery = [${new Array(timers).fill(0).join(', ')}]`);
+  // (in TypeScript a list that says it can hold anything: with strict settings a number out of a list is "maybe not there")
+  if (timers) helpers.push(`const psEvery${typed ? ': any[]' : ''} = [${new Array(timers).fill(0).join(', ')}]`);
 
-  /** your own code sets this callback too: then both run */
-  const ownHas = (name) => new RegExp(`(^|[^\\w$.])${name}\\s*=[^=>]|\\bfunction\\s+${name}\\b`).test(own);
+  /** your own code sets this callback too: then both run (what is only said in a comment does not count) */
+  const bare = own.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/.*$/gm, '');
+  const ownSets = (name) => new RegExp(`(^|[^\\w$.])${name}\\s*=[^=>]`).test(bare);
+  const ownDeclares = (name) => new RegExp(`\\bfunction\\s+${name}\\b`).test(bare);
+  const ownHas = (name) => ownSets(name) || ownDeclares(name);
+  /** Is a name used in lines of code (not in a text, not as a part of another name)? */
+  const uses = (list, name) => list.some((line) => {
+    let found = false;
+    outsideTexts(line.replace(/\/\/.*$/, ''), (code) => { found = new RegExp(`(^|[^\\w$.])${name}(?![\\w$])`).test(code); return code; });
+    return found;
+  });
   const lines = [];
   const keep = (name) => `psOwn${name[0].toUpperCase()}${name.slice(1)}`;
   const tick = [...(used.has('psLater') ? HELPERS.psLater.tick : []), ...tickLines];
   if (tick.length) callbacks.unshift({ name: 'tick', params: ['ms'], lines: tick, spot: false, hides: false });
   for (const cb of callbacks) {
     const mine = ownHas(cb.name);
-    if (mine) lines.push(`const ${keep(cb.name)} = ${cb.name} // what your own code does then`);
+    // (asked for with typeof: should your own code not have set it after all, nothing breaks.
+    //  In TypeScript it can be anything: it is called with all the game gives, however many that is.)
+    if (mine) lines.push(`const ${keep(cb.name)}${typed ? ': any' : ''} = typeof ${cb.name} === 'function' ? ${cb.name} : null // your own code`);
+    // (TypeScript does not let a name that was declared as a function be set anew; the game does)
+    if (mine && typed && ownDeclares(cb.name)) lines.push('// @ts-ignore (your own code wrote this one as a function: both run)');
     const params = mine ? [...cb.params, '...more'] : cb.params;
     lines.push(`${cb.name} = (${params.join(', ')}) => {`);
-    if (cb.spot) lines.push('  const spot = x === undefined ? null : [x + 0.5, y + 1, z + 0.5]');
+    // (a click into the air has no block: the game then gives no x, y and z)
+    if (cb.spot && uses(cb.lines, 'spot')) lines.push('  const spot = x == null ? null : [x + 0.5, y + 1, z + 0.5]');
     if (cb.hides) lines.push('  let psHide = false');
     lines.push(...cb.lines.map(indent));
-    if (mine && cb.hides) lines.push(`  const said = ${keep(cb.name)}(${params.join(', ')})`, '  return psHide ? false : said');
-    else if (mine) lines.push(`  return ${keep(cb.name)}(${params.join(', ')})`);
-    else if (cb.hides) lines.push('  if (psHide) return false');
+    const theirs = `${keep(cb.name)} ? ${keep(cb.name)}(${params.join(', ')}) : undefined`;
+    if (mine && cb.hides) lines.push(`  const said = ${theirs}`, '  return psHide ? false : said');
+    else if (mine) lines.push(`  return ${theirs}`);
+    else if (cb.hides) lines.push('  return psHide ? false : undefined');
     lines.push('}');
   }
   lines.push(...startLines);

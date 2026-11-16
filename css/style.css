@@ -311,8 +311,9 @@ input[type="color"] {
 .tool { border: 1px solid var(--line); border-left: 3px solid #b48cff; border-radius: 8px; padding: 6px 8px 4px; margin: 8px 0; background: var(--panel-2); }
 .tool.off { opacity: 0.55; }
 .tool.picked { border-left-color: #ffd24a; box-shadow: 0 0 0 1px #ffd24a55; }
-.tool-head { display: flex; align-items: center; gap: 4px; }
-.tool-head .check { flex: 1; min-width: 0; }
+.tool-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; }
+.tool-head .check { flex: 1 0 auto; white-space: nowrap; }
+.tool-buttons { display: flex; gap: 4px; }
 .tool-head button { padding: 2px 7px; font-size: 12px; }
 .tool .note { margin: 4px 0 6px; }
 .with-unit { display: flex; align-items: center; gap: 6px; }

@@ -25,7 +25,7 @@ import { MOVES, MOVE_BY_ID, moveFields, mostTimes, applyMove } from './moves.js'
 import { EXAMPLES } from './examples-data.js';
 import { createViewport } from './viewport.js';
 import { createCodeWindow } from './code-ui.js';
-import { sanitizeCode } from './nodes.js';
+import { sanitizeCode, WORLD_CHARS } from './nodes.js';
 import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
 import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.js';
@@ -1406,6 +1406,17 @@ function studioDots(node) {
   return [];
 }
 
+/**
+ * The dots are switched on and there are none to show (a shape of the library
+ * has none of its own): then those of its last tool that has dots.
+ */
+function pickDots(node = selectedObject()) {
+  const target = state.studio.on ? shaping(node) : null;
+  if (!target || studioDots(node).length) return;
+  const at = (target.form.deform || []).map(toolHasDots).lastIndexOf(true);
+  if (at >= 0) Object.assign(state.studio, { tool: at, point: -1 });
+}
+
 /** The corners of a drawn line or the loose points of the shape the Shape Studio is at work on: the list, or null. */
 function dotList(form) {
   return form.shape === PATH ? form.path.nodes : form.shape === CLOUD ? form.points : null;
@@ -1532,22 +1543,24 @@ function toolCard(form, tool, n, count, done) {
   return h('div', { class: `tool${tool.on === false ? ' off' : ''}${picked ? ' picked' : ''}`, 'data-tool': tool.kind },
     h('div', { class: 'tool-head' },
       h('label', { class: 'check' }, on, h('b', {}, def.name)),
-      def.handles ? h('button', {
-        class: picked ? 'on' : '', title: 'Show its dots in the 3D view, to drag them',
-        onclick: () => { Object.assign(state.studio, picked ? { tool: -1 } : { on: true, tool: n, point: -1 }); refresh(); syncInspector(); },
-      }, 'Dots') : null,
-      h('button', { title: 'Do this one earlier', 'aria-label': 'Earlier', disabled: n === 0, onclick: shift(-1) }, 'Up'),
-      h('button', { title: 'Do this one later', 'aria-label': 'Later', disabled: n === count - 1, onclick: shift(1) }, 'Down'),
-      h('button', {
-        class: 'danger', title: 'Take this tool away', 'aria-label': `Remove ${def.name}`,
-        onclick: () => {
-          const fm = form();
-          fm.deform.splice(n, 1);
-          if (!fm.deform.length) delete fm.deform;
-          state.studio.tool = -1;
-          done();
-        },
-      }, '\u00D7')),
+      // (the buttons stay together: next to a short name, below a long one)
+      h('span', { class: 'tool-buttons' },
+        def.handles ? h('button', {
+          class: picked ? 'on' : '', title: 'Show its dots in the 3D view, to drag them',
+          onclick: () => { Object.assign(state.studio, picked ? { tool: -1 } : { on: true, tool: n, point: -1 }); refresh(); syncInspector(); },
+        }, 'Dots') : null,
+        h('button', { title: 'Do this one earlier', 'aria-label': 'Earlier', disabled: n === 0, onclick: shift(-1) }, 'Up'),
+        h('button', { title: 'Do this one later', 'aria-label': 'Later', disabled: n === count - 1, onclick: shift(1) }, 'Down'),
+        h('button', {
+          class: 'danger', title: 'Take this tool away', 'aria-label': `Remove ${def.name}`,
+          onclick: () => {
+            const fm = form();
+            fm.deform.splice(n, 1);
+            if (!fm.deform.length) delete fm.deform;
+            state.studio.tool = -1;
+            done();
+          },
+        }, '\u00D7'))),
     note(def.about),
     def.fields.map(field),
     tool.kind === 'cage' ? h('div', { class: 'buttons' }, h('button', {
@@ -1567,7 +1580,7 @@ function studioParts(node, target) {
   const dotted = !!list || tools.some(toolHasDots);
   const showDots = h('input', {
     type: 'checkbox', checked: state.studio.on,
-    onchange: () => { state.studio.on = showDots.checked; showDots.blur(); refresh(); syncInspector(); },
+    onchange: () => { state.studio.on = showDots.checked; pickDots(); showDots.blur(); refresh(); syncInspector(); },
   });
   const count = (min) => row('How many', sliderPair({
     get: () => form().count, set: (o, v) => { form().count = Math.round(v); }, min, max: 300, step: 1, numMax: MAX_COUNT, label: 'Particle count',
@@ -1721,6 +1734,7 @@ function studioTool() {
   }
   $('#toast').hidden = true;
   state.studio.on = !(state.studio.on && studioDots(node).length > 0);
+  pickDots(node);
   showPanel('settings', true);
   showCategory('studio');
   refresh();
@@ -2175,9 +2189,9 @@ function renderExport(result) {
 
   const over = !world && (part.chars > LIMITS.chars || part.lines > LIMITS.lines);
   $('#ex-meter').replaceChildren(...(empty ? [] : [
-    h('b', {}, part.chars.toLocaleString('en')), ` / ${LIMITS.chars.toLocaleString('en')} characters`,
+    h('b', {}, part.chars.toLocaleString('en')), ` / ${(world ? WORLD_CHARS : LIMITS.chars).toLocaleString('en')} characters`,
     world ? '' : ` · ${part.lines} / ${LIMITS.lines} lines`]));
-  $('#ex-meter').style.color = over || (world && part.chars > LIMITS.chars) ? 'var(--bad)' : '';
+  $('#ex-meter').style.color = over || (world && part.chars > WORLD_CHARS) ? 'var(--bad)' : '';
 
   const status = [];
   const say = (text, kind = '') => status.push(h('p', { class: kind }, text));
@@ -2192,7 +2206,7 @@ function renderExport(result) {
       say(`Fast moves with many particles can look a little out of step in the game: Bloxd does not seem to start all the particles of a click in the same instant. Here ${plural(rush.particles, 'particle')} fly at up to ${Math.round(rush.speed)} blocks a second at once. Slower moves, or fewer particles in what moves, keep them together.`, 'warn');
     }
     if (!world && parts.length > 1) say(`This scene does not fit in one code block (16,000 characters), so it is split into ${parts.length}. Stack the code blocks on top of each other in order, block 1 at the bottom.${rush ? ' Things that move together stay in step best when they are in the same code block.' : ''}`, 'warn');
-    if (world && part.chars > LIMITS.chars) say('This is longer than the 16,000 characters World Code allows. Use fewer particles or coarser positions.', 'bad');
+    if (world && part.chars > WORLD_CHARS) say(`This is longer than the ${WORLD_CHARS.toLocaleString('en')} characters World Code holds. Use fewer particles or coarser positions.`, 'bad');
   }
   $('#ex-status').replaceChildren(...status);
 

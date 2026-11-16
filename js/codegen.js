@@ -369,7 +369,7 @@ function timedHelperLines({ mix, sizes, darken, hue, grow, families, wide, turn 
   }
   if (turn) {
     lines.push(
-      '      const p = W(at(m).map((x, j) => x - [.5, 0, .5][j]))',
+      '      const p = W(at(m).map((x, j) => x - (j === 1 ? 0 : .5)))',
       '        .map((x, j) => x + [X, Y, Z][j])',
       '      const u = v ? W(at(v)) : [0, 1, 0]',
     );
@@ -725,39 +725,78 @@ function splitParams(text) {
 }
 
 /**
+ * What the studio writes in TypeScript asks the game through this name, which
+ * has no type. The game checks the types of World Code (index.ts), and its own
+ * types for `api` are stricter than its documentation says: so no type of the
+ * game's can hold up what the studio wrote. Code the user writes uses `api`.
+ */
+export const UNTYPED_API = 'psApi';
+export const UNTYPED_API_LINES = [
+  `// ${UNTYPED_API}: the game, asked without types, so that the types of the game`,
+  '// never hold up what the studio wrote. Your own code uses api.',
+  `const ${UNTYPED_API}: any = api`,
+];
+
+/** Change a line of code with what is in quotes put aside: no text that was typed by the user is touched. */
+export function outsideTexts(line, change) {
+  const kept = [];
+  const bare = line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (text) => `\u0002${kept.push(text) - 1}\u0002`);
+  return change(bare).replace(/\u0002(\d+)\u0002/g, (all, i) => kept[Number(i)]);
+}
+
+/**
  * A line of the helpers the way TypeScript takes it when it is strict: every
  * parameter says that it can be anything, and so do the list and the options
  * that are filled bit by bit. (World Code can be TypeScript: index.ts.)
+ * The parameters of a helper itself can also be left out: P(...) and T(...)
+ * are called without their last ones when those have nothing to say.
+ * The game is asked through UNTYPED_API. Comments and texts stay as they are.
  */
 export function typedLine(line) {
-  return line
-    .replace(/\(([^()]*)\)(\s*=>)/g, (all, params, arrow) => `(${splitParams(params)
-      .map((p) => (!p.trim() || p.includes('=') || p.includes(':') ? p : `${p}: any`)).join(',')})${arrow}`)
+  if (/^\s*\/\//.test(line)) return line;
+  const helper = /^\s*const [A-Za-z_$][\w$]* = \(/.test(line);
+  let seen = 0;
+  return outsideTexts(line, (code) => code
+    .replace(/\(([^()]*)\)(\s*=>)/g, (all, params, arrow) => {
+      const own = helper && !seen++; // the first list of a line that names a helper: its own parameters
+      return `(${splitParams(params)
+        .map((p) => (!p.trim() || p.includes('=') || p.includes(':') ? p : `${p}${own && !p.includes('[') ? '?' : ''}: any`)).join(',')})${arrow}`;
+    })
+    .replace(/(^|[^\w$.])api\./g, `$1${UNTYPED_API}.`)
     .replace(/^(\s*const Q) = \[\]$/, '$1: any[] = []')
-    .replace(/^(\s*const q) = \{/, '$1: any = {');
+    .replace(/^(\s*const q) = \{/, '$1: any = {'));
 }
 
-/** The start of the function that plays the scene (target 'function'): the place, and the way it is turned. */
-const functionLines = (name, typed) => [
-  typed ? `const ${name} = (pos: number[], facing?: number[] | null) => {` : `const ${name} = (pos, facing) => {`,
-  'const [X, Y, Z] = pos',
-  // R: where right, up and ahead of the scene point in the game
-  'let R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]',
-  'if (facing && Math.hypot(...facing) > 1e-6) {',
-  '  const far = Math.hypot(...facing)',
-  '  const ahead = facing.map((v) => v / far)',
-  '  const flat = Math.hypot(ahead[0], ahead[2])',
-  '  const side = flat > 1e-6',
-  '    ? [ahead[2] / flat, 0, -ahead[0] / flat] : [1, 0, 0]',
-  '  R = [side, [',
-  '    ahead[1] * side[2] - ahead[2] * side[1],',
-  '    ahead[2] * side[0] - ahead[0] * side[2],',
-  '    ahead[0] * side[1] - ahead[1] * side[0],',
-  '  ], ahead]',
-  '}',
-  'const W = (v) => [0, 1, 2].map((j) =>',
-  '  v[0] * R[0][j] + v[1] * R[1][j] + v[2] * R[2][j])',
-];
+/**
+ * The start of the function that plays the scene (target 'function'): the
+ * place, and the way it is turned. In TypeScript the lists it works with can
+ * be anything: with strict settings a number out of a list counts as "maybe
+ * not there", and the sums would be refused.
+ */
+const functionLines = (name, typed) => {
+  const any = typed ? ': any' : '';
+  return [
+    ...(typed ? UNTYPED_API_LINES : []),
+    typed ? `const ${name} = (pos: number[], facing?: number[] | null) => {` : `const ${name} = (pos, facing) => {`,
+    `const [X, Y, Z]${any} = pos`,
+    // R: where right, up and ahead of the scene point in the game
+    `let R${any} = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]`,
+    'if (facing && Math.hypot(...facing) > 1e-6) {',
+    '  const far = Math.hypot(...facing)',
+    `  const ahead${any} = facing.map((v${any}) => v / far)`,
+    '  const flat = Math.hypot(ahead[0], ahead[2])',
+    `  const side${any} = flat > 1e-6`,
+    '    ? [ahead[2] / flat, 0, -ahead[0] / flat] : [1, 0, 0]',
+    '  R = [side, [',
+    '    ahead[1] * side[2] - ahead[2] * side[1],',
+    '    ahead[2] * side[0] - ahead[0] * side[2],',
+    '    ahead[0] * side[1] - ahead[1] * side[0],',
+    '  ], ahead]',
+    '}',
+    `const W = (v${any}) => [0, 1, 2].map((j${any}) =>`,
+    '  v[0] * R[0][j] + v[1] * R[1][j] + v[2] * R[2][j])',
+  ];
+};
 
 /**
  * objects : scene objects
@@ -850,7 +889,7 @@ export function generateCode(objects, options = {}) {
   const footer = world
     ? [...play, '}', 'let psWait = 0', 'tick = (ms) => {', '  psWait -= ms', '  if (psWait > 0) return',
       '  psWait = PS_EVERY', '  psDraw()', '}', '}']
-    : asFunction ? [...play, '}'] : play;
+    : asFunction ? [...play, '}'].map((line) => (opts.typed ? typedLine(line) : line)) : play;
 
   const makePrelude = (index, total) => {
     const n = `${particles} particle${particles === 1 ? '' : 's'}`;

@@ -143,7 +143,7 @@ export function createCodeWindow(hooks) {
     $('#code-empty').hidden = graph().nodes.length > 0;
     const over = made.chars > WORLD_CHARS;
     $('#code-meter').textContent = `${made.file}: ${made.chars.toLocaleString('en')} characters`
-      + `${over ? `, more than the ${WORLD_CHARS.toLocaleString('en')} one file of World Code holds` : ''} · ${made.particles.toLocaleString('en')} particles each time it plays`;
+      + `${over ? `, more than the ${WORLD_CHARS.toLocaleString('en')} World Code holds` : ''} · ${made.particles.toLocaleString('en')} particles each time it plays`;
     $('#code-meter').classList.toggle('bad', over);
     $('#code-text').value = made.code;
     $('#code-download').textContent = `Download ${made.file}`;
@@ -375,14 +375,23 @@ export function createCodeWindow(hooks) {
 
   // ---------------------------------------------------------------- adding and taking away
 
-  /** A free spot for a new node: to the right of the picked one, else in the middle of what is seen. */
+  /** A free spot for a new node: to the right of the picked one, else in the middle of what is seen. Never on top of another. */
   const freeSpot = () => {
     const from = nodeOf(selected);
     const el = from ? cards.querySelector(`[data-node="${from.id}"]`) : null;
     const rect = canvas.getBoundingClientRect();
-    let at = el ? [from.x + el.offsetWidth + 70, from.y] : toWorld(rect.left + rect.width / 2 - 110, rect.top + rect.height / 2 - 80);
-    at = at.map((v) => Math.round(v / SNAP) * SNAP);
-    while (graph().nodes.some((n) => Math.abs(n.x - at[0]) < 40 && Math.abs(n.y - at[1]) < 40)) at[1] += 60;
+    const boxes = [...cards.children].map((card) => {
+      const n = nodeOf(card.dataset.node);
+      return [n.x, n.y, card.offsetWidth, card.offsetHeight];
+    });
+    const [W, H, GAP] = [262, 190, 20]; // about the size of a card, and the room between two
+    const at = (el ? [from.x + el.offsetWidth + 70, from.y] : toWorld(rect.left + rect.width / 2 - W / 2, rect.top + rect.height / 2 - H / 2))
+      .map((v) => Math.round(v / SNAP) * SNAP);
+    for (let tries = 0; tries < 80; tries++) {
+      const hit = boxes.find(([x, y, w, hgt]) => at[0] < x + w + GAP && at[0] + W + GAP > x && at[1] < y + hgt + GAP && at[1] + H + GAP > y);
+      if (!hit) break;
+      at[1] = Math.ceil((hit[1] + hit[3] + GAP) / SNAP) * SNAP; // below the one that is in the way
+    }
     return at;
   };
 

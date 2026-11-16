@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=3fac48d4">
+<link rel="stylesheet" href="css/style.css?v=a6b7bf31">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,19 +15,19 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=3266b4a6",
+  "./js/app.js": "./js/app.js?v=b3098222",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
-  "./js/code-ui.js": "./js/code-ui.js?v=326e0f9b",
-  "./js/codegen.js": "./js/codegen.js?v=c35de77a",
-  "./js/deform.js": "./js/deform.js?v=d570905d",
-  "./js/edits.js": "./js/edits.js?v=454e481d",
+  "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
+  "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
+  "./js/deform.js": "./js/deform.js?v=b3e5a862",
+  "./js/edits.js": "./js/edits.js?v=69b9b8a8",
   "./js/examples-data.js": "./js/examples-data.js?v=724fab64",
-  "./js/forms.js": "./js/forms.js?v=1fefd9aa",
+  "./js/forms.js": "./js/forms.js?v=abc447c4",
   "./js/morph.js": "./js/morph.js?v=d764243e",
   "./js/motion.js": "./js/motion.js?v=ac0014b8",
   "./js/moves.js": "./js/moves.js?v=65b3b429",
-  "./js/nodes.js": "./js/nodes.js?v=6efd93d7",
-  "./js/scene.js": "./js/scene.js?v=e478f8f4",
+  "./js/nodes.js": "./js/nodes.js?v=b894d335",
+  "./js/scene.js": "./js/scene.js?v=a2193768",
   "./js/shape-kit.js": "./js/shape-kit.js?v=afc224e9",
   "./js/shapes-count.js": "./js/shapes-count.js?v=c62132ce",
   "./js/shapes-curves.js": "./js/shapes-curves.js?v=3ea7d503",
@@ -70,7 +70,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = 'b6ec30938bd2';
+  var mine = '1ee6d2d65743';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {
@@ -222,7 +222,7 @@
       <button type="button" id="code-del" class="danger" title="Take the picked node away (Delete)" disabled>Delete</button>
     </span>
     <span class="code-gap"></span>
-    <label class="code-lang" title="TypeScript checks your own code for mistakes. It goes into a file called index.ts.">Language
+    <label class="code-lang" title="With TypeScript your own code can have types, and the game checks them. The World Code then belongs in a file called index.ts.">Language
       <select id="code-lang" aria-label="Language of the World Code">
         <option value="js">JavaScript</option>
         <option value="ts">TypeScript</option>
