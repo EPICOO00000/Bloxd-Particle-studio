@@ -42,11 +42,26 @@
 //   particle that has travelled is only about where it should be on a slow
 //   device, so an object that stops is shown by a fresh piece that never moved.
 //
+// Morphing (a key that gives the object another shape, see js/forms.js)
+//   On the way to such a key every particle flies straight from its place in
+//   the old shape to a place in the new one (js/morph.js says which). That is
+//   one straight line for each, so it is one piece, like any move. But the
+//   pieces of a move all do the same to the points of one shape, and here every
+//   particle has a way of its own. So a morph has its own list of "rows", one
+//   for each particle: where it starts and which way it goes, six numbers. Its
+//   pieces work on rows with "wide" matrices (3 rows of 7 numbers instead of 4).
+//   When the new shape has more particles, the extra ones come out of
+//   particles of the old shape and fade in on the way; when it has fewer, the
+//   ones that are too many fly into others and fade out.
+//
 // Units
 //   seconds : what the timeline shows.
 //   age     : the game's particle clock. It advances 0.01 per frame at 60 fps,
 //             so 1 second is LIFE_PER_SECOND of age. minLifeTime and the
 //             `life` of an object are ages.
+
+import { formOf, formPoints, formKey, sourceKey, formReach, isShaped } from './forms.js';
+import { matchPoints } from './morph.js';
 
 export const LIFE_PER_SECOND = 0.6;
 
@@ -299,12 +314,38 @@ function matrixBetween(a, b, u, spin) {
   return poseMatrix(rotationBetween(a, b, u, spin), mix3(a.scale, b.scale, u), mix3(a.pos, b.pos, u));
 }
 
-/** Apply a 3x4 matrix to a point. */
-export const applyMatrix = (m, p) => [
+/** Apply a 3x4 matrix to a point (or a wide matrix, 3x7, to a row of a morph: six numbers). */
+export const applyMatrix = (m, p) => (m.length === 12 ? [
   m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3],
   m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[7],
   m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
+] : [
+  m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3] * p[3] + m[4] * p[4] + m[5] * p[5] + m[6],
+  m[7] * p[0] + m[8] * p[1] + m[9] * p[2] + m[10] * p[3] + m[11] * p[4] + m[12] * p[5] + m[13],
+  m[14] * p[0] + m[15] * p[1] + m[16] * p[2] + m[17] * p[3] + m[18] * p[4] + m[19] * p[5] + m[20],
+]);
+
+/**
+ * The wide matrix of a morph that has come a share u of its way. A row is
+ * [where the particle starts (from `origin`), its way]; the whole shape also
+ * travels by `travel` meanwhile. Row -> origin + start + (way + travel) * u.
+ */
+const wideAt = (u, origin, travel) => [
+  1, 0, 0, u, 0, 0, origin[0] + travel[0] * u,
+  0, 1, 0, 0, u, 0, origin[1] + travel[1] * u,
+  0, 0, 1, 0, 0, u, origin[2] + travel[2] * u,
 ];
+
+/** A 3x4 matrix (Bloxd space) after a wide one: the rows of a morph, put where a group is. */
+function mulWide(a, b) {
+  const out = new Array(21);
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 7; c++) {
+      out[r * 7 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[7 + c] + a[r * 4 + 2] * b[14 + c] + (c === 6 ? a[r * 4 + 3] : 0);
+    }
+  }
+  return out;
+}
 
 /** a + b * k for matrices. */
 const addScaled = (a, b, k) => a.map((v, i) => v + b[i] * k);
@@ -455,9 +496,18 @@ function visibilityCurve(piece, plan, tinted = false) {
   const marks = [];
   if (plan.fadeIn) marks.push(plan.a0 + FADE_IN_END * life);
   if (plan.fadeOut) marks.push(plan.a0 + FADE_START * life);
-  const bends = marks.filter((m) => m > show + EPS && m < end - EPS);
-  const first = envelope(plan, show);
-  const last = envelope(plan, end);
+  if (piece.fade) marks.push(piece.fade[1], piece.fade[2]);
+  marks.sort((x, y) => x - y);
+  const bends = marks.filter((m, i) => m > show + EPS && m < end - EPS && m !== marks[i - 1]);
+  /** What the object shows of itself, times what this piece shows of it while it comes in or goes away in a morph. */
+  const shown = (age) => {
+    const v = envelope(plan, age);
+    if (!piece.fade) return v;
+    const u = Math.max(0, Math.min(1, (age - piece.fade[1]) / (piece.fade[2] - piece.fade[1])));
+    return v * (piece.fade[0] === 'in' ? u : 1 - u);
+  };
+  const first = shown(show);
+  const last = shown(end);
   if (!bends.length && first === last && !tinted) {
     // the same all its life: switched on at once, by a last stop
     return show > TINY ? [[0, 0], [show - TINY, 0], [show, first]] : [[0, first]];
@@ -466,7 +516,7 @@ function visibilityCurve(piece, plan, tinted = false) {
   if (show <= TINY) stops.push([0, first]);
   else if (first === 0) stops.push([0, 0], [show, 0]); // fades in from nothing: no switch needed
   else stops.push([0, 0], [show - Math.min(tinted ? TINT_RAMP : SWITCH, show), 0], [show, first]);
-  for (const m of bends) stops.push([m, envelope(plan, m)]);
+  for (const m of bends) stops.push([m, shown(m)]);
   stops.push([end, last]);
   return guard(tidy(stops));
 }
@@ -492,8 +542,9 @@ function viewBetween(a, b, u, spin) {
   return viewOf(rotationBetween(a, b, u, spin), mix3(a.scale, b.scale, u), mix3(a.pos, b.pos, u));
 }
 
-/** The 3x4 matrix that does b first, then a. */
+/** The 3x4 matrix that does b first, then a. (b can be the wide matrix of a morph: then the result is wide too.) */
 export function mulAffine(a, b) {
+  if (b.length === 21) return mulWide(a, b);
   const out = new Array(12);
   for (let i = 0; i < 12; i += 4) {
     out[i] = a[i] * b[0] + a[i + 1] * b[4] + a[i + 2] * b[8];
@@ -555,7 +606,7 @@ function segmentAt(node, t) {
     for (let index = 0; index < keys.length; index++) {
       const key = keys[index];
       if (t < key.t) {
-        const same = samePose(a, key, point, spin);
+        const same = samePose(a, key, point, spin) && !reshapesAt(node, index);
         const jumps = key.ease === 'jump';
         return { a, b: key, from, to: key.t, ease: key.ease, index, moving: !jumps && !same, jump: jumps && !same };
       }
@@ -601,6 +652,80 @@ function heldPose(node, s0, s1) {
 
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const unset = (v) => v === null || v === undefined;
+
+// ---- shapes at keys (morphing)
+
+export const keyHasForm = (key) => !!key.form;
+/** One of its keys gives the object another shape. */
+export const hasFormKeys = (obj) => obj.shape !== 'group' && keysOf(obj).some(keyHasForm);
+
+/**
+ * The form (js/forms.js) of an object where it starts and at each of its keys.
+ * A key that sets none keeps the form of the key before it. null when no key
+ * changes the shape.
+ */
+export function formsOf(obj) {
+  if (!hasFormKeys(obj)) return null;
+  const out = [formOf(obj)];
+  for (const key of keysOf(obj)) out.push(key.form || out[out.length - 1]);
+  return out;
+}
+
+/** The form an object has `t` seconds after it appeared. On the way to a key that changes it, it still has the one before. */
+export function formAt(obj, t, forms = formsOf(obj)) {
+  if (!forms) return formOf(obj);
+  const keys = keysOf(obj);
+  let at = 0;
+  while (at < keys.length && t >= keys[at].t) at++;
+  return forms[at];
+}
+
+/** Key number `index` of an object gives it a shape it does not have already. */
+function reshapesAt(obj, index) {
+  const key = keysOf(obj)[index];
+  if (!key || !key.form || obj.shape === 'group') return false;
+  const forms = formsOf(obj);
+  return formKey(forms[index]) !== formKey(forms[index + 1]);
+}
+
+/** How far the shapes of an object reach from its pivot at most, compared with a shape of the library (see formReach). */
+function farOf(obj) {
+  if (obj.shape === 'point' || obj.shape === 'group') return 1;
+  let far = formReach(obj);
+  for (const key of keysOf(obj)) if (key.form) far = Math.max(far, formReach(key.form));
+  return far;
+}
+
+/**
+ * The particles of a morph from pose a (with form A) to pose b (with form B):
+ *   origin : where the object is at the start
+ *   travel : how far the object itself goes meanwhile
+ *   parts  : [{ pts, set, fade }] the rows. One part for the particles that
+ *            are there before and after; with shapes of different sizes a
+ *            second one for those that come in (fade 'in') or go (fade 'out').
+ *            A row: [x, y, z of where it starts, seen from origin; x, y, z of
+ *            its way, without the travel of the object]. `set` names the list.
+ *   after  : the parts that are still there when it is over
+ * Everything in Bloxd space, the way the group around the object sees it.
+ */
+function morphOf(a, b, A, B, index) {
+  const pointsA = formPoints(A);
+  const pointsB = formPoints(B);
+  const mA = matrixOfPose(a);
+  const mB = matrixOfPose(b);
+  const from = pointsA.map((l) => applyMatrix(mA, l));
+  const to = pointsB.map((l) => applyMatrix(mB, l));
+  const origin = a.pos.slice();
+  const travel = sub(b.pos, a.pos);
+  const pairs = matchPoints(from, to, sourceKey(A) === sourceKey(B));
+  const row = ([i, j]) => [
+    from[i][0] - origin[0], from[i][1] - origin[1], from[i][2] - origin[2],
+    to[j][0] - from[i][0] - travel[0], to[j][1] - from[i][1] - travel[1], to[j][2] - from[i][2] - travel[2],
+  ];
+  const parts = [{ pts: pairs.stay.map(row), set: `m${index}` }];
+  if (pairs.extra.length) parts.push({ pts: pairs.extra.map(row), set: `m${index}${pairs.kind}`, fade: pairs.kind });
+  return { origin, travel, parts, after: parts.filter((part) => part.fade !== 'out') };
+}
 
 export const keyHasColor = (key) => typeof key.color === 'string';
 export const keyHasSize = (key) => typeof key.size === 'number';
@@ -780,6 +905,8 @@ const signature = (obj, lineage) => JSON.stringify([
   obj.pos, obj.rot, obj.scale, obj.move, obj.spread, obj.expand, obj.gravity,
   keysOf(obj).map(keySignature),
   hasLookKeys(obj) ? [obj.color, obj.color2, obj.size, obj.size2] : 0,
+  // (the points only matter to the plan when a key changes the shape, or when the shape is not one of the library as it is)
+  hasFormKeys(obj) || (obj.shape !== 'group' && isShaped(obj)) ? [formKey(obj), keysOf(obj).map((k) => (k.form ? formKey(k.form) : 0))] : 0,
   lineage && lineage.ancestors && lineage.ancestors.length
     ? [lineage.box || 0, lineage.ancestors.map(({ node, start }) => [start, node.pos, node.rot, node.scale, !!node.spin, keysOf(node).map(keySignature)])]
     : 0,
@@ -813,10 +940,18 @@ const plans = new WeakMap();
  *     visible   : curve of its visibility
  *     size      : [smallest, largest] particle size, only when a key changes the look
  *     tint      : [[age, colour, second colour], ...], only when a key changes the colour
+ *     pts, set  : only when a key changes the shape: the points this piece is
+ *                 for, when they are not the ones the object starts with, and
+ *                 a name for that list (pieces with the same name share it).
+ *                 Points of another shape (three numbers each), or the rows of
+ *                 a morph (six numbers each, see the top of the file): then P
+ *                 and V are wide matrices (3 rows of 7).
+ *     fade      : ['in' | 'out', from, to] a part of a morph that comes in or
+ *                 goes away between those ages
  *   }]
  * }
  * A particle of a piece is at  P*l + (V*l) * U + g * W  where l is its point of
- * the shape and [U, W] = curveIntegrals(speed, age, ref).
+ * the shape (or its row) and [U, W] = curveIntegrals(speed, age, ref).
  */
 export function planOf(obj, lineage = null) {
   const key = signature(obj, lineage);
@@ -841,14 +976,15 @@ function buildPlan(obj, lineage) {
   const a1 = a0 + stay * LIFE_PER_SECOND;
   const ancestors = (lineage && lineage.ancestors) || [];
   const looks = looksOf(obj);
-  if (!ancestors.length) return finish(ownPlan(obj, a0, a1, looks, 1), obj, looks);
+  const far = farOf(obj);
+  if (!ancestors.length) return finish(ownPlan(obj, a0, a1, looks, far), obj, looks);
   // The groups around it do not move while it is there: its own plan, put where they are.
   const held = ancestors.map((a) => heldPose(a.node, start - a.start, start - a.start + stay));
   if (held.every(Boolean)) {
     let around = IDENTITY;
     for (const pose of held) around = mulAffine(viewMatrix(pose), around);
     const reach = Math.max(...[0, 1, 2].map((c) => Math.hypot(around[c], around[4 + c], around[8 + c])));
-    const plan = finish(ownPlan(obj, a0, a1, looks, reach), obj, looks);
+    const plan = finish(ownPlan(obj, a0, a1, looks, reach * far), obj, looks);
     const c = inBloxd(around);
     const turn = [c[0], c[1], c[2], 0, c[4], c[5], c[6], 0, c[8], c[9], c[10], 0];
     for (const piece of plan.pieces) {
@@ -861,7 +997,25 @@ function buildPlan(obj, lineage) {
 }
 
 /** A point in time at which the piece before has to end and a new one starts, although nothing moves. */
-const boundary = (at, m) => ({ kind: 'hold', from: at, to: at, m, jump: true });
+const boundary = (at, m, parts) => ({ kind: 'hold', from: at, to: at, m, jump: true, parts });
+
+/**
+ * For an object whose keys change its shape: which points a stretch of time is
+ * for. `partsAt(i)`: while it has the form of pose number i (0: where it
+ * starts): undefined for the points it starts with, else [{ pts, set }].
+ */
+function formParts(obj) {
+  const forms = formsOf(obj);
+  if (!forms) return { forms: null, partsAt: () => undefined };
+  const keys = forms.map(formKey);
+  const made = new Map();
+  const partsAt = (i) => {
+    if (keys[i] === keys[0]) return undefined;
+    if (!made.has(keys[i])) made.set(keys[i], [{ pts: formPoints(forms[i]), set: `f${keys.indexOf(keys[i])}` }]);
+    return made.get(keys[i]);
+  };
+  return { forms, keys, partsAt };
+}
 
 /** The stretches of an object that stands alone (or in groups that do not move), from its own keys. */
 function ownPlan(obj, a0, a1, looks, reach) {
@@ -871,49 +1025,71 @@ function ownPlan(obj, a0, a1, looks, reach) {
 
   // stretches of time: nothing moves ('hold'), travel to a key ('move'), free flight ('fly')
   const poses = [basePose(obj), ...keysOf(obj)];
+  const { forms, keys: formKeys, partsAt } = formParts(obj);
   const stretches = [];
   let at = a0;
   for (let i = 1; i < poses.length; i++) {
     const to = Math.min(a1, a0 + poses[i].t * LIFE_PER_SECOND);
-    const same = samePose(poses[i - 1], poses[i], point, spin);
+    const reshaped = !!forms && formKeys[i] !== formKeys[i - 1]; // this key gives it another shape
+    const same = samePose(poses[i - 1], poses[i], point, spin) && !reshaped;
     const jumps = poses[i].ease === 'jump';
     const m = matrixOfPose(poses[i - 1]);
+    const parts = partsAt(i - 1);
     // the size changes on the way to this key: in steps, each shown by particles of its own
     const resized = !!looks && !jumps && to - at >= 1e-6 && !sameSizes(looks[i - 1], looks[i]);
     const steps = resized ? Math.max(1, Math.min(sizeSteps(looks[i - 1], looks[i]), Math.floor((to - at) / MIN_CHORD_AGE + 1e-9))) : 1;
     if (jumps || same || to - at < 1e-6) {
       if (resized) {
-        stretches.push(boundary(at, m));
+        stretches.push(boundary(at, m, parts));
         let from = at;
         for (let k = 1; k <= steps; k++) {
           const end = k === steps ? to : at + (to - at) * easeTime(poses[i].ease, k / steps);
           if (end - from < 1e-6) continue;
-          stretches.push({ kind: 'hold', from, to: end, m, jump: true });
+          stretches.push({ kind: 'hold', from, to: end, m, jump: true, parts });
           from = end;
         }
       } else {
         const relooks = jumps && !!looks && !(sameSizes(looks[i - 1], looks[i]) && sameColours(looks[i - 1], looks[i]));
-        stretches.push({ kind: 'hold', from: at, to, m, jump: !same || relooks });
+        stretches.push({ kind: 'hold', from: at, to, m, jump: !same || relooks, parts });
       }
+    } else if (reshaped) {
+      // a morph: every particle flies straight to its place in the new shape
+      if (resized) stretches.push(boundary(at, m, parts));
+      const morph = morphOf(poses[i - 1], poses[i], forms[i - 1], forms[i], i);
+      const [from, ease] = [at, poses[i].ease];
+      stretches.push({
+        kind: 'move', from, to, jump: false, parts: morph.parts, after: morph.after, end: wideAt(1, morph.origin, morph.travel),
+        prepare: (seen) => {
+          const curve = easeCurve(ease, from, to, seen);
+          // one straight stretch; a change of size needs one for each of its steps
+          const inTime = Math.floor(1 / (Math.max(...curve.map((stop) => stop[1])) * MIN_CHORD_AGE) + 1e-9);
+          const chords = Math.max(1, Math.min(steps, MAX_CHORDS, inTime));
+          return { curve, steady: ease === 'linear', chords, corner: (j) => wideAt(j / chords, morph.origin, morph.travel) };
+        },
+      });
     } else {
-      if (resized) stretches.push(boundary(at, m));
+      if (resized) stretches.push(boundary(at, m, parts));
       const s = { from: at, to, a: poses[i - 1], b: poses[i], ease: poses[i].ease, steps };
       stretches.push({
-        kind: 'move', from: at, to, end: matrixOfPose(poses[i]), jump: false,
+        kind: 'move', from: at, to, end: matrixOfPose(poses[i]), jump: false, parts,
         prepare: (seen) => ownMove(s, seen, point, spin, plan, reach),
       });
     }
     at = to;
   }
   const last = matrixOfPose(poses[poses.length - 1]);
+  const lastParts = partsAt(poses.length - 1);
   const flies = obj.move.some((v) => v !== 0) || obj.spread > 0 || obj.expand !== 0 || obj.gravity !== 0;
   if (a1 - at > 1e-6 || !stretches.length) {
     if (flies) {
       // direction = move + expand * (place - centre), pull = gravity
-      stretches.push({ kind: 'fly', from: at, to: a1, m: last, V: last.map((v, i) => (i % 4 === 3 ? obj.move[(i - 3) / 4] : v * obj.expand)) });
-    } else stretches.push({ kind: 'hold', from: at, to: a1, m: last, jump: false });
+      stretches.push({
+        kind: 'fly', from: at, to: a1, m: last, parts: lastParts,
+        V: last.map((v, i) => (i % 4 === 3 ? obj.move[(i - 3) / 4] : v * obj.expand)),
+      });
+    } else stretches.push({ kind: 'hold', from: at, to: a1, m: last, jump: false, parts: lastParts });
   }
-  emit(plan, stretches, obj, last);
+  emit(plan, stretches, obj, last, lastParts);
   return plan;
 }
 
@@ -960,21 +1136,29 @@ function ownMove(s, seen, point, spin, plan, reach) {
  *   move : { from, to, end, jump, prepare(seen) -> { curve, steady, chords, corner(j) } }
  *   fly  : { from, to, m, V }
  * `m`, `end`, corners: 3x4 matrices (Bloxd space). `last`: where it is at the very end.
+ * Every stretch can say which points it is for (`parts`: [{ pts, set, fade }],
+ * see planOf; none: the points the object starts with). Then it gets its pieces
+ * once for each part. A morph also says which parts are left when it is over
+ * (`after`), and its matrices are wide.
  */
-function emit(plan, stretches, obj, last) {
+function emit(plan, stretches, obj, last, lastParts) {
   const { a0, a1 } = plan;
+  /** What a piece has to say about its points. */
+  const of = (part) => (part ? { pts: part.pts, set: part.set } : null);
   // Walk through the stretches. `since` is the age from which the next piece
   // has to show the object. `rest` is set after a move: from there on the
   // object stands at an exact place, which a piece of its own shows (a particle
   // that has travelled is only about where it should be on a slow device).
   let since = a0;
-  let rest = null;
-  const still = (m, show, end) => plan.pieces.push({
-    show, end, P: m, V: null, g: null, ref: 0, spread: 0, speed: [[0, 1]],
-  });
+  let rest = null; // { m, parts }
+  const still = (m, show, end, parts) => {
+    for (const part of parts || [null]) {
+      plan.pieces.push({ show, end, P: m, V: null, g: null, ref: 0, spread: 0, speed: [[0, 1]], ...of(part) });
+    }
+  };
   const endRest = (age) => {
     if (rest && age - since > 1e-6) {
-      still(rest, since, age);
+      still(rest.m, since, age, rest.parts);
       since = age;
     }
     rest = null;
@@ -984,7 +1168,7 @@ function emit(plan, stretches, obj, last) {
     if (s.kind === 'hold') {
       if (s.jump) {
         rest = null;
-        if (s.to - since > 1e-6) still(s.m, since, s.to);
+        if (s.to - since > 1e-6) still(s.m, since, s.to, s.parts);
         since = s.to;
       }
       continue;
@@ -992,11 +1176,14 @@ function emit(plan, stretches, obj, last) {
     endRest(s.from);
     if (s.kind === 'fly') {
       const late = s.from > TINY; // it waits, then sets off at once
-      plan.pieces.push({
-        show: since, end: a1, P: s.m, V: s.V, g: obj.gravity !== 0 ? [0, obj.gravity, 0] : null, spread: obj.spread,
-        ref: late ? s.from : 0,
-        speed: late ? [[0, 0], [s.from - TINY, 0], [s.from, 1]] : [[0, 1]],
-      });
+      for (const part of s.parts || [null]) {
+        plan.pieces.push({
+          show: since, end: a1, P: s.m, V: s.V, g: obj.gravity !== 0 ? [0, obj.gravity, 0] : null, spread: obj.spread,
+          ref: late ? s.from : 0,
+          speed: late ? [[0, 0], [s.from - TINY, 0], [s.from, 1]] : [[0, 1]],
+          ...of(part),
+        });
+      }
       since = a1;
       continue;
     }
@@ -1019,22 +1206,29 @@ function emit(plan, stretches, obj, last) {
       }
     }
     const speed = tidy([...lead, ...curve]);
-    for (let j = 0; j < chords; j++) {
-      const from = j === 0 ? s.from : ageAtProgress(curve, j / chords);
-      const to = j === chords - 1 ? s.to : ageAtProgress(curve, (j + 1) / chords);
-      // Every piece runs the whole speed curve of the move along its own
-      // stretch, so it is on its way (unseen) before its turn comes.
-      const m0 = corner(j);
-      const V = sub(corner(j + 1), m0).map((v) => v * chords);
-      plan.pieces.push({
-        show: j === 0 ? since : from, end: to, P: addScaled(m0, V, -(before + j / chords)), V, g: null, ref: 0, spread: 0, speed,
-      });
+    for (const part of s.parts || [null]) {
+      // (what comes in during a morph is not there before it)
+      const first = part && part.fade === 'in' ? s.from : since;
+      for (let j = 0; j < chords; j++) {
+        const from = j === 0 ? s.from : ageAtProgress(curve, j / chords);
+        const to = j === chords - 1 ? s.to : ageAtProgress(curve, (j + 1) / chords);
+        // Every piece runs the whole speed curve of the move along its own
+        // stretch, so it is on its way (unseen) before its turn comes.
+        const m0 = corner(j);
+        const V = sub(corner(j + 1), m0).map((v) => v * chords);
+        const piece = {
+          show: j === 0 ? first : from, end: to, P: addScaled(m0, V, -(before + j / chords)), V, g: null, ref: 0, spread: 0, speed,
+          ...of(part),
+        };
+        if (part && part.fade) piece.fade = [part.fade, ...(s.span || [s.from, s.to])];
+        plan.pieces.push(piece);
+      }
     }
     since = s.to;
-    rest = s.jump ? null : s.end;
+    rest = s.jump ? null : { m: s.end, parts: s.after || s.parts };
   }
   endRest(a1);
-  if (a1 - since > 1e-6 || !plan.pieces.length) still(last, since, a1);
+  if (a1 - since > 1e-6 || !plan.pieces.length) still(last, since, a1, lastParts);
 }
 
 /** Visibility and speed curves of every piece as the game needs them; looks, if keys change them. */
@@ -1116,6 +1310,20 @@ function chainPlan(obj, lineage, a0, a1, looks) {
   };
 
   const keys = keysOf(obj);
+  // keys that change its shape (see the top of the file)
+  const { forms, keys: formKeys, partsAt } = formParts(obj);
+  const morphs = new Map();
+  /** The morph on the way to key number `index`, or null when that key does not change the shape. */
+  const morphTo = (index) => {
+    if (!forms || index < 0 || formKeys[index] === formKeys[index + 1]) return null;
+    if (!morphs.has(index)) {
+      const poses = [basePose(obj), ...keys];
+      morphs.set(index, morphOf(poses[index], poses[index + 1], forms[index], forms[index + 1], index + 1));
+    }
+    return morphs.get(index);
+  };
+  /** Which points it is made of on its way to key number `index` (-1: after its last key). */
+  const partsFor = (index) => partsAt(index < 0 ? keys.length : index);
   const flies = obj.move.some((v) => v !== 0) || obj.spread > 0 || obj.expand !== 0 || obj.gravity !== 0;
   // from `until` on it flies free and no longer follows its groups
   const until = flies ? Math.min(a1, a0 + (keys.length ? keys[keys.length - 1].t : 0) * LIFE_PER_SECOND) : a1;
@@ -1158,14 +1366,27 @@ function chainPlan(obj, lineage, a0, a1, looks) {
     const segs = tracks.map((track) => segmentAt(track.node, seconds((A + B) / 2) - track.start));
     // something jumps at the end of this interval, or the look needs a new piece there
     const jump = isCut(B) || tracks.some((track, k) => segs[k].jump && Math.abs(ageOf(track, segs[k].to) - B) < 1e-6);
+    const parts = partsFor(segs[0].index);
     if (!segs.some((seg) => seg.moving)) {
-      stretches.push({ kind: 'hold', from: A, to: B, m: flipZ(chainAt(A, segs)), jump });
+      stretches.push({ kind: 'hold', from: A, to: B, m: flipZ(chainAt(A, segs)), jump, parts });
       continue;
     }
+    // In a morph the object itself is its rows on their way; what is around it is put on top.
+    const own = segs[0];
+    const morph = own.moving ? morphTo(own.index) : null;
+    const progress = (age) => easeProgress(own.ease, (seconds(age) - tracks[0].start - own.from) / (own.to - own.from));
+    const at = morph
+      ? (age) => mulAffine(inBloxd(chainAt(age, segs, 1)), wideAt(progress(age), morph.origin, morph.travel))
+      : (age) => flipZ(chainAt(age, segs));
+    // a few of the rows stand for all of them when it is worked out how many stretches it takes
+    const rows = morph ? morph.parts.flatMap((part) => part.pts) : null;
+    const tried = rows ? rows.filter((_, i) => i % Math.max(1, Math.floor(rows.length / 24)) === 0) : samples;
     stretches.push({
-      kind: 'move', from: A, to: B, end: flipZ(chainAt(B, segs)), jump,
+      kind: 'move', from: A, to: B, end: at(B), jump, parts: morph ? morph.parts : parts,
+      after: morph ? morph.after : undefined,
+      // what comes in or goes away does so over the whole morph, also when it is cut into several stretches
+      span: morph ? [ageOf(tracks[0], own.from), ageOf(tracks[0], own.to)] : undefined,
       prepare: (seen) => {
-        const at = (age) => flipZ(chainAt(age, segs));
         // the speed curves to choose from: the pace of every track that moves, then mixtures of them
         let curves = [];
         const add = (curve) => { if (curve && !curves.some((c) => sameCurve(c, curve))) curves.push(curve); };
@@ -1188,10 +1409,11 @@ function chainPlan(obj, lineage, a0, a1, looks) {
         let reach = 1e-6;
         for (const age of [A, B]) {
           const pivot = chainAt(age, segs, top);
-          const m = chainAt(age, segs);
-          for (const l of samples) {
+          const m = morph ? at(age) : chainAt(age, segs);
+          const flip = morph ? -1 : 1; // (the rows of a morph come out in Bloxd space, where Z is the other way round)
+          for (const l of tried) {
             const p = applyMatrix(m, l);
-            reach = Math.max(reach, Math.hypot(p[0] - pivot[3], p[1] - pivot[7], p[2] - pivot[11]));
+            reach = Math.max(reach, Math.hypot(p[0] - pivot[3], p[1] - pivot[7], p[2] - flip * pivot[11]));
           }
         }
         const allowed = Math.max(0.004, reach * Math.max(0.01, Math.min(0.04, 0.05 / reach)));
@@ -1211,7 +1433,7 @@ function chainPlan(obj, lineage, a0, a1, looks) {
             for (const f of [0.25, 0.5, 0.75]) {
               const truth = f === 0.5 ? mids[j] : at(ageAtProgress(curve, (j + f) / n));
               const diff = truth.map((v, i) => v - (corner[j][i] + (corner[j + 1][i] - corner[j][i]) * f));
-              for (const l of samples) worst = Math.max(worst, Math.hypot(...applyMatrix(diff, l)));
+              for (const l of tried) worst = Math.max(worst, Math.hypot(...applyMatrix(diff, l)));
             }
           }
           return { curve, n, corner, worst };
@@ -1254,9 +1476,12 @@ function chainPlan(obj, lineage, a0, a1, looks) {
     // it is let go where it is, the way its groups stand at that moment
     const around = inBloxd(chainAt(until, null, 1));
     const dir = [0, 4, 8].map((r) => around[r] * obj.move[0] + around[r + 1] * obj.move[1] + around[r + 2] * obj.move[2]);
-    stretches.push({ kind: 'fly', from: until, to: a1, m: last, V: last.map((v, i) => (i % 4 === 3 ? dir[(i - 3) / 4] : v * obj.expand)) });
+    stretches.push({
+      kind: 'fly', from: until, to: a1, m: last, parts: partsFor(-1),
+      V: last.map((v, i) => (i % 4 === 3 ? dir[(i - 3) / 4] : v * obj.expand)),
+    });
   }
-  emit(plan, stretches, obj, last);
+  emit(plan, stretches, obj, last, partsFor(-1));
   return plan;
 }
 

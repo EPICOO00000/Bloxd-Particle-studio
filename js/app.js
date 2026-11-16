@@ -11,15 +11,21 @@ import {
 import {
   poseAt, markAt, keyAt, planOf, restPose, lineageMatrix, lookAt, NEAR_KEY,
   EASES, MAX_KEYS, MIN_KEY_GAP, MAX_START, MAX_REPEAT, MIN_EVERY, keyHasColor, keyHasSize,
+  keyHasForm, flipZ, viewMatrix, mulAffine, applyMatrix,
 } from './motion.js';
+import { formName, formPoints, basePoints, PATH, CLOUD, PATH_MODES, MAX_NODES } from './forms.js';
+import { DEFORMERS, DEFORMER_BY_ID, newDeformer, handlesOf, dragHandle, MAX_DEFORMERS, MAX_POINTS } from './deform.js';
 import { generateCode, LIMITS, PRECISIONS } from './codegen.js';
 import {
   uniqueName, topNodes, removeNodes, moveInto, groupNodes, ungroup, duplicateNodes, mirrorNodes, stretchNodes,
   copyKeys, pasteKeys, movePivot, arrayNodes, MAX_ARRAY,
+  morphNodes, joinNodes, bakeForm, formCopyAt, invAffine, MORPH_WAIT, MORPH_TIME,
 } from './edits.js';
 import { MOVES, MOVE_BY_ID, moveFields, mostTimes, applyMove } from './moves.js';
 import { EXAMPLES } from './examples-data.js';
 import { createViewport } from './viewport.js';
+import { createCodeWindow } from './code-ui.js';
+import { sanitizeCode } from './nodes.js';
 import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
 import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.js';
@@ -65,6 +71,12 @@ const state = {
     delay: 0,
     group: true,
   },
+  // the Shape Studio: `on` shows the dots to drag in the 3D view (and hides the arrows), `tool` is the deformer
+  // whose dots they are (-1: the corners of a drawn line, or the loose points), `point` the dot that is selected
+  studio: { on: false, tool: -1, point: -1 },
+  morph: { wait: MORPH_WAIT, time: MORPH_TIME }, // what was typed for the next morph
+  pickFor: null, // { id, index }: the next shape clicked in Add becomes the shape of that key
+  code: sanitizeCode(null), // the Code window: { graph (nodes and wires), own (your own code), lang } (js/nodes.js)
   style: { texture: 'glint', color: '#ffd24a' }, // look of the next new object
   export: { target: 'block', precision: 100, hideDist: 0, worldPos: [0, 0, 0], part: 0 },
 };
@@ -75,6 +87,7 @@ Object.defineProperty(state, 'selected', {
 });
 let viewport = null;
 let timeline = null;
+let codeWindow = null;
 let keyPressed = false; // the last press was on a key of the timeline: Delete then removes that key, never the object
 const images = {};
 const history = [];
@@ -110,6 +123,7 @@ function loadStored() {
     if (!raw) return false;
     state.objects = sanitizeScene(raw).objects;
     applyExportOptions(raw.export);
+    state.code = sanitizeCode(raw.code);
     state.sky = !!raw.sky;
     state.snap = !!raw.snap;
     return true;
@@ -132,7 +146,7 @@ function applyExportOptions(raw) {
 const fileData = () => ({
   app: 'bloxd-particle-studio', version: 1, objects: state.objects,
   export: { target: state.export.target, precision: state.export.precision, hideDist: state.export.hideDist, worldPos: state.export.worldPos },
-  sky: state.sky, snap: state.snap,
+  sky: state.sky, snap: state.snap, code: state.code,
 });
 
 function store() {
@@ -177,6 +191,8 @@ function restore(json) {
   // an array that went into a group, taken back: what it was made of is selected again, for a try with other numbers
   if (!state.selection.length && arrayStep && arrayStep.at === history.length - 1) state.selection = arrayStep.ids.filter((id) => nodeOf(id));
   arrayRest = false;
+  Object.assign(state.studio, { tool: -1, point: -1 }); // (the tool or the dot it was on may be gone)
+  state.pickFor = null;
   reveal();
   stopPlaying();
   store();
@@ -239,7 +255,9 @@ function costOf(node, tr = tree()) {
   for (const leaf of tr.leavesOf(node)) {
     if (tr.isHidden(leaf)) continue;
     const points = leaf.shape === 'point' ? 1 : localPoints(leaf).length;
-    n += tr.plain(leaf) ? points : points * tr.playsOf(leaf).reduce((sum, play) => sum + planOf(leaf, play).pieces.length, 0);
+    // (a piece can be for other points than the ones the object starts with: a key changed its shape)
+    const cost = (play) => planOf(leaf, play).pieces.reduce((sum, piece) => sum + (piece.pts ? piece.pts.length : points), 0);
+    n += tr.plain(leaf) ? points : tr.playsOf(leaf).reduce((sum, play) => sum + cost(play), 0);
   }
   return n;
 }
@@ -261,8 +279,12 @@ function refresh() {
   // the handles sit where the object is at that moment; several objects have none
   const one = nodes.length === 1 && !tr.isHidden(nodes[0]) ? nodes[0] : null;
   const stand = one ? standOf(one, tr) : null;
+  // the Shape Studio: its dots are dragged instead of the arrows
+  const dots = one ? studioDots(one) : [];
+  viewport.setHandles(dots);
+  $('#studio').classList.toggle('on', state.studio.on && !!one && !isGroup(one));
   viewport.setMode(state.pivot && isGroup(one) ? 'translate' : state.mode);
-  viewport.setSelection(ids, stand ? { pose: stand.pose, around: stand.around, point: one.shape === 'point' } : null, !state.playing);
+  viewport.setSelection(ids, stand && !dots.length ? { pose: stand.pose, around: stand.around, point: one.shape === 'point' } : null, !state.playing);
   clearTimeout(statsTimer);
   statsTimer = setTimeout(updateStats, 120);
 }
@@ -434,6 +456,8 @@ function select(id, { add = false, range = false } = {}) {
   else state.selection = [id];
   if (state.selection.join() === before) return;
   state.pivot = false;
+  Object.assign(state.studio, { on: false, tool: -1, point: -1 });
+  endPick();
   // (the rows stay the elements they are, so a click or a drag that began on one goes on)
   if (reveal()) renderList();
   else markRows();
@@ -609,14 +633,14 @@ function numberInput({ get, set, min, max, step = 0.1, digits = 3, title, label,
 }
 
 /** Slider with a number box next to it (the box may go beyond the slider). */
-function sliderPair({ get, set, min, max, step, numMax, label }) {
+function sliderPair({ get, set, min, max, step, numMax, numMin, label }) {
   const range = h('input', {
     type: 'range', min, max, step, 'aria-label': label,
     oninput: () => edit((o) => set(o, Number(range.value))),
     onchange: () => { commit(); range.blur(); }, // give the keyboard back to the shortcuts
   });
   fields.push({ sync: () => { const o = selectedObject(); if (o) range.value = get(o); } });
-  return h('div', { class: 'pair' }, range, numberInput({ get, set, min, max: numMax ?? max, step, label }));
+  return h('div', { class: 'pair' }, range, numberInput({ get, set, min: numMin ?? min, max: numMax ?? max, step, label }));
 }
 
 const row = (label, control) => h('div', { class: 'row' }, h('span', { class: 'l' }, label), control);
@@ -707,7 +731,8 @@ const inline = (...parts) => h('div', { class: 'inline' }, ...parts);
 function headOf(node) {
   const group = isGroup(node);
   const def = SHAPE_BY_ID[node.shape];
-  const fallback = group ? 'Group' : def ? def.name : 'Particle';
+  const custom = !group && !def && node.shape !== 'point'; // drawn, or loose points
+  const fallback = group ? 'Group' : def ? def.name : custom ? formName(node) : 'Particle';
   const name = h('input', {
     type: 'text', maxLength: 40, 'aria-label': 'Name', value: node.name,
     oninput: () => { node.name = name.value.trim() || fallback; },
@@ -715,7 +740,7 @@ function headOf(node) {
   });
   selectOnEntry(name);
   return h('div', { class: 'ins-head' },
-    h('h2', {}, group ? 'Group' : def ? `${def.name} shape` : 'Single particle'),
+    h('h2', {}, group ? 'Group' : def ? `${def.name} shape` : custom ? formName(node) : 'Single particle'),
     row('Name', name),
     h('div', { class: 'buttons' },
       h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
@@ -894,6 +919,16 @@ function keyLookParts(obj, key, index) {
       tick('sizes up to', typeof key.size2 === 'number', (on) => (o) => { at(o).size2 = on ? round(at(o).size * 2, 2) : null; }),
       typeof key.size2 === 'number' ? numberInput({ get: (o) => at(o).size2 ?? at(o).size, set: (o, v) => { at(o).size2 = v; }, min: 0.01, max: 50, step: 0.05, label: 'Largest size at this key' }) : null)) : null,
     note('The colour changes on the way to this key. The size changes in a few steps, each made of particles of its own.'),
+    obj.shape === 'point' ? null : row('Shape', inline(
+      tick('changes here', keyHasForm(key), (on) => (o) => {
+        const k = at(o);
+        if (on) k.form = formCopyAt(o, k.t - 1e-6);
+        else delete k.form;
+      }),
+      keyHasForm(key) ? h('button', { onclick: () => pickShapeFor(index), title: 'Choose the shape it turns into from the shapes in Add' }, 'Pick a shape') : null)),
+    obj.shape === 'point' ? null : note(keyHasForm(key)
+      ? `It morphs into this on the way to the key: ${formName(key.form)}, ${plural(formPoints(key.form).length, 'particle')}. Pick another shape, or bend this one in the Shape Studio (S).`
+      : 'Tick this and it morphs into another shape on the way to this key: every particle flies to its new place.'),
   ];
 }
 
@@ -909,7 +944,8 @@ function keyLook() {
       const { mark } = standOf(o);
       const key = mark.at === 'key' ? o.keys[mark.index] : null;
       const made = key
-        ? [o.id, mark.index, keyHasColor(key), !!key.color2, keyHasSize(key), typeof key.size2 === 'number'].join()
+        ? [o.id, mark.index, keyHasColor(key), !!key.color2, keyHasSize(key), typeof key.size2 === 'number',
+          keyHasForm(key) ? `${key.form.shape} ${formPoints(key.form).length}` : ''].join()
         : [o.id, 'no key', o.keys.length > 0].join();
       if (made !== shown) {
         shown = made;
@@ -1240,7 +1276,9 @@ function arraySection(nodes) {
 const KEYBOARD = [
   ['W, E, R', 'move, rotate, resize'], ['Click', 'select; in a group: the group first, click again for what is in it'],
   ['Ctrl+click', 'select several'], ['Shift+click', 'in the lists: everything in between'], ['Ctrl+A', 'select everything'],
-  ['Ctrl+G', 'group what is selected'], ['Ctrl+Shift+G', 'take the group apart'], ['Ctrl+D', 'duplicate'], ['A', 'array: copies in a row, a grid or a ring'], ['Delete', 'delete'],
+  ['Ctrl+G', 'group what is selected'], ['Ctrl+Shift+G', 'take the group apart'], ['Ctrl+D', 'duplicate'], ['A', 'array: copies in a row, a grid or a ring'],
+  ['S', 'Shape Studio: bend, twist and pull a shape, or draw one'], ['M', 'morph: one shape turns into another'],
+  ['C', 'Code: when and where the scene plays in the game'], ['Delete', 'delete'],
   ['Ctrl+Z, Ctrl+Y', 'undo, redo'], ['Space', 'play or pause'], ['K', 'add a key at the time marker'],
   ['Left, Right', 'move the time marker (Shift: a whole second)'], ['Esc', 'back to the start, then select nothing'], ['F', 'center the view'],
   ['1, 2, 3, 4', 'open or close Add, Scene, Settings, Timeline'],
@@ -1269,6 +1307,9 @@ function nothingSelected() {
       note(h('b', {}, 'Ready-made moves: '), 'Flap, Pulse, Spin, Orbit and more work out the keys for you. Select something and open that category.'),
       note(h('b', {}, 'Repeat: '), 'under Time, an object or a whole group can be played again and again, for fire, smoke or rain.'),
       note(h('b', {}, 'Array: '), 'select something and press Array at the top, or the key A, for copies of it in a row, a grid or a ring.'),
+      note(h('b', {}, 'Shape Studio: '), 'select a shape and press Shape Studio at the top, or the key S, to bend, twist, inflate and pull it, or to move its points one by one. "Draw your own shape" in Add starts a line of your own.'),
+      note(h('b', {}, 'Morph: '), 'select a shape, Ctrl+click a second one and press Morph at the top, or the key M: the first turns into the second.'),
+      note(h('b', {}, 'Code: '), 'press Code at the top, or the key C, to say when and where the scene plays in the game: when a player clicks, joins, hits a mob, types a command. With nodes, or with code of your own.'),
     ]),
     category('keyboard', 'Keyboard and mouse', [
       h('dl', { class: 'keys' }, KEYBOARD.map(([keys, does]) => [h('dt', {}, keys), h('dd', {}, does)])),
@@ -1286,9 +1327,11 @@ function severalSelected(nodes) {
         h('button', { class: 'primary', onclick: groupSelected, title: 'Ctrl+G' }, 'Group'),
         h('button', { onclick: duplicateSelected, title: 'Ctrl+D' }, 'Duplicate'),
         h('button', { onclick: showArray, title: 'Copies in a row, a grid or a ring (A)' }, 'Array'),
+        nodes.every((n) => !isGroup(n)) ? h('button', { onclick: joinSelected, title: 'One shape made of loose points out of all of them' }, 'Join') : null,
         h('button', { onclick: () => { for (const n of nodes) n.hidden = !hidden; commit(); renderInspector(); refresh(); } }, hidden ? 'Show' : 'Hide'),
         h('button', { class: 'danger', onclick: () => removeSelected(), title: 'Delete' }, 'Delete')),
       note('Group them to move, turn and resize them as one, and to give them keys together.')),
+    morphSection(nodes),
     arrangeSection(nodes),
     arraySection(nodes),
   ];
@@ -1307,13 +1350,512 @@ function renderInspector() {
     const def = SHAPE_BY_ID[node.shape];
     parts = isGroup(node)
       ? [headOf(node), placeSection(node), timeSection(node), keysSection(node), movesSection(node), arrangeSection(nodes), arraySection(nodes)]
-      : [headOf(node), lookSection(node), def ? shapeSection(def) : null, placeSection(node), timeSection(node), keysSection(node),
-        movesSection(node), motionSection(!!def), arrangeSection(nodes), arraySection(nodes)];
+      : [headOf(node), lookSection(node), def ? shapeSection(def) : null, node.shape === 'point' ? null : studioSection(),
+        placeSection(node), timeSection(node), keysSection(node),
+        movesSection(node), motionSection(node.shape !== 'point'), arrangeSection(nodes), arraySection(nodes)];
   }
   const top = panel.scrollTop;
   panel.replaceChildren(...parts.filter(Boolean));
   panel.scrollTop = top;
   syncInspector();
+}
+
+// ------------------------------------------------------------------ Shape Studio
+
+/**
+ * What the Shape Studio shapes at the time marker: the shape the object starts
+ * with, or the one the latest key up to the marker gave it. Returns
+ * { form, key, index } (form: the object itself, or the form of that key), or
+ * null for a group or a single particle.
+ */
+function shaping(node = selectedObject()) {
+  if (!node || isGroup(node) || node.shape === 'point') return null;
+  let index = -1;
+  if (state.time > 0 || state.playing) {
+    const { local } = standOf(node);
+    node.keys.forEach((k, i) => { if (k.form && local >= k.t - NEAR_KEY) index = i; });
+  }
+  return index < 0 ? { form: node, key: null, index } : { form: node.keys[index].form, key: node.keys[index], index };
+}
+
+/** The matrix that puts a point of a shape where it is in the scene at the time marker (Bloxd space). */
+function placeOf(node) {
+  const stand = standOf(node);
+  return flipZ(mulAffine(stand.around, viewMatrix(stand.pose)));
+}
+
+const toolHasDots = (tool) => !!(tool && DEFORMER_BY_ID[tool.kind].handles);
+
+/**
+ * The dots to drag in the 3D view: the grips of the tool that is picked, else
+ * the corners of a drawn line or the loose points. None while the Shape Studio
+ * is not at work on the object.
+ */
+function studioDots(node) {
+  const target = state.studio.on && !state.playing ? shaping(node) : null;
+  if (!target) return [];
+  const { form } = target;
+  const m = placeOf(node);
+  const dot = (key, at, more) => ({ key, pos: applyMatrix(m, at), ...more });
+  const tool = (form.deform || [])[state.studio.tool];
+  if (toolHasDots(tool)) {
+    return handlesOf(basePoints(form), form.deform, state.studio.tool).map((hd) => dot(`d:${hd.id}`, hd.at, { minor: !!hd.minor }));
+  }
+  if (form.shape === PATH) return form.path.nodes.map((p, i) => dot(`n:${i}`, p, { selected: i === state.studio.point }));
+  if (form.shape === CLOUD) return form.points.map((p, i) => dot(`p:${i}`, p, { selected: i === state.studio.point }));
+  return [];
+}
+
+/** The corners of a drawn line or the loose points of the shape the Shape Studio is at work on: the list, or null. */
+function dotList(form) {
+  return form.shape === PATH ? form.path.nodes : form.shape === CLOUD ? form.points : null;
+}
+
+/** A dot was dragged to a place in the scene. */
+function dragDot(key, pos) {
+  const node = selectedObject();
+  const target = shaping(node);
+  const inverse = target ? invAffine(placeOf(node)) : null;
+  if (!inverse) return;
+  const step = state.snap ? 0.05 : 0.001;
+  const at = applyMatrix(inverse, pos).map((v) => round(Math.min(50, Math.max(-50, Math.round(v / step) * step)), 3) + 0);
+  const { form } = target;
+  const [kind, id] = key.split(':');
+  if (kind === 'd') dragHandle(basePoints(form), form.deform, state.studio.tool, id, at);
+  else {
+    const list = dotList(form);
+    if (!list || !list[id]) return;
+    list[id] = at;
+    state.studio.point = Number(id);
+  }
+  refresh();
+  syncInspector();
+}
+
+/** A dot was clicked: the settings show its place (clicked again: no longer). */
+function clickDot(key) {
+  const [kind, id] = key.split(':');
+  if (kind === 'd') return;
+  state.studio.point = state.studio.point === Number(id) ? -1 : Number(id);
+  refresh();
+  syncInspector();
+}
+
+/** Take away the corner or the loose point that is picked. false when none is. */
+function removeDot() {
+  const target = shaping();
+  const list = target ? dotList(target.form) : null;
+  const at = state.studio.point;
+  if (!list || !list[at]) return false;
+  const line = target.form.shape === PATH;
+  if (list.length <= (line ? 2 : 1)) {
+    toast(line ? 'A line needs two corners.' : 'This is its last point. To delete the whole shape, press Esc first, then Delete.', 'warn');
+    return true;
+  }
+  list.splice(at, 1);
+  if (!line) target.form.count = list.length;
+  state.studio.point = Math.min(at, list.length - 1);
+  commit();
+  refresh();
+  syncInspector();
+  return true;
+}
+
+/** A new corner after the one that is picked (or at the end of the line), or a new loose point next to the picked one. */
+function addDot() {
+  const target = shaping();
+  const list = target ? dotList(target.form) : null;
+  if (!list) return;
+  const { form } = target;
+  const at = list[state.studio.point] ? state.studio.point : list.length - 1;
+  const here = list[at];
+  const tidy = (p) => p.map((v) => round(Math.min(50, Math.max(-50, v)), 3) + 0);
+  if (form.shape === PATH) {
+    if (list.length >= MAX_NODES) { toast(`A line can have ${MAX_NODES} corners.`, 'warn'); return; }
+    const next = list[at + 1] || (form.path.closed && list.length > 2 ? list[0] : null);
+    const before = list[at - 1];
+    // halfway to the next corner; after the last one: as far again as the step before it
+    const made = next ? here.map((v, k) => (v + next[k]) / 2) : before ? here.map((v, k) => 2 * v - before[k]) : [here[0] + 0.5, here[1], here[2]];
+    list.splice(at + 1, 0, tidy(made));
+    state.studio.point = at + 1;
+  } else {
+    if (list.length >= MAX_POINTS) { toast(`A shape can have ${MAX_POINTS} points.`, 'warn'); return; }
+    list.push(tidy([here[0] + 0.2, here[1], here[2]]));
+    form.count = list.length;
+    state.studio.point = list.length - 1;
+  }
+  Object.assign(state.studio, { on: true, tool: -1 });
+  commit();
+  refresh();
+  syncInspector();
+}
+
+/** A few words on what the Shape Studio has made of an object. */
+function studioSummary(o) {
+  const tools = (o.deform || []).length;
+  const what = o.shape === PATH ? 'drawn' : o.shape === CLOUD ? 'loose points' : '';
+  return [what, tools ? plural(tools, 'tool') : ''].filter(Boolean).join(', ') || 'bend, twist, pull';
+}
+
+const TOOL_GROUPS = [...new Set(DEFORMERS.map((d) => d.group))];
+
+/** One tool (deformer) of a shape: its name, the buttons for it and its sliders. `form()`: the shape it is on. */
+function toolCard(form, tool, n, count, done) {
+  const def = DEFORMER_BY_ID[tool.kind];
+  const at = () => (form().deform || [])[n] || tool;
+  const on = h('input', { type: 'checkbox', checked: tool.on !== false, title: 'On or off', onchange: () => { at().on = on.checked; on.blur(); done(); } });
+  const shift = (by) => () => {
+    const list = form().deform;
+    list.splice(n + by, 0, ...list.splice(n, 1));
+    state.studio.tool = state.studio.tool === n ? n + by : state.studio.tool === n + by ? n : state.studio.tool;
+    done();
+  };
+  const picked = state.studio.on && state.studio.tool === n;
+  const field = (f) => {
+    if (f.kind === 'number') {
+      const pair = sliderPair({
+        get: () => at()[f.key], set: (o, v) => { at()[f.key] = v; }, min: f.slide[0], max: f.slide[1], step: f.step,
+        numMin: f.min, numMax: f.max, label: `${def.name}: ${f.label}`,
+      });
+      return row(f.label, f.unit ? h('div', { class: 'with-unit' }, pair, h('span', { class: 'note' }, f.unit)) : pair);
+    }
+    if (f.kind === 'choice') {
+      const pick = h('select', {
+        'aria-label': `${def.name}: ${f.label}`,
+        onchange: () => { at()[f.key] = Number(pick.value); pick.blur(); done(); },
+      }, f.options.map((o) => h('option', { value: o.id }, o.name)));
+      pick.value = String(tool[f.key]);
+      return row(f.label, pick);
+    }
+    return row(f.label, xyz(() => at()[f.key], (o, i, v) => { at()[f.key][i] = v; }, f.step, `${def.name}: ${f.label}`));
+  };
+  return h('div', { class: `tool${tool.on === false ? ' off' : ''}${picked ? ' picked' : ''}`, 'data-tool': tool.kind },
+    h('div', { class: 'tool-head' },
+      h('label', { class: 'check' }, on, h('b', {}, def.name)),
+      def.handles ? h('button', {
+        class: picked ? 'on' : '', title: 'Show its dots in the 3D view, to drag them',
+        onclick: () => { Object.assign(state.studio, picked ? { tool: -1 } : { on: true, tool: n, point: -1 }); refresh(); syncInspector(); },
+      }, 'Dots') : null,
+      h('button', { title: 'Do this one earlier', 'aria-label': 'Earlier', disabled: n === 0, onclick: shift(-1) }, 'Up'),
+      h('button', { title: 'Do this one later', 'aria-label': 'Later', disabled: n === count - 1, onclick: shift(1) }, 'Down'),
+      h('button', {
+        class: 'danger', title: 'Take this tool away', 'aria-label': `Remove ${def.name}`,
+        onclick: () => {
+          const fm = form();
+          fm.deform.splice(n, 1);
+          if (!fm.deform.length) delete fm.deform;
+          state.studio.tool = -1;
+          done();
+        },
+      }, '\u00D7')),
+    note(def.about),
+    def.fields.map(field),
+    tool.kind === 'cage' ? h('div', { class: 'buttons' }, h('button', {
+      onclick: () => { at().c = at().c.map(() => [0, 0, 0]); done(); },
+    }, 'Put the corners back')) : null);
+}
+
+/** What the Shape Studio category holds for a shape: see studioSection(). */
+function studioParts(node, target) {
+  const form = () => (shaping() || target).form; // (looked up again every time: after Undo the objects are new ones)
+  const f0 = target.form;
+  const def = SHAPE_BY_ID[f0.shape];
+  const done = () => { commit(); refresh(); syncInspector(); };
+  const tools = f0.deform || [];
+  const list = dotList(f0);
+  const sel = state.studio.point;
+  const dotted = !!list || tools.some(toolHasDots);
+  const showDots = h('input', {
+    type: 'checkbox', checked: state.studio.on,
+    onchange: () => { state.studio.on = showDots.checked; showDots.blur(); refresh(); syncInspector(); },
+  });
+  const count = (min) => row('How many', sliderPair({
+    get: () => form().count, set: (o, v) => { form().count = Math.round(v); }, min, max: 300, step: 1, numMax: MAX_COUNT, label: 'Particle count',
+  }));
+  const parts = [
+    note(target.key
+      ? `This is the shape ${node.name} turns into at key ${target.index + 1}. To shape what it starts with, go back to the start (Esc).`
+      : node.keys.some(keyHasForm)
+        ? `This is the shape ${node.name} starts with. Its keys change it: put the time marker on such a key to shape what it turns into.`
+        : 'Bend, twist, inflate and pull the shape with the tools below. Every tool works on what the tools above it have made.'),
+    dotted ? h('label', { class: 'check line' }, showDots, 'Dots to drag in the 3D view') : null,
+    dotted && state.studio.on ? note('Drag a dot to move it. While the dots are there the arrows are away: untick this, or press Esc, to move the whole shape again.') : null,
+  ];
+  if (target.key && def) {
+    // (the shape a key gives it has its sliders here; those of the shape it starts with are under Shape)
+    parts.push(
+      h('h3', {}, def.name),
+      count(def.min),
+      (def.params || []).map((p) => row(p.label, sliderPair({
+        get: () => form().params[p.key] ?? p.default, set: (o, v) => { form().params[p.key] = v; }, min: p.min, max: p.max, step: p.step, label: p.label,
+      }))),
+      h('div', { class: 'buttons' }, h('button', { onclick: () => pickShapeFor(target.index) }, 'Pick another shape')));
+  }
+  if (list) {
+    const line = f0.shape === PATH;
+    const one = () => dotList(form())[sel];
+    parts.push(
+      h('h3', {}, line ? 'Drawn line' : 'Loose points'),
+      row(line ? 'Corners' : 'Points', inline(
+        h('b', {}, String(list.length)),
+        h('button', { 'data-do': 'add-dot', onclick: addDot, title: line ? 'A new corner after the picked one' : 'A new point next to the picked one' }, 'Add'),
+        h('button', { class: 'danger', 'data-do': 'remove-dot', disabled: !list[sel], onclick: removeDot, title: 'Take the picked one away (Delete)' }, 'Remove'))),
+      list[sel]
+        ? row(`${line ? 'Corner' : 'Point'} ${sel + 1}`, xyz(() => one() || [0, 0, 0], (o, i, v) => { if (one()) one()[i] = v; }, 0.1, line ? 'Corner' : 'Point'))
+        : note(`Click a dot in the 3D view to pick ${line ? 'a corner' : 'a point'}: its place can be typed here, and Add puts a new one next to it.`));
+    if (line) {
+      const flag = (key, label, title) => {
+        const el = h('input', { type: 'checkbox', checked: !!f0.path[key], onchange: () => { form().path[key] = el.checked; el.blur(); done(); } });
+        return h('label', { class: 'check', title }, el, label);
+      };
+      const mode = h('select', {
+        'aria-label': 'What the particles do with the line', onchange: () => { form().path.mode = mode.value; mode.blur(); done(); },
+      }, PATH_MODES.map((m) => h('option', { value: m.id }, m.name)));
+      mode.value = f0.path.mode;
+      parts.push(
+        row('Line', inline(flag('closed', 'closed', 'The last corner is joined to the first'), flag('smooth', 'smooth', 'A curve through the corners instead of straight lines'))),
+        row('Particles', mode),
+        count(1),
+        f0.path.mode === 'fill' ? note(f0.path.closed ? 'The particles fill the inside of the line.' : 'Tick "closed": only a closed line has an inside to fill.') : null,
+        f0.path.mode === 'spin' ? note('The line is spun around the upright line through its pivot, like clay on a wheel: draw half an outline, to the right of the pivot.') : null);
+    }
+  }
+  const choose = h('select', {
+    'aria-label': 'Add a tool', 'data-do': 'add-tool',
+    onchange: () => {
+      const kind = choose.value;
+      choose.value = '';
+      choose.blur();
+      const fm = form();
+      if (!DEFORMER_BY_ID[kind]) return;
+      if ((fm.deform || []).length >= MAX_DEFORMERS) {
+        toast(`A shape can have ${MAX_DEFORMERS} tools. Take one away, or press "Turn into loose points": that works them all in.`, 'warn');
+        return;
+      }
+      const made = newDeformer(kind, formPoints(fm));
+      (fm.deform || (fm.deform = [])).push(made);
+      if (toolHasDots(made)) Object.assign(state.studio, { on: true, tool: fm.deform.length - 1, point: -1 });
+      done();
+      toast(`${DEFORMER_BY_ID[kind].name}: ${DEFORMER_BY_ID[kind].about}${toolHasDots(made) ? ' Drag its dots in the 3D view.' : ''}`);
+    },
+  }, h('option', { value: '' }, 'Choose ...'),
+  TOOL_GROUPS.map((g) => h('optgroup', { label: g }, DEFORMERS.filter((d) => d.group === g).map((d) => h('option', { value: d.id, title: d.about }, d.name)))));
+  parts.push(
+    h('h3', {}, 'Tools'),
+    row('Add a tool', choose),
+    tools.map((tool, n) => toolCard(form, tool, n, tools.length, done)),
+    h('div', { class: 'buttons' },
+      f0.shape !== CLOUD || tools.length ? h('button', {
+        'data-do': 'bake',
+        title: 'The points it is made of now become loose points: each can be moved by hand. Its sliders and its tools are worked in and go away.',
+        onclick: () => {
+          bakeForm(form());
+          Object.assign(state.studio, { on: true, tool: -1, point: -1 });
+          done();
+          renderInspector();
+          toast('Now it is made of loose points. Drag them in the 3D view, one by one.');
+        },
+      }, 'Turn into loose points') : null,
+      tools.length ? h('button', { class: 'danger', onclick: () => { delete form().deform; state.studio.tool = -1; done(); } }, 'Remove all tools') : null));
+  return parts;
+}
+
+/**
+ * The Shape Studio: tools that bend, twist and pull a shape (js/deform.js), a
+ * line drawn by hand, and loose points (js/forms.js). It follows the time
+ * marker: on a key that changes the shape it is at work on that shape. So it is
+ * built anew whenever what it shows is something else.
+ */
+function studioSection() {
+  const box = h('div', { class: 'studio' });
+  const local = [];
+  let shown = null;
+  fields.push({
+    sync: () => {
+      const o = selectedObject();
+      const target = shaping(o);
+      if (!target) return;
+      const { form } = target;
+      const made = JSON.stringify([
+        o.id, target.index, form.shape, state.studio, o.keys.map((k) => !!k.form),
+        (form.deform || []).map((d) => [d.kind, d.on]),
+        form.path ? [form.path.nodes.length, form.path.closed, form.path.smooth, form.path.mode] : 0,
+        form.points ? form.points.length : 0,
+      ]);
+      if (made !== shown) {
+        shown = made;
+        local.length = 0;
+        box.replaceChildren(h('div', {}, withFields(local, () => studioParts(o, target))));
+      }
+      for (const f of local) f.sync();
+    },
+  });
+  return category('studio', 'Shape Studio', [box], { summary: summary(studioSummary) });
+}
+
+/** Open a category of the settings and bring it into view. */
+function showCategory(id) {
+  keep(id, true);
+  renderInspector();
+  const section = $(`#inspector [data-cat="${id}"]`);
+  if (!section) return;
+  section.classList.add('flash'); // (a moment of light, so the eye finds what the button opened)
+  section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/**
+ * The Shape Studio button in the bar at the top, and the key S: opens the
+ * settings on the Shape Studio category and shows the dots of the shape, or
+ * says what to select first. Pressed again while the dots are there: back to
+ * the arrows.
+ */
+function studioTool() {
+  const node = selectedObject();
+  if (state.selection.length !== 1 || !node || isGroup(node) || node.shape === 'point') {
+    const what = !state.objects.length ? 'Add a shape first, or press "Draw your own shape" in + Add.'
+      : isGroup(node) && state.selection.length === 1 ? 'A group has no shape of its own: click a shape inside it.'
+        : node && node.shape === 'point' && state.selection.length === 1 ? 'A single particle has no shape to bend: select a shape, or press "Draw your own shape" in + Add.'
+          : 'Select one shape first: click it in the 3D view. Or press "Draw your own shape" in + Add.';
+    toast(`The Shape Studio bends, twists and pulls a shape, and lets you draw one. ${what}`);
+    return;
+  }
+  $('#toast').hidden = true;
+  state.studio.on = !(state.studio.on && studioDots(node).length > 0);
+  showPanel('settings', true);
+  showCategory('studio');
+  refresh();
+}
+
+/** "Draw your own shape" in Add: a line with a few corners to drag. */
+function drawShape() {
+  stopPlaying();
+  endPick();
+  const pos = [0.5, 2.5, 0.5];
+  const taken = () => state.objects.some((o) => !o.parent && o.pos.every((v, i) => Math.abs(v - pos[i]) < 1e-6));
+  while (taken()) pos[0] += 2.5;
+  const obj = createObject(PATH, {
+    name: uniqueName(state.objects, 'Drawing'), pos, count: 24, texture: state.style.texture, color: state.style.color,
+    path: { nodes: [[-1, -0.6, 0], [-0.35, 0.6, 0], [0.35, -0.3, 0], [1, 0.6, 0]], closed: false, smooth: true, mode: 'line' },
+  });
+  state.time = 0;
+  state.objects.push(obj);
+  state.selection = [obj.id];
+  Object.assign(state.studio, { on: true, tool: -1, point: -1 });
+  commit();
+  showPanel('settings', true);
+  showCategory('studio');
+  refresh();
+  toast('Drag the white dots to draw. More corners, a closed or a filled shape: in the settings, under Shape Studio.');
+}
+
+// ------------------------------------------------------------------ morph: one shape turns into another
+
+/** The two shapes a morph is for, the one that changes first (the order they were selected in). null when it is not two shapes. */
+function morphPair() {
+  const picked = state.selection.map(nodeOf).filter(Boolean);
+  return picked.length === 2 && picked.every((n) => !isGroup(n)) ? picked : null;
+}
+
+function makeMorph() {
+  const pair = morphPair();
+  if (!pair) return;
+  const names = pair.map((n) => n.name);
+  const done = morphNodes(state.objects, pair.map((n) => n.id), state.morph);
+  take(done, {
+    ids: done.ids,
+    say: `${names[0]} turns into ${names[1]}, from ${round(done.from, 2)} to ${round(done.to, 2)} seconds after it appears. Press Play to see it. `
+      + 'Its keys on the timeline say when: drag them to change that.',
+  });
+}
+
+/** With two shapes selected: the first turns into the second. */
+function morphSection() {
+  const pair = morphPair();
+  if (!pair) return null;
+  const [a, b] = pair;
+  const seconds = (key, label, min) => {
+    const el = selectOnEntry(h('input', {
+      type: 'number', min, max: 600, step: 0.1, value: state.morph[key], 'aria-label': label, 'data-morph': key,
+      oninput: () => { if (el.value !== '' && Number.isFinite(Number(el.value))) state.morph[key] = Math.min(600, Math.max(min, Number(el.value))); },
+    }));
+    return el;
+  };
+  return category('morph', 'Morph', [
+    note(h('b', {}, a.name), ' turns into ', h('b', {}, b.name), ': every particle flies to a place in the other shape. Particles that are too many fade away, missing ones fade in.'),
+    row('First', withUnit(seconds('wait', 'Seconds it keeps its own shape first', 0), 'seconds as it is')),
+    row('Then', withUnit(seconds('time', 'Seconds the change takes', MIN_KEY_GAP), 'seconds to change')),
+    h('div', { class: 'buttons' },
+      h('button', { class: 'primary', 'data-do': 'morph', onclick: makeMorph }, `Morph ${a.name} into ${b.name}`),
+      h('button', { title: 'The other one changes', 'data-do': 'swap', onclick: () => { state.selection = [b.id, a.id]; renderInspector(); refresh(); } }, 'Swap')),
+    note(`${a.name} gets keys for it on the timeline and takes the place, the size, the colour and the particle size of ${b.name}, `
+      + `which is taken out of the scene. It keeps its own picture: the game cannot change that on the way.`),
+  ], { open: true });
+}
+
+/**
+ * The Morph button in the bar at the top, and the key M: opens the settings on
+ * the Morph category, or says what to select first.
+ */
+function morphTool() {
+  if (!morphPair()) {
+    toast(`Morph turns one shape into another. ${state.objects.filter((o) => !isGroup(o)).length < 2
+      ? 'Add two shapes first.' : 'Select the shape that changes, then Ctrl+click the shape it turns into.'}`);
+    return;
+  }
+  $('#toast').hidden = true;
+  showPanel('settings', true);
+  showCategory('morph');
+}
+
+/**
+ * The Code button in the bar at the top, and the key C: the window in which
+ * nodes (or code of your own) say when and where the scene plays in the game.
+ */
+function codeTool() {
+  stopPlaying();
+  $('#toast').hidden = true;
+  codeWindow.open();
+}
+
+/** Several shapes become one, made of loose points. */
+function joinSelected() {
+  const done = joinNodes(state.objects, state.selection.slice());
+  take(done, {
+    ids: done.ids,
+    say: done.left ? `Joined, but ${plural(done.left, 'point')} did not fit: a shape can have ${MAX_POINTS}.`
+      : 'Joined into one shape of loose points. The Shape Studio (S) moves them one by one.',
+  });
+}
+
+/** The next shape clicked in Add becomes the shape the selected object turns into at one of its keys. */
+function pickShapeFor(index) {
+  const node = selectedObject();
+  if (!node || !node.keys[index]) return;
+  state.pickFor = { id: node.id, index };
+  $('#pick-text').textContent = `Click the shape ${node.name} turns into at key ${index + 1}.`;
+  $('#pick-note').hidden = false;
+  showPanel('add', true);
+}
+
+function endPick() {
+  state.pickFor = null;
+  $('#pick-note').hidden = true;
+}
+
+/** A shape was clicked in Add: a new object, or the shape a key was waiting for. */
+function chooseShape(id) {
+  const pick = state.pickFor;
+  const node = pick ? nodeOf(pick.id) : null;
+  const key = node && node.shape !== 'point' ? node.keys[pick.index] : null;
+  endPick();
+  const def = SHAPE_BY_ID[id];
+  if (!key || !def) { addObject(id); return; }
+  stopPlaying();
+  key.form = { shape: id, count: def.count, params: defaultParams(id) };
+  commit();
+  renderInspector();
+  refresh();
+  toast(`${node.name} turns into ${def.name} on the way to key ${pick.index + 1}. Press Play to see it.`);
 }
 
 // ------------------------------------------------------------------ time
@@ -1759,6 +2301,7 @@ async function openFile(file) {
     return;
   }
   applyExportOptions(raw.export);
+  if (raw.code) state.code = sanitizeCode(raw.code); // (a file from before the Code window leaves what is there)
   openScene(objects, `Opened "${file.name}".`);
 }
 
@@ -1867,7 +2410,7 @@ function bindShapePicker() {
       const picture = h('canvas', { width: 88, height: 88 });
       made.set(s.id, h('button', {
         title: s.name, 'aria-label': `Add ${s.name}`, 'data-shape': s.id,
-        onclick: () => addObject(s.id),
+        onclick: () => chooseShape(s.id),
       }, picture, h('span', {}, shapeCaption(s)))); // (a long word in it breaks where it reads well)
       blank.set(picture, s);
       if (watch) watch.observe(picture);
@@ -1919,7 +2462,7 @@ function bindShapePicker() {
   search.onkeydown = (e) => {
     if (e.key === 'Enter') {
       const first = searchShapes(search.value)[0];
-      if (first) addObject(first.id);
+      if (first) chooseShape(first.id);
     } else if (e.key === 'Escape' && search.value) {
       search.value = '';
       show();
@@ -2077,6 +2620,18 @@ function bindUi() {
   $('#play').onclick = togglePlay;
   $('#group').onclick = () => { groupSelected(); $('#group').blur(); };
   $('#array').onclick = () => { arrayTool(); $('#array').blur(); };
+  $('#studio').onclick = () => { studioTool(); $('#studio').blur(); };
+  $('#morph').onclick = () => { morphTool(); $('#morph').blur(); };
+  $('#add-draw').onclick = drawShape;
+  $('#pick-cancel').onclick = endPick;
+  codeWindow = createCodeWindow({
+    code: () => state.code,
+    objects: () => state.objects,
+    options: () => ({ precision: state.export.precision, hideDist: state.export.hideDist }),
+    changed: store,
+    download,
+  });
+  $('#code').onclick = () => { codeTool(); $('#code').blur(); };
   bindTimeline();
   $('#focus').onclick = () => viewport && viewport.focus(allPoints());
   // after an array is made its copies-to-be are not shown again until the pointer has been somewhere else
@@ -2137,7 +2692,7 @@ function bindUi() {
 
   window.addEventListener('keydown', (e) => {
     const t = e.target;
-    if ($('#export-dialog').open) return;
+    if ($('#export-dialog').open || $('#code-dialog').open) return;
     if (e.key === 'Escape' && !$('#examples-menu').hidden) { closeExamples(); return; }
     if (t instanceof HTMLElement) {
       if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return; // typing
@@ -2157,6 +2712,7 @@ function bindUi() {
       refresh();
     }
     else if (mod || e.altKey) return;
+    else if ((key === 'delete' || key === 'backspace') && state.studio.on && state.studio.point >= 0 && removeDot()) e.preventDefault();
     else if (key === 'delete' || key === 'backspace') {
       if (keyPressed) {
         e.preventDefault();
@@ -2168,6 +2724,9 @@ function bindUi() {
     else if (key === 'e') setMode('rotate');
     else if (key === 'r') setMode('scale');
     else if (key === 'a') arrayTool();
+    else if (key === 's') studioTool();
+    else if (key === 'm') morphTool();
+    else if (key === 'c') codeTool();
     else if (key === 'f') $('#focus').click();
     else if (key === ' ') { e.preventDefault(); togglePlay(); }
     else if (key === 'k') addKeyHere();
@@ -2175,7 +2734,12 @@ function bindUi() {
     else if (key === 'arrowleft' || key === 'arrowright') {
       e.preventDefault();
       seek(state.time + (key === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 1 : 0.05), 0, true);
-    } else if (key === 'escape') { if (state.playing || state.time > 0) rewind(); else select(null); }
+    } else if (key === 'escape') {
+      if (state.pickFor) endPick();
+      else if (state.studio.on) { Object.assign(state.studio, { on: false, tool: -1, point: -1 }); refresh(); syncInspector(); }
+      else if (state.playing || state.time > 0) rewind();
+      else select(null);
+    }
   });
 }
 
@@ -2203,6 +2767,9 @@ async function start() {
         else k.scale = t.scale.map((v) => round(Math.min(100, Math.max(-100, v))));
       })),
       onTransformEnd: commit,
+      onHandleDrag: dragDot,
+      onHandleEnd: () => { commit(); syncInspector(); },
+      onHandleClick: clickDot,
       onFrame,
     });
   } catch (err) {
@@ -2225,6 +2792,7 @@ async function start() {
     state, viewport, timeline, generateCode, select, addObject, seek, examples: EXAMPLES, openExample,
     redraw: () => { commit(); renderInspector(); refresh(); },
     showPanel, panels: () => ({ ...shown }),
+    code: codeWindow,
   };
 }
 
