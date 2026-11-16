@@ -734,11 +734,34 @@ function checkCall(o) {
   if ('hideDist' in o) assert.ok(o.hideDist > 0);
 }
 
-/** Run a part the way a code block runs it and collect the calls. */
+/** The line that puts the particles with timing into the order of time before they are played. */
+const SORT_LINE = 'Q.sort((a, b) => b[0] - a[0] || a[1] - b[1])';
+
+/**
+ * Run a part the way a code block runs it and collect the calls.
+ * They come back in the order they are WRITTEN in the code (object after object, point after point, piece after
+ * piece): that is how the tests know which call is which. The game gets them in another order, the order of time:
+ * `calls.played` holds the numbers of the calls as the game gets them, the first one first.
+ */
 function runPart(code, thisPos) {
-  const calls = [];
-  const sandbox = { thisPos, api: { playParticleEffect: (o) => calls.push(JSON.parse(JSON.stringify(o))) } };
-  vm.runInNewContext(code, sandbox, { timeout: 5000 });
+  const got = []; // as the game gets them
+  let noted = []; // what T(...) put into its list, as written
+  const sandbox = {
+    thisPos,
+    api: { playParticleEffect: (o) => got.push(o) },
+    listed: (list) => { noted = list.map((entry) => entry[2]); },
+  };
+  // (the list is looked at just before the code sorts it)
+  const sorts = code.split(SORT_LINE).length - 1;
+  assert.ok(sorts <= 1, 'the list is sorted once');
+  assert.equal(sorts === 1, code.includes('const T ='), 'a code block that has the helper for timing plays its list in the order of time');
+  vm.runInNewContext(code.replace(SORT_LINE, `listed(Q)\n${SORT_LINE}`), sandbox, { timeout: 5000 });
+  const late = new Set(noted);
+  const written = [...got.filter((o) => !late.has(o)), ...noted]; // what is written the short way is played on the spot
+  assert.equal(written.length, got.length, 'everything that was noted down was played, once');
+  const number = new Map(written.map((o, n) => [o, n]));
+  const calls = written.map((o) => JSON.parse(JSON.stringify(o)));
+  calls.played = got.map((o) => number.get(o));
   return calls;
 }
 
@@ -1109,15 +1132,17 @@ const ORIGIN = [10, 20, -30];
 function runExport(objects, options = {}) {
   const result = generateCode(objects, options);
   const calls = [];
+  const played = []; // the numbers of the calls in the order the game gets them: code block after code block
   result.parts.forEach((part, i) => {
     checkLimits(part, `part ${i + 1}/${result.parts.length}`);
     const got = runPart(part.code, [ORIGIN[0], ORIGIN[1] + i, ORIGIN[2]]);
     assert.equal(got.length, part.particles, `part ${i + 1} particle count`);
+    played.push(...got.played.map((n) => n + calls.length));
     calls.push(...got);
   });
   calls.forEach(checkCall);
   assert.equal(calls.length, result.particles);
-  return { result, calls };
+  return { result, calls, played };
 }
 
 /** How much of a particle of the stand-in engine is seen (0 to 1), the way its blend mode draws it. */
@@ -1739,6 +1764,479 @@ test('groups: whatever the groups and the keys, every point is shown, and on its
   }
   assert.ok(split >= 1, 'one scene at least takes more than one statement');
   assert.ok(pieces / 40 < 20, `${(pieces / 40).toFixed(1)} particles for a point on average`);
+});
+
+// ---------------------------------------------------------------- the order in which the particles are made
+//
+// The game does not make all the particles of a click in the same instant (so
+// it seems: js/codegen.js says why). A particle counts its time from the
+// moment it is made, so what is made later does everything later. The code
+// therefore makes together what has to be in step, family by family, and a
+// family in the order of time. These tests play the particles the way the
+// game then does: one after the other, over several frames.
+
+/** Which point of which object every call with timing shows: [{ leaf, point, of (points of the leaf), play }], null for the others. */
+function whoIs(objects, calls) {
+  const tree = sceneTree(objects);
+  const leaves = tree.leaves().filter((o) => !tree.plain(o));
+  const piecesIn = (leaf) => tree.playsOf(leaf).flatMap((play, n) => planOf(leaf, play).pieces.map(() => n)).reverse(); // (latest first)
+  const who = new Array(calls.length).fill(null);
+  let at = calls.length - leaves.reduce((n, leaf) => n + localPoints(leaf).length * piecesIn(leaf).length, 0);
+  for (const leaf of leaves) {
+    const plays = piecesIn(leaf);
+    const of = localPoints(leaf).length;
+    for (let point = 0; point < of; point++) for (const play of plays) who[at++] = { leaf, point, of, play };
+  }
+  return who;
+}
+
+/** The age at which a call lets its particle be seen. */
+function showsAt(call) {
+  const full = Math.max(1, ...call.colorGradients.map((g) => Math.max(...g.minColor.slice(0, 3))));
+  const seen = (g) => (call.blendMode === 0 ? Math.max(...g.minColor.slice(0, 3)) / full : g.minColor[3]) > 0;
+  const first = call.colorGradients.find(seen);
+  return (first ? first.timeFraction : 0) * call.minLifeTime;
+}
+
+/**
+ * What is seen frame by frame when the game makes the n-th particle `delay(n)` seconds after the first.
+ * order : the numbers of the calls, in the order the game gets them
+ * Returns one Map for every frame: 'object:point:play' -> { leaf, at: [where each particle that shows the point is] }.
+ */
+function filmOf(calls, who, order, { fps = 60, delay = () => 0, seconds }) {
+  const h = frameAge(fps);
+  const made = order.filter((c) => who[c]).map((c, n) => ({ c, born: Math.ceil(delay(n) * fps - 1e-9), p: null }));
+  const frames = [];
+  for (let f = 0; f / fps < seconds; f++) {
+    const seen = new Map();
+    for (const e of made) {
+      if (f < e.born) continue;
+      if (f === e.born) e.p = createParticle(calls[e.c], () => 0.5); // made in this frame: the game moves it from the next one on
+      else if (!e.p.alive || !e.p.update(h)) continue;
+      if (strength(e.p, calls[e.c]) <= 0.5) continue;
+      const { leaf, point, play } = who[e.c];
+      const name = `${leaf.id}:${point}:${play}`;
+      if (!seen.has(name)) seen.set(name, { leaf, at: [] });
+      seen.get(name).at.push(e.p.position.slice());
+    }
+    frames.push(seen);
+  }
+  return frames;
+}
+
+/**
+ * A film against the film in which every particle was made in the same frame (both start when the first thing shows).
+ * apart  : things that are seen at the same moment: how far the worst two of them have slipped from each other, in blocks
+ *          (the slip of a thing: how far its particles are, on average, from where they should be at that moment)
+ * blinks : frames in which a point is not shown at all, between the first and the last frame that show it
+ * twice  : the share of the frames of a point in which two particles show it
+ */
+function outOfStep(film, ideal) {
+  const first = (frames) => frames.findIndex((seen) => seen.size > 0);
+  const shift = first(film) - first(ideal);
+  let apart = 0, twice = 0, shown = 0, blinks = 0;
+  const lastSeen = new Map();
+  film.forEach((seen, f) => {
+    for (const [name, { at }] of seen) {
+      shown++;
+      if (at.length > 1) twice++;
+      if (lastSeen.has(name) && lastSeen.get(name) < f - 1) blinks += f - 1 - lastSeen.get(name);
+      lastSeen.set(name, f);
+    }
+    const want = ideal[f - shift];
+    if (!want) return;
+    const slips = new Map();
+    for (const [name, { leaf, at }] of seen) {
+      const there = want.get(name);
+      if (!there) continue;
+      if (!slips.has(leaf)) slips.set(leaf, []);
+      for (const p of at) slips.get(leaf).push(p.map((v, j) => v - there.at[0][j]));
+    }
+    const means = [...slips.values()].map((list) => [0, 1, 2].map((j) => list.reduce((sum, o) => sum + o[j], 0) / list.length));
+    for (let a = 0; a < means.length; a++) for (let b = a + 1; b < means.length; b++) apart = Math.max(apart, dist(means[a], means[b]));
+  });
+  return { apart, blinks, twice: twice / shown };
+}
+
+/** Eight arcs in a group that flies off, turns over and comes down: fast, the way the scene a user sent in does. */
+const cageScene = () => scene(
+  createGroup({ id: 'g', name: 'Arc ring', pos: [0.5, 2, 0.5], keys: [
+    { t: 0.8, pos: [0.5, 4.4, -5.9], rot: [-40, 0, 0], scale: [1, 1, 1], ease: 'in' },
+    { t: 1.55, pos: [0.5, 4.2, -5.8], rot: [56, 0, 0], scale: [1, 1, 1], ease: 'in' },
+    { t: 3, pos: [0.5, 2.1, -8], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'in' },
+  ] }),
+  ...Array.from({ length: 8 }, (_, m) => createObject('arc', {
+    id: `arc${m}`, name: `Arc ${m + 1}`, count: 12, parent: 'g', pos: [0, 0, 0], rot: [90, m * 45, 0], life: 1.8,
+  })),
+);
+
+test('order: the particles with timing are played family by family, and a family in the order of time', () => {
+  const objects = scene(
+    createObject('star', { id: 'still', name: 'Still', count: 10, pos: [4, 1, 0] }), // no timing: written the short way
+    ...cageScene(),
+    // on its own, with keys of its own: other moments than the group
+    createObject('circle', { id: 'solo', name: 'Solo', count: 9, pos: [-3, 2, 0], life: 1.5, keys: [key(1.2, { pos: [-3, 5, 0], rot: [0, 0, 90] })] }),
+    // played three times: every play has pieces of its own
+    createObject('heart', { id: 'again', name: 'Again', count: 7, pos: [3, 2, 0], life: 0.6, repeat: 3, every: 0.7, fadeIn: true }),
+    // seen all the time, in a blend mode that hides by darkening
+    createObject('line', { id: 'dark', name: 'Dark', count: 5, pos: [0, 6, 0], blend: 0, life: 2.4, keys: [key(2, { pos: [2, 6, 0], ease: 'linear' })] }),
+  );
+  const { result, calls, played } = runExport(objects);
+  assert.equal(result.parts.length, 1);
+  const who = whoIs(objects, calls);
+  assert.equal(who.filter((w) => !w).length, 10, 'the star has no timing');
+  // nothing is lost and nothing is played twice
+  assert.deepEqual(played.slice().sort((a, b) => a - b), calls.map((_, n) => n));
+  // what has no timing is played where it is written: first
+  assert.deepEqual(played.slice(0, 10), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  // The eight arcs move as one: a family (the biggest, so it is number 0). The others go their own ways.
+  // The numbers are the order of making, the latest first: 'dark' is seen for four seconds (its middle is the
+  // latest: made before the arcs, so -1), the arcs for three, 'solo' for two and a half, 'again' until 2.4 s.
+  const family = (c) => result.families[who[c].leaf.id];
+  assert.deepEqual(result.families, {
+    arc0: 0, arc1: 0, arc2: 0, arc3: 0, arc4: 0, arc5: 0, arc6: 0, arc7: 0, solo: 1, again: 2, dark: -1,
+  });
+  // the rest: family after family, the smaller number first. Inside a family: by the middle of the time each piece
+  // is seen, the latest first; the same moment: along the shapes; then as written
+  const middle = (c) => showsAt(calls[c]) + calls[c].minLifeTime;
+  const along = (c) => who[c].point / who[c].of;
+  const expected = played.slice(10).sort((a, b) => family(a) - family(b) || middle(b) - middle(a) || along(a) - along(b) || a - b);
+  assert.deepEqual(played.slice(10), expected);
+  // (and that is another order than the one they are written in)
+  assert.notDeepEqual(played, calls.map((_, n) => n));
+
+  // The piece that takes over from another is made before it: no point is ever gone for a moment.
+  const rank = new Map(played.map((c, n) => [c, n]));
+  const byPoint = new Map();
+  who.forEach((w, c) => {
+    if (!w) return;
+    const name = `${w.leaf.id}:${w.point}:${w.play}`;
+    if (!byPoint.has(name)) byPoint.set(name, []);
+    byPoint.get(name).push(c);
+  });
+  let handovers = 0;
+  for (const list of byPoint.values()) {
+    const inTime = list.slice().sort((a, b) => calls[a].minLifeTime - calls[b].minLifeTime);
+    for (let k = 1; k < inTime.length; k++) {
+      assert.ok(rank.get(inTime[k]) < rank.get(inTime[k - 1]), 'a later piece is made before an earlier one');
+      handovers++;
+    }
+  }
+  assert.ok(handovers > 500);
+
+  // The eight arcs do the same things at the same moments: their pieces are neighbours in the order.
+  const arcs = played.filter((c) => who[c] && who[c].leaf.parent === 'g');
+  const moments = [...new Set(arcs.map(middle))];
+  const arc = objects.find((o) => o.id === 'arc0');
+  assert.equal(moments.length, planOf(arc, sceneTree(objects).playsOf(arc)[0]).pieces.length);
+  for (const m of moments) {
+    const ranks = arcs.filter((c) => middle(c) === m).map((c) => rank.get(c));
+    assert.equal(ranks.length, 8 * 12);
+    // nothing else lies between the first and the last of them
+    assert.equal(Math.max(...ranks) - Math.min(...ranks) + 1, 8 * 12, 'the 96 particles of one moment are made in a row');
+    // along the shapes: the first points of all eight arcs come before the second ones
+    const points = (n) => arcs.filter((c) => middle(c) === m && who[c].point === n).map((c) => rank.get(c));
+    assert.ok(Math.max(...points(0)) < Math.min(...points(1)));
+  }
+});
+
+test('order: a group that moves stays in step when the game makes the particles one after the other', () => {
+  const objects = cageScene();
+  const { calls, played } = runExport(objects);
+  const who = whoIs(objects, calls);
+  const written = calls.map((_, n) => n);
+  const seconds = sceneDuration(objects) + 0.4;
+  for (const fps of [60, 30]) {
+    const ideal = filmOf(calls, who, written, { fps, seconds });
+    // all made in the same frame: the order changes nothing at all
+    assert.deepEqual(filmOf(calls, who, played, { fps, seconds }), ideal);
+    assert.equal(outOfStep(ideal, ideal).apart, 0);
+    for (const [name, delay] of [
+      ['the last one a tenth of a second after the first', (n) => (n / calls.length) * 0.1],
+      ['the last one a quarter of a second after the first', (n) => (n / calls.length) * 0.25],
+      ['a hundred in every twentieth of a second', (n) => Math.floor(n / 100) * 0.05],
+    ]) {
+      const label = `${name}, ${fps} fps`;
+      const before = outOfStep(filmOf(calls, who, written, { fps, delay, seconds }), ideal);
+      const now = outOfStep(filmOf(calls, who, played, { fps, delay, seconds }), ideal);
+      // object after object, the arcs were far from each other: each was late by all the particles of the arcs before it
+      assert.ok(before.apart > 0.9, `${label}: written object after object the arcs are ${before.apart.toFixed(2)} blocks out of step`);
+      // in the order of time they stay together
+      assert.ok(now.apart < before.apart / 4, `${label}: ${now.apart.toFixed(2)} blocks out of step now, ${before.apart.toFixed(2)} before`);
+      // and no point is ever gone for a moment: where pieces take over, the point is seen twice instead
+      assert.equal(now.blinks, 0, `${label}: a point was gone in ${now.blinks} frames`);
+      assert.ok(now.twice < 0.15, `${label}: points are seen twice in ${(now.twice * 100).toFixed(0)}% of the frames`);
+    }
+  }
+});
+
+test('order: what moves together is one family, and what goes its own way keeps its particles to itself', () => {
+  const still = { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1], ease: 'smooth' };
+  const objects = scene(
+    createGroup({ id: 'stage', name: 'Stage' }), // it has no timing: what is in it has nothing to do with each other
+    // a bird that flies, with a wing that flaps: a group with keys, and in it a group with keys of its own
+    createGroup({ id: 'bird', name: 'Bird', parent: 'stage', pos: [0, 4, 0], keys: [{ ...still, t: 3, pos: [6, 4, 0], ease: 'linear' }] }),
+    createObject('circle', { id: 'body', name: 'Body', parent: 'bird', count: 10, life: 1.8 }),
+    createGroup({ id: 'wing', name: 'Wing', parent: 'bird', pos: [1, 0, 0], keys: [1, 2, 3, 4, 5, 6].map((n) => ({ ...still, t: n * 0.5, pos: [1, 0, 0], rot: [0, 0, n % 2 ? 40 : 0] })) }),
+    createObject('line', { id: 'feathers', name: 'Feathers', parent: 'wing', count: 6, pos: [1, 0, 0], life: 1.8 }),
+    // a spark that circles fast, all by itself: one particle, many pieces
+    createGroup({ id: 'orbit', name: 'Orbit', parent: 'stage', pos: [-3, 2, 0], spin: true, keys: [{ ...still, t: 3, pos: [-3, 2, 0], rot: [0, 720, 0], ease: 'linear' }] }),
+    createObject('point', { id: 'spark', name: 'Spark', parent: 'orbit', pos: [1, 0, 0], life: 1.8 }),
+    // two stars in no group that were given the same keys ("Copy keys")
+    createObject('star', { id: 'star1', name: 'Star', count: 10, pos: [3, 1, 0], life: 1.2, keys: [key(1, { pos: [3, 3, 0] }), key(2, { pos: [3, 1, 0] })] }),
+    createObject('star', { id: 'star2', name: 'Star 2', count: 10, pos: [6, 1, 0], life: 1.2, keys: [key(1, { pos: [6, 3, 0] }), key(2, { pos: [6, 1, 0] })] }),
+    // two hearts that appear at the same moment and never move: nothing ties them
+    createObject('heart', { id: 'late1', name: 'Heart', count: 7, pos: [0, 7, 0], start: 1 }),
+    createObject('heart', { id: 'late2', name: 'Heart 2', count: 7, pos: [2, 7, 0], start: 1 }),
+  );
+  const { result, calls, played } = runExport(objects);
+  assert.equal(result.parts.length, 1);
+  // the bird is one family (body and feathers: the outermost group that moves counts), the two stars another.
+  // In the order of time, the latest first: the hearts (they come last and stay longest: made before the bird, so
+  // they count down from it), the bird and the spark (three seconds both: as they come up in the list), the stars.
+  assert.deepEqual(result.families, { body: 0, feathers: 0, spark: 1, star1: 2, star2: 2, late1: -2, late2: -1 });
+
+  const who = whoIs(objects, calls);
+  const rank = new Map(played.map((c, n) => [c, n]));
+  const ranksOf = (id) => calls.map((_, c) => c).filter((c) => who[c] && who[c].leaf.id === id).map((c) => rank.get(c));
+  const span = (ranks) => [Math.min(...ranks), Math.max(...ranks)];
+  // one family after the other: nobody else's particles lie between those of a family
+  const families = played.filter((c) => who[c]).map((c) => result.families[who[c].leaf.id]);
+  assert.deepEqual(families, families.slice().sort((a, b) => a - b));
+  // The spark has the game make its particles one right after the other, in the order they are written: the latest
+  // piece first. (Among the pieces of everything else, each of them would wait for others to be made.)
+  const spark = calls.map((_, c) => c).filter((c) => who[c] && who[c].leaf.id === 'spark');
+  assert.ok(spark.length >= 15, `${spark.length} pieces`);
+  assert.deepEqual(spark.map((c) => rank.get(c)), spark.map((_, n) => rank.get(spark[0]) + n));
+  // The body is seen for the whole flight in one piece; the feathers in many short ones. The body is made in the
+  // middle of them: never further from the feathers that are seen with it than half of them.
+  const [firstFeather, lastFeather] = span(ranksOf('feathers'));
+  const [firstBody, lastBody] = span(ranksOf('body'));
+  assert.equal(lastBody - firstBody + 1, 10, 'the body: ten particles in a row');
+  const before = firstBody - firstFeather;
+  const after = lastFeather - lastBody;
+  assert.ok(before > 0 && after > 0 && Math.abs(before - after) <= 12, `${before} particles of the feathers are made before the body, ${after} after it`);
+  // the two stars: their pieces take turns, point by point
+  const [s1, s2] = [ranksOf('star1'), ranksOf('star2')];
+  assert.ok(Math.abs(s1[0] - s2[0]) === 1 && span(s1)[0] < span(s2)[1] && span(s2)[0] < span(s1)[1]);
+
+  // In the code: the helper takes the number of the family, and family 0 does not write it.
+  const code = result.parts[0].code;
+  assert.ok(code.includes('const T = (texture, a, b, o, q, d, s, F = 0) => {'));
+  assert.ok(code.includes('Q.push([n + n * L[0] - 1e6 * F, i / d.length, Object.assign({}, B, o, {'));
+  const ends = (tail) => code.split('\n').filter((line) => line === tail).length;
+  assert.deepEqual([ends('])'), ends('], 1)'), ends('], 2)'), ends('], -2)'), ends('], -1)')], [2, 1, 2, 1, 1]);
+  // The family with the most objects is number 0 wherever it stands in the list: it is the number that is not written.
+  const loner = createObject('circle', { id: 'loner', count: 9, pos: [-3, 2, 0], life: 1.5, keys: [key(1.2, { pos: [-3, 5, 0] })] });
+  const mixed = generateCode(scene(loner, ...cageScene(), { ...loner, id: 'loner2', keys: [key(1.7, { pos: [-3, 6, 0] })] }));
+  assert.deepEqual(mixed.families, { loner: 1, arc0: 0, arc1: 0, arc2: 0, arc3: 0, arc4: 0, arc5: 0, arc6: 0, arc7: 0, loner2: 2 });
+  const tails = mixed.parts[0].code.split('\n').filter((line) => /^\](, -?\d+)*\)$/.test(line));
+  assert.deepEqual(tails, ['], 1)', '])', '])', '])', '])', '])', '])', '])', '])', '], 2)']);
+  // A family lies where the middle of the time it is seen lies (as a piece does in its family): one that comes a
+  // second later and goes a little earlier has the later middle, and is made first.
+  const long = createObject('circle', { id: 'long', count: 9, pos: [-3, 2, 0], life: 1.92, keys: [key(2, { pos: [-3, 5, 0] })] }); // 0 to 3.2 s
+  const short = createObject('circle', { id: 'short', count: 9, pos: [3, 2, 0], start: 1, life: 1.2, keys: [key(1, { pos: [3, 5, 0] })] }); // 1 to 3 s
+  assert.deepEqual(generateCode(scene(long, short)).families, { long: 0, short: -1 });
+  assert.deepEqual(generateCode(scene(short, long)).families, { short: 0, long: 1 });
+  // one family only: no numbers at all
+  const one = generateCode(cageScene()).parts[0].code;
+  assert.ok(one.includes('const T = (texture, a, b, o, q, d, s) => {') && one.includes('Q.push([n + n * L[0], i / d.length,'));
+  assert.ok(!one.includes('F = 0') && !one.includes('* F') && !/^\], -?\d/m.test(one));
+  // with a blend mode that hides by darkening, that mark comes first: 1 or 0, then the family
+  const dark = objects.map((o) => (['feathers', 'star2', 'late2'].includes(o.id) ? { ...o, blend: 0 } : o));
+  const darkCode = generateCode(dark).parts[0].code;
+  assert.ok(darkCode.includes('const T = (texture, a, b, o, q, d, s, h, F = 0) => {'));
+  const darkEnds = (tail) => darkCode.split('\n').filter((line) => line === tail).length;
+  assert.deepEqual(
+    [darkEnds('])'), darkEnds('], 1)'), darkEnds('], 0, 1)'), darkEnds('], 0, 2)'), darkEnds('], 1, 2)'), darkEnds('], 0, -2)'), darkEnds('], 1, -1)')],
+    [1, 1, 1, 1, 1, 1, 1],
+    'body: nothing; feathers: 1; spark: 0, 1; the stars: 0, 2 and 1, 2; the hearts: 0, -2 and 1, -1',
+  );
+  runExport(dark);
+});
+
+test('order: the families follow each other in the order of time: a splash shows when the group lands', () => {
+  // The eight arcs fly for three seconds. A splash where they land, a tenth of a second before they are gone;
+  // a flash where they set off, a tenth of a second after the click. Neither moves with the group.
+  const objects = scene(
+    createObject('circle', { id: 'flash', name: 'Flash', count: 12, pos: [0.5, 2, 0.5], start: 0.1, life: 0.24 }),
+    ...cageScene(),
+    createObject('star', { id: 'splash', name: 'Splash', count: 20, pos: [0.5, 2.1, -8], start: 2.9, life: 1.2 }),
+  );
+  const { result, calls, played } = runExport(objects);
+  assert.equal(result.parts.length, 1);
+  // the latest first: the splash is made before the arcs and the flash after them, wherever they are in the list
+  assert.deepEqual(result.families, {
+    flash: 1, arc0: 0, arc1: 0, arc2: 0, arc3: 0, arc4: 0, arc5: 0, arc6: 0, arc7: 0, splash: -1,
+  });
+  const who = whoIs(objects, calls);
+  const rank = new Map(played.map((c, n) => [c, n]));
+  const all = calls.map((_, c) => c);
+  const of = (test) => all.filter((c) => who[c] && test(who[c].leaf));
+  const [splash, arcs, flash] = [of((l) => l.id === 'splash'), of((l) => l.parent === 'g'), of((l) => l.id === 'flash')];
+  const ranks = (list) => list.map((c) => rank.get(c)).sort((a, b) => a - b);
+  assert.deepEqual(ranks(splash), splash.map((_, n) => n), 'the splash is made first of all');
+  assert.equal(ranks(arcs)[0], splash.length, 'then the arcs');
+  assert.deepEqual(ranks(flash), flash.map((_, n) => splash.length + arcs.length + n), 'the flash is made last');
+  // right after the splash come the pieces that bring the arcs to where it is: their last ones
+  const middle = (c) => showsAt(calls[c]) + calls[c].minLifeTime;
+  const latest = Math.max(...arcs.map(middle));
+  const next = played.slice(splash.length, splash.length + 96);
+  assert.ok(next.every((c) => who[c].leaf.parent === 'g' && middle(c) === latest), 'the 96 particles of the last moment of the arcs');
+  // and right before the flash, those the arcs set off with
+  const earliest = Math.min(...arcs.map(middle));
+  const last = played.slice(splash.length + arcs.length - 96, splash.length + arcs.length);
+  assert.ok(last.every((c) => who[c].leaf.parent === 'g' && middle(c) === earliest), 'the 96 particles of the first moment of the arcs');
+
+  // In the game, with the last particle made a quarter of a second after the first: the splash is there before
+  // the arcs are gone, as it is when everything is made at once. Made after the arcs (the biggest family first,
+  // say), it comes when they have long gone.
+  const fps = 60;
+  const seconds = sceneDuration(objects) + 0.4;
+  const delay = (n) => (n / calls.length) * 0.25;
+  const firstFrame = (film, test) => film.findIndex((seen) => [...seen.values()].some(({ leaf }) => test(leaf)));
+  const lastFrame = (film, test) => film.length - 1 - film.slice().reverse().findIndex((seen) => [...seen.values()].some(({ leaf }) => test(leaf)));
+  // frames from the moment the arcs are gone to the moment the splash shows (below 0: it shows before they go)
+  const wait = (film) => firstFrame(film, (l) => l.id === 'splash') - lastFrame(film, (l) => l.parent === 'g');
+  // frames from the moment the arcs show to the moment the flash does
+  const lead = (film) => firstFrame(film, (l) => l.id === 'flash') - firstFrame(film, (l) => l.parent === 'g');
+  const written = all;
+  const ideal = filmOf(calls, who, written, { fps, seconds });
+  assert.ok(wait(ideal) <= -4 && wait(ideal) >= -8, `made at once the splash shows ${-wait(ideal)} frames before the arcs go: a tenth of a second`);
+  assert.ok(lead(ideal) >= 4 && lead(ideal) <= 8, `made at once the flash shows ${lead(ideal)} frames after the arcs: a tenth of a second`);
+  const now = filmOf(calls, who, played, { fps, delay, seconds });
+  assert.ok(Math.abs(wait(now) - wait(ideal)) <= 4, `the splash shows ${-wait(now)} frames before the arcs go, ${-wait(ideal)} when all is made at once`);
+  assert.ok(Math.abs(lead(now) - lead(ideal)) <= 4, `the flash shows ${lead(now)} frames after the arcs, ${lead(ideal)} when all is made at once`);
+  // the splash after the arcs, everything else as it is played:
+  const splashLast = [...played.filter((c) => !splash.includes(c)), ...splash];
+  const late = filmOf(calls, who, splashLast, { fps, delay, seconds });
+  assert.ok(wait(late) - wait(ideal) >= 10, `made after the arcs the splash shows ${wait(late) - wait(ideal)} frames late`);
+  assert.ok(wait(late) > 0, 'and the arcs are gone by then');
+  // the same for the flash, made before the arcs: it shows before they do
+  const flashFirst = [...flash, ...played.filter((c) => !flash.includes(c))];
+  const early = filmOf(calls, who, flashFirst, { fps, delay, seconds });
+  assert.ok(lead(early) - lead(ideal) <= -6, `made before the arcs the flash shows ${lead(ideal) - lead(early)} frames early`);
+});
+
+test('order: in every scene the piece that takes over is made before the one it takes over from', () => {
+  // the examples (the dragon fills three code blocks) and scenes thrown by the dice
+  const scenes = [
+    ...EXAMPLES.map((example) => [example.id, sanitizeScene(example.scene).objects]),
+    ...Array.from({ length: 40 }, (_, n) => [`scene ${n + 1}`, wildScene(n + 1)]),
+  ];
+  const middle = (call) => showsAt(call) + call.minLifeTime;
+  let looked = 0;
+  let handovers = 0;
+  let blocks = 0;
+  for (const [name, objects] of scenes) {
+    const { result, calls, played } = runExport(objects);
+    blocks = Math.max(blocks, result.parts.length);
+    assert.deepEqual(played.slice().sort((a, b) => a - b), calls.map((_, n) => n), `${name}: every particle is played once`);
+    // Which call shows which point. (An object with very many pieces is written as several T(...), each with some
+    // of its pieces: then the place of a call does not say which point it shows, and the scene is left out here.)
+    const tree = sceneTree(objects);
+    const who = whoIs(objects, calls);
+    const byPoint = new Map();
+    who.forEach((w, c) => {
+      if (!w) return;
+      const point = `${w.leaf.id}:${w.point}:${w.play}`;
+      if (!byPoint.has(point)) byPoint.set(point, { w, list: [] });
+      byPoint.get(point).list.push(c);
+    });
+    const fits = [...byPoint.values()].every(({ w, list }) => {
+      const ends = planOf(w.leaf, tree.playsOf(w.leaf)[w.play]).pieces.map((piece) => Number(piece.end.toFixed(4))).sort((a, b) => a - b);
+      return String(list.map((c) => calls[c].minLifeTime).sort((a, b) => a - b)) === String(ends);
+    });
+    if (!fits) continue;
+    // inside every code block: family after family, and a family in the order of time, the latest first
+    const family = (c) => result.families[who[c].leaf.id];
+    let at = 0;
+    for (const part of result.parts) {
+      const mine = played.slice(at, at + part.particles).filter((c) => who[c]);
+      at += part.particles;
+      for (let k = 1; k < mine.length; k++) {
+        const [before, now] = [mine[k - 1], mine[k]];
+        assert.ok(family(now) >= family(before), `${name}: a family is played in one go`);
+        if (family(now) === family(before)) assert.ok(middle(calls[now]) <= middle(calls[before]), `${name}: a later piece is played after an earlier one`);
+      }
+    }
+    // and from code block to code block too (a big object is cut between two of them point by point, never piece by piece)
+    const rank = new Map(played.map((c, n) => [c, n]));
+    for (const [point, { list }] of byPoint) {
+      const inTime = list.slice().sort((a, b) => calls[a].minLifeTime - calls[b].minLifeTime);
+      for (let k = 1; k < inTime.length; k++) {
+        assert.ok(rank.get(inTime[k]) < rank.get(inTime[k - 1]), `${name}, ${point}: the piece that ends at ${calls[inTime[k]].minLifeTime} is made after the one that ends at ${calls[inTime[k - 1]].minLifeTime}`);
+        handovers++;
+      }
+    }
+    looked++;
+  }
+  assert.ok(looked >= 35 && handovers > 2500 && blocks === 3, `${looked} scenes, ${handovers} hand-overs, up to ${blocks} code blocks`);
+});
+
+test('order: World Code plays its list in the order of time at every redraw, and starts afresh each time', () => {
+  const objects = cageScene();
+  const result = generateCode(objects, { target: 'world', worldPos: [10, 20, -30] });
+  const code = result.parts[0].code;
+  assert.equal(code.split(SORT_LINE).length - 1, 1);
+  const drawn = [];
+  const sandbox = { api: { playParticleEffect: (o) => drawn.push(o) } };
+  vm.runInNewContext(code, sandbox);
+  sandbox.tick(50);
+  assert.equal(drawn.length, result.particles);
+  const middles = (list) => list.map((o) => showsAt(o) + o.minLifeTime);
+  const first = middles(drawn);
+  assert.deepEqual(first, first.slice().sort((a, b) => b - a), 'the latest first');
+  assert.ok(new Set(first).size > 3);
+  // when the show is over it is drawn again: as many particles as the first time, not the first ones once more
+  for (let ms = 0; ms < result.seconds * 1000 + 100; ms += 50) sandbox.tick(50);
+  assert.equal(drawn.length, 2 * result.particles);
+  assert.deepEqual(middles(drawn.slice(result.particles)), first);
+});
+
+test('order: the export says how much is on its way at the same moment, and how fast', () => {
+  // (what the export window goes by when it says that a scene may be out of step in the game)
+  const plain = createObject('circle', { id: 'p', count: 12, move: [0, 30, 0] });
+  assert.equal(generateCode([plain]).rush, null, 'nothing with timing');
+  assert.equal(generateCode([timed({ start: 2 })]).rush, null, 'it only appears later: nothing moves');
+  // one object that slides 3 blocks in 2 seconds at a steady pace: its 12 particles, 1.5 blocks a second
+  const slide = generateCode([timed({ keys: [key(2, { pos: [3.5, 2, 0.5], ease: 'linear' })] })]).rush;
+  assert.deepEqual(slide, { particles: 12, speed: 1.5 });
+  // "Speed up" ends twice as fast as the steady pace
+  assert.deepEqual(generateCode([timed({ keys: [key(2, { pos: [3.5, 2, 0.5], ease: 'in' })] })]).rush, { particles: 12, speed: 3 });
+  // the eight arcs of the group fly together: 96 particles at once, and fast
+  const cage = generateCode(cageScene()).rush;
+  assert.equal(cage.particles, 96);
+  assert.ok(cage.speed > 15 && cage.speed < 22, `${cage.speed} blocks a second`);
+  // a slow thing next to them does not change that; a second group that does the same at the same moments doubles it
+  const slow = createObject('circle', { id: 'slow', count: 30, pos: [5, 2, 0], keys: [key(3, { pos: [5, 3, 0] })] });
+  assert.deepEqual(generateCode(scene(...cageScene(), slow)).rush, cage);
+  const twin = cageScene().map((o) => ({ ...o, id: `${o.id}-2`, parent: o.parent ? `${o.parent}-2` : null }));
+  assert.equal(generateCode(scene(...cageScene(), ...twin)).rush.particles, 192);
+  // free flight counts too, with what the particles scatter by (Move and Scatter are per unit of particle age: 0.6 of a second)
+  assert.deepEqual(generateCode([timed({ start: 1, move: [0, 2, 0], spread: 1 })]).rush, { particles: 12, speed: 1.8 });
+});
+
+test('order: the list costs a scene with timing next to nothing, and one without timing nothing', () => {
+  const mover = timed({ keys: [key(2, { pos: [3, 2, 0.5] })] });
+  const plain = createObject('circle', { id: 'p', count: 12 });
+  // only things with timing: the helper sets every direction and speed itself, so the shared options hold one entry
+  const alone = generateCode([mover]).parts[0].code;
+  assert.ok(alone.includes('\nconst B = { manualEmitCount: 1 }\n'));
+  assert.ok(alone.includes('\nconst Q = []\n') && alone.endsWith(`\n${SORT_LINE}\nfor (const e of Q.splice(0)) api.playParticleEffect(e[2])`));
+  assert.equal(alone.split('api.playParticleEffect').length - 1, 1, 'played in one place');
+  // with something written the short way next to it, the shared options are the full ones
+  const both = generateCode([plain, mover]).parts[0].code;
+  assert.ok(both.includes('\nconst B = {\n  dir1: [0, 1, 0], dir2: [0, 1, 0], minEmitPower: 0, maxEmitPower: 0,'));
+  assert.ok(both.includes('\nconst Q = []\n') && both.includes(SORT_LINE));
+  // nothing with timing: no list, no sorting
+  const none = generateCode([plain]).parts[0].code;
+  assert.ok(!none.includes('const Q') && !none.includes('Q.sort') && !none.includes('Q.splice'));
+  // every call still has every option the game reads (checked by runExport), with or without the full shared options
+  for (const objects of [[mover], [plain, mover]]) {
+    const { calls } = runExport(objects);
+    for (const c of calls) assert.equal(c.manualEmitCount, 1);
+  }
 });
 
 test('groups: what flies free is let go where its group is, the way the group points', () => {
