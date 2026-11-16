@@ -193,6 +193,10 @@ only the pivot", drag the arrows there and untick it again.
 The Position of something in a group counts from the pivot of the group, and
 "Appears" counts from the moment the group starts.
 
+In the game, what is in a group that moves is made together, so that it stays
+in step. Things that should fly as one belong in one group, with the keys on
+the group. ("Good to know" below says how far that goes.)
+
 ### Mirror copies
 
 Under "Group and mirror", **Mirror copy** makes a twin on the other side: X for
@@ -442,14 +446,37 @@ hand, because a world can only have one.
   particle. A few hundred is a sensible size. The studio warns above 600, and
   very large scenes may lag or be cut short by the game's limit on how long a
   script may run.
-- **Timing was not tried in the game either.** Bloxd code cannot wait. So the
-  studio gives every particle its whole plan at the click: when to show up,
-  where to fly and when to go. It writes that plan with options the game
-  documents (`colorGradients`, `velocityGradients`) and the tests play it in a
-  copy of the particle engine, but it has not run in Bloxd. Try a small timed
-  scene in your world first. Scenes without timing export exactly the code
-  they did before the timeline existed. Groups that move, repeats and colours
-  at keys are written with the same options, and have not run in Bloxd either.
+- **Timing was not tried in the game from here either.** Bloxd code cannot
+  wait. So the studio gives every particle its whole plan at the click: when
+  to show up, where to fly and when to go. It writes that plan with options
+  the game documents (`colorGradients`, `velocityGradients`) and the tests
+  play it in a copy of the particle engine. Scenes without timing export
+  exactly the code they did before the timeline existed. Groups that move,
+  repeats and colours at keys are written with the same options. Users have
+  since played scenes with keys in the game: they play, and what was wrong
+  with them is the next point. Still, try a small timed scene in your world
+  first.
+- **Fast groups can be out of step in the game.** A particle counts its time
+  from the moment the game makes it, and Bloxd makes the particles of a click
+  one after the other. With hundreds of them that seems to take the game a few
+  frames, so what is made last does everything a little late. Users saw it as
+  things in a group that flew off at different moments. The code now makes
+  together what has to be in step: what is in a group that moves, and objects
+  that were given the very same keys. Their particles are made in the order of
+  time, so that what is seen at the same moment is made at the same moment,
+  whichever object it belongs to. What comes after something in the show (a
+  splash where a group lands) is made next to the last particles of it, so it
+  comes when the group does. In the copy of the particle engine, with the
+  particles of a click made over a tenth to a quarter of a second, eight arcs
+  that fly as one stay 7 to 30 times closer together that way. It is not
+  perfect: the faster things move and the more particles move at once, the
+  more is left, and where one stretch of the way takes over from the next a
+  point can be seen twice for a moment. The export window says so when a
+  scene is fast and big. What is in different code blocks is not made
+  together at all. If things that should move as one drift apart, put them in
+  one group and give the keys to the group. This is concluded from what users
+  saw and from the copy of the engine: nobody here has seen how the game
+  makes its particles.
 - **Keys cost particles.** A particle can only fly along a straight line. So
   every stretch between two keys gets particles of its own, and a turn gets
   several sets of them. An object with three keys needs about four times its
@@ -548,7 +575,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/assets.js` | Finds the pictures, as files or inside the single-file build |
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
-| `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second |
+| `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second, and with the particles of a click made one after the other instead of all at once |
 | `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |

@@ -26,6 +26,14 @@ import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.
 
 const STORE = 'bloxd-particle-studio.v1';
 const MANY_PARTICLES = 600; // above this one click may lag slower devices
+/**
+ * Above this, things that move fast may be seen out of step in the game: so
+ * many particles times so many blocks a second, on their way at the same
+ * moment (rushOf in js/codegen.js). A guess: 1500 is a fifth of a block when
+ * the game takes an eighth of a millisecond to make a particle, and nobody has
+ * measured how long it takes.
+ */
+const RUSH = 1500;
 const PALETTE = [
   '#ffffff', '#c9d1e3', '#7d879c', '#1d2233', '#ff4d4d', '#ff8a3d', '#ffd24a', '#b6f24a', '#4ddb6a', '#2fd6b5',
   '#47c8ff', '#4f8dff', '#7a5cff', '#c05cff', '#ff5cc8', '#ff4d7a', '#8b5a2b', '#f5c9a0', '#6b2d2d', '#0b3d2e',
@@ -1631,11 +1639,17 @@ function renderExport(result) {
 
   const status = [];
   const say = (text, kind = '') => status.push(h('p', { class: kind }, text));
+  // much is on its way at the same moment, and fast: the game may show it a little out of step
+  const rush = result.rush;
+  const rushed = !!rush && rush.particles * rush.speed > RUSH;
   if (!result.particles) say('The scene is empty. Add a particle or a shape first.', 'bad');
   else {
     say(`${plural(result.particles, 'particle')}. They stay about ${round(result.seconds, 1)} seconds${world ? ', then they are drawn again' : ' after each click'}.`);
     if (result.particles > MANY_PARTICLES) say('That is a lot of particles at once and can lag slower devices. Bigger particles with a smaller "How many" look much the same; fewer keys and repeats help too.', 'warn');
-    if (!world && parts.length > 1) say(`This scene does not fit in one code block (16,000 characters), so it is split into ${parts.length}. Stack the code blocks on top of each other in order, block 1 at the bottom.`, 'warn');
+    if (rushed) {
+      say(`Fast moves with many particles can look a little out of step in the game: Bloxd does not seem to start all the particles of a click in the same instant. Here ${plural(rush.particles, 'particle')} fly at up to ${Math.round(rush.speed)} blocks a second at once. Slower moves, or fewer particles in what moves, keep them together.`, 'warn');
+    }
+    if (!world && parts.length > 1) say(`This scene does not fit in one code block (16,000 characters), so it is split into ${parts.length}. Stack the code blocks on top of each other in order, block 1 at the bottom.${rush ? ' Things that move together stay in step best when they are in the same code block.' : ''}`, 'warn');
     if (world && part.chars > LIMITS.chars) say('This is longer than the 16,000 characters World Code allows. Use fewer particles or coarser positions.', 'bad');
   }
   $('#ex-status').replaceChildren(...status);
@@ -1652,7 +1666,7 @@ function renderExport(result) {
   ] : [
     ['Place a ', h('b', {}, 'Code Block'), ' in your Bloxd world (creative menu).'],
     ['Right-click it, paste the code and close the editor.'],
-    ['Click the block: the particles appear around it exactly as in the studio.'],
+    [`Click the block: the particles appear around it${rushed ? '' : ' exactly'} as in the studio.`],
   ];
   $('#ex-steps').replaceChildren(...steps.map((s) => h('li', {}, ...s)));
 }
