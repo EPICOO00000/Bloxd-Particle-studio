@@ -204,6 +204,8 @@ function label(text, color) {
  * callbacks : onPick(id | null, { add }), onTransform({ mode, pos, rot, scale }), onTransformEnd(), onFrame(seconds)
  *             (mode: 'translate', 'rotate' or 'scale' says which of the three the drag changes;
  *              add: Shift or Ctrl was held, the click adds to what is selected)
+ *             and for the dots of the Shape Studio (see setHandles):
+ *             onHandleDrag(key, pos), onHandleEnd(key), onHandleClick(key, { add })
  */
 export function createViewport(canvas, images, names, callbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -404,8 +406,107 @@ export function createViewport(canvas, images, names, callbacks) {
     box.box.expandByScalar(pad);
   };
 
+  // ---- the dots of the Shape Studio: corners of a drawn line, loose points, the grips of a deformer.
+  // They are dragged straight in the picture: a dot follows the pointer at the depth it is at.
+  const DOTS = 720;
+  const dotGeometry = new THREE.BufferGeometry();
+  dotGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(DOTS * 3), 3));
+  dotGeometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(DOTS * 3), 3));
+  dotGeometry.setDrawRange(0, 0);
+  const dotPicture = document.createElement('canvas');
+  dotPicture.width = dotPicture.height = 32;
+  {
+    const ctx = dotPicture.getContext('2d');
+    ctx.beginPath();
+    ctx.arc(16, 16, 13, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#10131c';
+    ctx.stroke();
+  }
+  const dotMaterial = new THREE.PointsMaterial({
+    size: 15 * renderer.getPixelRatio(), sizeAttenuation: false, map: new THREE.CanvasTexture(dotPicture), vertexColors: true,
+    transparent: true, alphaTest: 0.4, depthTest: false, depthWrite: false, toneMapped: false,
+  });
+  const dots = new THREE.Points(dotGeometry, dotMaterial);
+  dots.frustumCulled = false;
+  dots.renderOrder = 8;
+  dots.visible = false;
+  scene.add(dots);
+  let handles = []; // [{ key, pos (Bloxd), minor, selected }]
+  const DOT_COLOURS = { plain: [1, 1, 1], minor: [0.45, 0.78, 1], selected: [1, 0.82, 0.2] };
+  const showHandles = () => {
+    const at = dotGeometry.attributes.position;
+    const colour = dotGeometry.attributes.color;
+    // (drawn in this order: of two dots on the same spot the main one, or the one that is picked, is on top)
+    const rank = (hd) => (hd.selected ? 2 : hd.minor ? 0 : 1);
+    handles.slice(0, DOTS).sort((a, b) => rank(a) - rank(b)).forEach((hd, i) => {
+      at.setXYZ(i, ...toView(hd.pos));
+      colour.setXYZ(i, ...(hd.selected ? DOT_COLOURS.selected : hd.minor ? DOT_COLOURS.minor : DOT_COLOURS.plain));
+    });
+    at.needsUpdate = true;
+    colour.needsUpdate = true;
+    dotGeometry.setDrawRange(0, Math.min(DOTS, handles.length));
+    dots.visible = handles.length > 0;
+  };
+  /** The dot under a place on the screen (the nearest one within reach), or null. */
+  const handleAt = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const v = new THREE.Vector3();
+    let best = null;
+    let least = Infinity;
+    for (const hd of handles) {
+      v.fromArray(toView(hd.pos)).project(camera);
+      if (v.z < -1 || v.z > 1) continue;
+      const d = Math.hypot(rect.left + (v.x * 0.5 + 0.5) * rect.width - clientX, rect.top + (-v.y * 0.5 + 0.5) * rect.height - clientY);
+      if (d > 11) continue;
+      // (of two dots on the same spot the one that is selected wins, then the main one)
+      const score = d - (hd.selected ? 2 : hd.minor ? 0 : 1);
+      if (score < least) { least = score; best = hd; }
+    }
+    return best;
+  };
+  const ray = new THREE.Raycaster();
+  let grab = null; // the dot that is being dragged: { key, plane, x, y, moved, add }
+
   // ---- click to select
   const down = { x: 0, y: 0, ok: false };
+  // (first in line: a press on a dot is not for the camera, the arrows or the particles)
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !handles.length) return;
+    const hit = handleAt(e.clientX, e.clientY);
+    if (!hit) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    down.ok = false;
+    orbit.enabled = false;
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), new THREE.Vector3(...toView(hit.pos)));
+    grab = { key: hit.key, plane, x: e.clientX, y: e.clientY, moved: false, add: e.shiftKey || e.ctrlKey || e.metaKey };
+    canvas.style.cursor = 'grabbing';
+  }, { capture: true });
+  window.addEventListener('pointermove', (e) => {
+    if (!grab) {
+      if (handles.length && e.target === canvas) canvas.style.cursor = handleAt(e.clientX, e.clientY) ? 'grab' : '';
+      return;
+    }
+    if (!grab.moved && Math.hypot(e.clientX - grab.x, e.clientY - grab.y) < 4) return;
+    grab.moved = true;
+    const rect = canvas.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), camera);
+    const to = ray.ray.intersectPlane(grab.plane, new THREE.Vector3());
+    if (to && callbacks.onHandleDrag) callbacks.onHandleDrag(grab.key, toBloxd(to.toArray()));
+  });
+  const letGo = () => {
+    if (!grab) return;
+    const { key, moved, add } = grab;
+    grab = null;
+    orbit.enabled = true;
+    canvas.style.cursor = '';
+    if (moved) { if (callbacks.onHandleEnd) callbacks.onHandleEnd(key); } else if (callbacks.onHandleClick) callbacks.onHandleClick(key, { add });
+  };
+  window.addEventListener('pointerup', letGo);
+  window.addEventListener('pointercancel', letGo);
   canvas.addEventListener('pointerdown', (e) => {
     down.x = e.clientX;
     down.y = e.clientY;
@@ -510,6 +611,15 @@ export function createViewport(canvas, images, names, callbacks) {
       } else if (gizmo.object) gizmo.detach();
       updateBox();
     },
+    /**
+     * The dots of the Shape Studio: [{ key, pos (Bloxd), minor, selected }] (none: []).
+     * A dot can be dragged (onHandleDrag, then onHandleEnd) and clicked (onHandleClick).
+     */
+    setHandles(list) {
+      if (!list.length && !handles.length) return;
+      handles = list;
+      showHandles();
+    },
     setMode(m) {
       mode = m;
       applyMode();
@@ -546,6 +656,12 @@ export function createViewport(canvas, images, names, callbacks) {
     debug: () => ({
       frames, particles: particles.length, selectedId: [...selectedIds][0] || null, selectedIds: [...selectedIds],
       handle: gizmo.object ? whereProxy().toArray().map((v, i) => Math.round((i === 2 ? -v : v) * 1000) / 1000) : null,
+      dots: handles.map((hd) => hd.key), grabbing: !!grab,
+      dotsAt: handles.map((hd) => {
+        const v = new THREE.Vector3(...toView(hd.pos)).project(camera);
+        const rect = canvas.getBoundingClientRect();
+        return [Math.round(rect.left + (v.x * 0.5 + 0.5) * rect.width), Math.round(rect.top + (-v.y * 0.5 + 0.5) * rect.height)];
+      }),
       dragging: gizmo.dragging, mode: gizmo.mode,
       calls: renderer.info.render.calls, size: [canvas.width, canvas.height], blocks: blocks.children.length,
       camera: camera.position.toArray().map((v) => Math.round(v * 100) / 100),

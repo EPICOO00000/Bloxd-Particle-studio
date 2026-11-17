@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=9fe0adcf">
+<link rel="stylesheet" href="css/style.css?v=a6b7bf31">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,14 +15,19 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=b1892b92",
+  "./js/app.js": "./js/app.js?v=b3098222",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
-  "./js/codegen.js": "./js/codegen.js?v=b1c6ae32",
-  "./js/edits.js": "./js/edits.js?v=adc71334",
+  "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
+  "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
+  "./js/deform.js": "./js/deform.js?v=b3e5a862",
+  "./js/edits.js": "./js/edits.js?v=69b9b8a8",
   "./js/examples-data.js": "./js/examples-data.js?v=724fab64",
-  "./js/motion.js": "./js/motion.js?v=ade6a4aa",
+  "./js/forms.js": "./js/forms.js?v=abc447c4",
+  "./js/morph.js": "./js/morph.js?v=d764243e",
+  "./js/motion.js": "./js/motion.js?v=ac0014b8",
   "./js/moves.js": "./js/moves.js?v=65b3b429",
-  "./js/scene.js": "./js/scene.js?v=f80e4984",
+  "./js/nodes.js": "./js/nodes.js?v=b894d335",
+  "./js/scene.js": "./js/scene.js?v=a2193768",
   "./js/shape-kit.js": "./js/shape-kit.js?v=afc224e9",
   "./js/shapes-count.js": "./js/shapes-count.js?v=c62132ce",
   "./js/shapes-curves.js": "./js/shapes-curves.js?v=3ea7d503",
@@ -52,7 +57,7 @@
   "./js/shapes.js": "./js/shapes.js?v=eea98c2f",
   "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
   "./js/ui.js": "./js/ui.js?v=10b9fe96",
-  "./js/viewport.js": "./js/viewport.js?v=64237430",
+  "./js/viewport.js": "./js/viewport.js?v=6ec52ad8",
   "./vendor/OrbitControls.js": "./vendor/OrbitControls.js?v=e9c4f268",
   "./vendor/TransformControls.js": "./vendor/TransformControls.js?v=c37314f3",
   "./vendor/three.module.min.js": "./vendor/three.module.min.js?v=08fd7545"
@@ -65,7 +70,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = '8f6c94761b38';
+  var mine = '1ee6d2d65743';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {
@@ -97,6 +102,8 @@
     <label class="check" title="Snap to quarter blocks, 15 degrees"><input type="checkbox" id="snap"> Snap</label>
     <span class="sep"></span>
     <button id="array" title="Copies of what is selected in a row, a grid or a ring (A)">Array</button>
+    <button id="studio" title="Shape Studio: bend, twist and pull the selected shape, or move its points (S)">Shape Studio</button>
+    <button id="morph" title="Morph: the first of two selected shapes turns into the second (M)">Morph</button>
     <span class="sep"></span>
     <button id="play" title="Play what happens when the block is clicked (Space)">Play</button>
     <button id="focus" title="Center the view (F)">Center</button>
@@ -111,6 +118,7 @@
     </span>
     <button id="open" title="Open a saved scene file">Open</button>
     <button id="save" title="Save the scene as a file">Save</button>
+    <button id="code" title="Code: when and where the scene plays in the game, with nodes or your own TypeScript (C)">Code</button>
     <button id="export" class="primary">Export code</button>
   </div>
 </header>
@@ -122,7 +130,9 @@
         <span class="chev" aria-hidden="true"></span><span class="cat-title">Add</span><span class="cat-sum">particles and shapes</span>
       </button>
       <div class="cat-body">
+        <p id="pick-note" class="pick-note" hidden><span id="pick-text"></span> <button id="pick-cancel" type="button">Cancel</button></p>
         <button id="add-point" class="wide">+ Single particle</button>
+        <button id="add-draw" class="wide" title="A line of your own: drag its corners in the 3D view (Shape Studio)">+ Draw your own shape</button>
         <h3>Shapes <small>made of many particles</small></h3>
         <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
         <div id="shape-tabs" class="shape-tabs" role="group" aria-label="Kinds of shape"></div>
@@ -196,6 +206,85 @@
     </div>
   </div>
 </section>
+
+<dialog id="code-dialog" aria-label="Code">
+  <header class="code-bar">
+    <b class="code-name">Code</b>
+    <div class="seg" id="code-tabs" role="group" aria-label="Parts of the Code window">
+      <button type="button" data-tab="nodes" class="on" title="When and where the scene plays, as a picture">Nodes</button>
+      <button type="button" data-tab="own" title="Code you write yourself: JavaScript or TypeScript">Your own code</button>
+      <button type="button" data-tab="result" title="What goes into the game">World Code</button>
+    </div>
+    <span class="code-tools" data-only="nodes">
+      <button type="button" id="code-undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
+      <button type="button" id="code-redo" title="Redo (Ctrl+Y)" disabled>Redo</button>
+      <button type="button" id="code-dup" title="A copy of the picked node (Ctrl+D)" disabled>Duplicate</button>
+      <button type="button" id="code-del" class="danger" title="Take the picked node away (Delete)" disabled>Delete</button>
+    </span>
+    <span class="code-gap"></span>
+    <label class="code-lang" title="With TypeScript your own code can have types, and the game checks them. The World Code then belongs in a file called index.ts.">Language
+      <select id="code-lang" aria-label="Language of the World Code">
+        <option value="js">JavaScript</option>
+        <option value="ts">TypeScript</option>
+      </select>
+    </label>
+    <button type="button" id="code-add" data-only="nodes" aria-haspopup="true" aria-expanded="false" title="A new node (N)">+ Add Node</button>
+    <span class="menu-wrap">
+      <button type="button" id="code-examples" aria-haspopup="menu" title="Pictures to start from">Examples</button>
+      <div id="code-examples-menu" class="menu code-menu" role="menu" hidden></div>
+    </span>
+    <button type="button" id="code-export" class="primary">Export Code</button>
+    <button type="button" id="code-close" title="Close (Esc)">Close</button>
+  </header>
+  <section id="code-pane-nodes" class="code-pane">
+    <div id="code-canvas" class="code-canvas">
+      <div id="code-world" class="code-world"><svg id="code-wires" class="code-wires" aria-hidden="true"></svg><div id="code-cards"></div></div>
+      <div id="code-empty" class="code-empty code-float">
+        <b>Say when and where your particles play.</b>
+        <p>Press <b>+ Add Node</b> and pick an event, such as "When a player clicks". Then add "Play the particles": it is wired to the node you picked. Or open one of the <b>Examples</b>.</p>
+        <p>Pull a wire from a red square on the right of a node onto the node that runs next. Click a wire to cut it.</p>
+      </div>
+      <div id="code-warnings" class="code-warnings code-float" hidden></div>
+      <div class="code-zoom code-float" role="group" aria-label="Zoom">
+        <button type="button" id="code-zoom-out" title="Smaller">&minus;</button>
+        <span id="code-zoom">100%</span>
+        <button type="button" id="code-zoom-in" title="Larger">+</button>
+        <button type="button" id="code-fit" title="Show all nodes">Fit</button>
+      </div>
+      <div id="code-palette" class="code-palette code-float" hidden>
+        <input id="code-search" type="search" placeholder="Search nodes" aria-label="Search nodes" autocomplete="off" spellcheck="false">
+        <div id="code-list" class="code-list"></div>
+      </div>
+    </div>
+  </section>
+  <section id="code-pane-own" class="code-pane" hidden>
+    <div class="code-own">
+      <div class="code-own-help">
+        <b>Your own code</b>
+        <p>What you type here goes into the World Code as it is, after the particles and before what the nodes say. With the language set to TypeScript you can write types: the game checks them.</p>
+        <p><code>psPlay(pos, facing)</code> plays your particles. <code>pos</code> is <code>[x, y, z]</code>: where the middle of the floor of the studio's code block goes. <code>facing</code> (you can leave it out) is a direction <code>[x, y, z]</code>: what points along +Z in the studio points that way.</p>
+        <p>Set the game's callbacks as usual, for example <code>onPlayerJump = (playerId) =&gt; { psPlay(api.getPosition(playerId)) }</code>. When a node uses the same callback, both run.</p>
+      </div>
+      <textarea id="code-own-text" spellcheck="false" wrap="off" aria-label="Your own code" placeholder="// for example:&#10;onPlayerJump = (playerId) => {&#10;  psPlay(api.getPosition(playerId))&#10;}"></textarea>
+    </div>
+  </section>
+  <div id="code-toast" class="code-toast" role="status" aria-live="polite" hidden></div>
+  <section id="code-pane-result" class="code-pane" hidden>
+    <div class="code-result">
+      <div class="export-actions">
+        <button type="button" id="code-copy" class="primary">Copy code</button>
+        <button type="button" id="code-download">Download index.js</button>
+        <span id="code-meter" class="meter"></span>
+      </div>
+      <ol class="steps">
+        <li>In Bloxd, in a world of your own, press <b>F8</b>: that opens the World Code.</li>
+        <li id="code-rename" hidden>Rename the file <b>index.js</b> to <b>index.ts</b>: then the game reads it as TypeScript.</li>
+        <li>Select everything that is there, paste this instead and save.</li>
+      </ol>
+      <textarea id="code-text" readonly spellcheck="false" wrap="off" aria-label="World Code"></textarea>
+    </div>
+  </section>
+</dialog>
 
 <dialog id="export-dialog">
   <form method="dialog" class="dialog-head">

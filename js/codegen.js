@@ -15,6 +15,25 @@
 // Groups are not in the code at all: every object is written where its groups
 // put it.
 //
+// An object whose keys change its shape (a morph, js/motion.js) is written as
+// several T(...): one for each list of points its pieces are for. The points
+// it starts with, the points of a shape a key gives it, and for every morph
+// its "rows": six numbers for each particle (where it starts, which way it
+// goes) and matrices of 3 rows of 7 numbers instead of 4. T(...) sees from
+// the first matrix of a call which of the two it is.
+//
+// A third way to write the scene, next to the code block and the World Code
+// that redraws it on a timer: as a function (target 'function'). World Code
+// made in the Code window (js/nodes.js) calls it wherever and whenever
+// something happens in the game:
+//   psPlay(pos, facing)
+// pos is where the middle of the floor of the studio's code block goes, so a
+// scene built around the block is played around that place. facing (optional)
+// is a direction: the scene is turned about that middle so that what points
+// along +Z in the studio points that way. Every place and every direction of
+// flight goes through W(...), which does the turning; the pull of gravity
+// stays straight down.
+//
 // The order in which the particles are made
 //   A particle counts its time from the moment the game makes it, so one that
 //   is made later does everything later. Users found that things in a group
@@ -206,10 +225,10 @@ function overridesOf(group, base) {
   return o;
 }
 
-function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, plain, timed }) {
+function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, plain, timed, turn }) {
   const q = precision;
   const entries = Object.keys(base).map((k) => `${k}: ${lit(base[k])},`);
-  const lines = [anchor];
+  const lines = Array.isArray(anchor) ? anchor.slice() : [anchor];
   // T(...) sets the directions and the speed of every particle itself: when
   // nothing is written the short way, B has nothing to say about them.
   if (plain) {
@@ -224,17 +243,20 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, p
     'const G = (t, a, b, o) =>',
     '  ({ timeFraction: t, minColor: a.concat(o), maxColor: b.concat(o) })',
   );
-  if (timed) lines.push('const Q = []', ...timedHelperLines(timed));
+  if (timed) lines.push('const Q = []', ...timedHelperLines({ ...timed, turn }));
   if (!plain) return lines;
   lines.push(`const P = (texture, a, b, f, o, d${useExpand ? ', e' : ''}) => {`);
-  const position = `    const p = [X + d[i] / ${q}, Y + d[i + 1] / ${q}, Z + d[i + 2] / ${q}]`;
+  // (`turn`: the scene is played by a function, at a place and turned a way that are only known in the game)
+  const position = turn
+    ? `    const p = W([d[i] / ${q} - .5, d[i + 1] / ${q}, d[i + 2] / ${q} - .5])\n      .map((v, j) => v + [X, Y, Z][j])`
+    : `    const p = [X + d[i] / ${q}, Y + d[i + 1] / ${q}, Z + d[i + 2] / ${q}]`;
   if (useMixFade) {
     // The game picks a new random colour at every step of a gradient, so a
     // fading particle with two colours would drift between them. Picking the
     // colour here keeps each particle in one colour, like the studio shows.
     lines.push(
       '  for (let i = 0; i < d.length; i += 3) {',
-      position,
+      ...position.split('\n'),
       '    const k = Math.random()',
       '    const c = a.map((v, j) => Math.round(v + (b[j] - v) * k))',
       '    const colorGradients = f',
@@ -247,7 +269,7 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, p
       `    ? [G(0, a, b, 1), G(${fmt(FADE_START)}, a, b, 1), G(1, a, b, 0)]`,
       '    : [G(0, a, b, 1)]',
       '  for (let i = 0; i < d.length; i += 3) {',
-      position,
+      ...position.split('\n'),
     );
   }
   lines.push('    const q = { texture, colorGradients, pos1: p, pos2: p }');
@@ -260,7 +282,19 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, p
       '    }',
     );
   }
-  lines.push('    api.playParticleEffect(Object.assign({}, B, o, q))', '  }', '}');
+  if (turn) {
+    // the way it flies is turned with the scene: the middle of what dir1 and dir2 span, with the same scatter around it
+    lines.push(
+      '    const O = Object.assign({}, B, o, q)',
+      '    const m = W(O.dir1.map((v, j) => (v + O.dir2[j]) / 2))',
+      '    const s = O.dir1.map((v, j) => (O.dir2[j] - v) / 2)',
+      '    O.dir1 = m.map((v, j) => v - s[j])',
+      '    O.dir2 = m.map((v, j) => v + s[j])',
+      '    api.playParticleEffect(O)',
+      '  }',
+      '}',
+    );
+  } else lines.push('    api.playParticleEffect(Object.assign({}, B, o, q))', '  }', '}');
   return lines;
 }
 
@@ -288,7 +322,7 @@ function preludeLines({ base, precision, width, useExpand, useMixFade, anchor, p
  * life there is: 322,300 seconds, an age of 193,380.
  */
 const FAMILY_ROOM = '1e6';
-function timedHelperLines({ mix, sizes, darken, hue, grow, families }) {
+function timedHelperLines({ mix, sizes, darken, hue, grow, families, wide, turn }) {
   // `hue`: a key changes a colour somewhere. Then a and b are lists of colours
   // and a stop of the visibility says which one it has: [fraction, value, number].
   // `grow`: a key changes a size somewhere. Then a piece can carry its own size,
@@ -298,8 +332,12 @@ function timedHelperLines({ mix, sizes, darken, hue, grow, families }) {
   const lines = [
     // (F: the number of its family, see familiesOf(); only there when the scene has more than one)
     `const T = (texture, a, b, o, q, d, s${darken ? ', h' : ''}${families ? ', F = 0' : ''}) => {`,
-    '  for (let i = 0; i < d.length; i += 3) {',
   ];
+  // `wide`: a key changes a shape somewhere. Then a call can be for the rows of
+  // a morph: N numbers for each particle (6, or 3 as ever), and matrices with
+  // N + 1 numbers in each of their 3 rows.
+  if (wide) lines.push('  const N = s[0][1].length / 3 - 1');
+  lines.push(`  for (let i = 0; i < d.length; i += ${wide ? 'N' : 3}) {`);
   // one colour and one size per point: all its pieces have to look the same
   if (mix) {
     lines.push('    const k = Math.random()');
@@ -317,13 +355,30 @@ function timedHelperLines({ mix, sizes, darken, hue, grow, families }) {
       '    }',
     );
   }
-  lines.push(
-    grow ? '    for (const [n, m, v, w, z, f, r, g] of s) {' : '    for (const [n, m, v, w, f, r, g] of s) {',
-    '      const at = (e) => [0, 4, 8].map((j) => e[j + 3] + (e[j] * d[i]',
-    '        + e[j + 1] * d[i + 1] + e[j + 2] * d[i + 2]) / q)',
-    '      const p = at(m).map((x, j) => x + [X, Y, Z][j])',
-    '      const u = v ? at(v) : [0, 1, 0]',
-  );
+  lines.push(grow ? '    for (const [n, m, v, w, z, f, r, g] of s) {' : '    for (const [n, m, v, w, f, r, g] of s) {');
+  if (wide) {
+    lines.push(
+      '      const at = (e) => [0, N + 1, N + N + 2].map((j) => e[j + N]',
+      '        + d.slice(i, i + N).reduce((y, x, l) => y + e[j + l] * x, 0) / q)',
+    );
+  } else {
+    lines.push(
+      '      const at = (e) => [0, 4, 8].map((j) => e[j + 3] + (e[j] * d[i]',
+      '        + e[j + 1] * d[i + 1] + e[j + 2] * d[i + 2]) / q)',
+    );
+  }
+  if (turn) {
+    lines.push(
+      '      const p = W(at(m).map((x, j) => x - (j === 1 ? 0 : .5)))',
+      '        .map((x, j) => x + [X, Y, Z][j])',
+      '      const u = v ? W(at(v)) : [0, 1, 0]',
+    );
+  } else {
+    lines.push(
+      '      const p = at(m).map((x, j) => x + [X, Y, Z][j])',
+      '      const u = v ? at(v) : [0, 1, 0]',
+    );
+  }
   if (grow) {
     lines.push(
       '      const S = !z ? o.minSize + (o.maxSize - o.minSize) * K',
@@ -430,12 +485,15 @@ function timedOf(obj, tree, opts) {
   let hue = false;
   let grow = false;
   const local = localPoints(obj);
+  /** The points a piece is for: the ones the object starts with, or those of a shape a key gave it, or the rows of a morph. */
+  const pointsOf = (piece) => piece.pts || local;
   /** The fastest any of its particles flies during a piece, in blocks a second. */
   const speedOf = (piece) => (piece.V
-    ? Math.max(...local.map((l) => Math.hypot(...applyMatrix(piece.V, l)) + piece.spread)) * LIFE_PER_SECOND : 0);
+    ? pointsOf(piece).reduce((top, l) => Math.max(top, Math.hypot(...applyMatrix(piece.V, l))), 0) + piece.spread : 0) * LIFE_PER_SECOND;
   const pieces = plans.flatMap((plan) => plan.pieces).map((piece) => {
     const life = ageOf(piece.end);
-    const matrix = (m) => m.map((v, i) => short(v, i % 4 === 3 ? 3 : 4));
+    // (the last number of each of the three rows of a matrix is a place: three decimals are enough for it)
+    const matrix = (m) => m.map((v, i) => short(v, (i + 1) % (m.length / 3) === 0 ? 3 : 4));
     let visible = piece.visible;
     if (piece.tint) {
       // its colour is not the one the object starts with, or changes: every stop says which colour it has
@@ -461,6 +519,8 @@ function timedOf(obj, tree, opts) {
     return {
       tuple,
       size,
+      set: piece.set || '', // the name of the list of points it is for ('': the ones the object starts with)
+      pts: pointsOf(piece),
       // for familiesOf() and rushOf(): the ages it is seen from and to, their sum (what the code sorts by) and its speed
       show: piece.show,
       end: piece.end,
@@ -473,10 +533,27 @@ function timedOf(obj, tree, opts) {
   // top of the file). Written this way round the list is nearly in order when
   // it is sorted, and the code is the same as it was before the list.
   pieces.reverse();
+  // One T(...) for every list of points. The rows of a morph are places in
+  // blocks already, the way the group around the object sees them: they are
+  // stored fine enough for the biggest that group makes them.
+  const around = Math.max(1, tree.chainOf(obj).reduce((r, node) => r * biggest(node), 1));
+  const sets = [];
+  for (const piece of pieces) {
+    let set = sets.find((known) => known.name === piece.set);
+    if (!set) {
+      const stride = piece.pts.length ? piece.pts[0].length : 3;
+      const fine = stride === 6 ? Math.ceil(opts.precision * around) : q;
+      set = {
+        name: piece.set, stride, q: fine, pieces: [],
+        points: piece.pts.flatMap((l) => l.map((v) => Math.round(v * fine) + 0)),
+      };
+      sets.push(set);
+    }
+    set.pieces.push(piece);
+  }
   return {
-    texture: obj.texture, c1, c2: palette[0][1], palette, o, q, darken: obj.blend === 0, hue, grow,
-    points: local.flatMap((l) => l.map((v) => Math.round(v * q) + 0)),
-    pieces,
+    texture: obj.texture, c1, c2: palette[0][1], palette, o, darken: obj.blend === 0, hue, grow,
+    pieces, sets,
   };
 }
 
@@ -558,7 +635,7 @@ function rushOf(timed) {
     for (const piece of t.pieces) {
       const key = `${t.family} ${piece.moment}`;
       const m = moments.get(key) || { particles: 0, speed: 0 };
-      m.particles += t.points.length / 3;
+      m.particles += piece.pts.length;
       m.speed = Math.max(m.speed, piece.speed);
       moments.set(key, m);
     }
@@ -576,8 +653,8 @@ function rushOf(timed) {
  * after its visibility; the pieces at the end of a tuple that are not needed
  * are left out.
  */
-function tuplesOf(t, grow) {
-  return t.pieces.map(({ tuple, size }) => {
+function tuplesOf(set, grow) {
+  return set.pieces.map(({ tuple, size }) => {
     if (!grow) return tuple;
     const out = [...tuple.slice(0, 4), size || '0', ...tuple.slice(4)];
     if (out.length === 5 && !size) out.pop();
@@ -585,8 +662,8 @@ function tuplesOf(t, grow) {
   });
 }
 
-/** Lines of one T(...) call for some of the points and some of the pieces of an object. */
-function timedCallLines(t, points, table, width, hue, helper) {
+/** Lines of one T(...) call for some of the points of one of the lists of an object (`set`) and some of its pieces. */
+function timedCallLines(t, set, points, table, width, hue, helper) {
   // with colours that change, both colours are lists: one entry for each colour its keys give it
   const colours = (at) => {
     if (!hue) return [`${lit(t.palette[0][at])},`];
@@ -595,7 +672,7 @@ function timedCallLines(t, points, table, width, hue, helper) {
     tokens[tokens.length - 1] = tokens[tokens.length - 1].replace(/,$/, '],');
     return tokens;
   };
-  const head = [`T(${lit(t.texture)},`, ...colours(0), ...colours(1), `${lit(t.o)},`, `${t.q}, [`];
+  const head = [`T(${lit(t.texture)},`, ...colours(0), ...colours(1), `${lit(t.o)},`, `${set.q}, [`];
   const lines = pack(head, width - 2).map((l, i) => (i ? '  ' : '') + l);
   lines.push(...pack(points.map((v) => `${v},`), width, '', ''));
   // after the pieces: 1 for an object that is hidden by darkening, then the number of its family; none when they are 0
@@ -634,9 +711,97 @@ function callLines(group, base, data, width) {
 
 const sizeOf = (lines) => lines.reduce((n, l) => n + l.length + 1, 0);
 
+/** The parameters of a function, cut at the commas between them (not at those inside [a, b]). */
+function splitParams(text) {
+  const out = [''];
+  let depth = 0;
+  for (const ch of text) {
+    if (ch === '[') depth++;
+    if (ch === ']') depth--;
+    if (ch === ',' && !depth) out.push('');
+    else out[out.length - 1] += ch;
+  }
+  return out;
+}
+
+/**
+ * What the studio writes in TypeScript asks the game through this name, which
+ * has no type. The game checks the types of World Code (index.ts), and its own
+ * types for `api` are stricter than its documentation says: so no type of the
+ * game's can hold up what the studio wrote. Code the user writes uses `api`.
+ */
+export const UNTYPED_API = 'psApi';
+export const UNTYPED_API_LINES = [
+  `// ${UNTYPED_API}: the game, asked without types, so that the types of the game`,
+  '// never hold up what the studio wrote. Your own code uses api.',
+  `const ${UNTYPED_API}: any = api`,
+];
+
+/** Change a line of code with what is in quotes put aside: no text that was typed by the user is touched. */
+export function outsideTexts(line, change) {
+  const kept = [];
+  const bare = line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (text) => `\u0002${kept.push(text) - 1}\u0002`);
+  return change(bare).replace(/\u0002(\d+)\u0002/g, (all, i) => kept[Number(i)]);
+}
+
+/**
+ * A line of the helpers the way TypeScript takes it when it is strict: every
+ * parameter says that it can be anything, and so do the list and the options
+ * that are filled bit by bit. (World Code can be TypeScript: index.ts.)
+ * The parameters of a helper itself can also be left out: P(...) and T(...)
+ * are called without their last ones when those have nothing to say.
+ * The game is asked through UNTYPED_API. Comments and texts stay as they are.
+ */
+export function typedLine(line) {
+  if (/^\s*\/\//.test(line)) return line;
+  const helper = /^\s*const [A-Za-z_$][\w$]* = \(/.test(line);
+  let seen = 0;
+  return outsideTexts(line, (code) => code
+    .replace(/\(([^()]*)\)(\s*=>)/g, (all, params, arrow) => {
+      const own = helper && !seen++; // the first list of a line that names a helper: its own parameters
+      return `(${splitParams(params)
+        .map((p) => (!p.trim() || p.includes('=') || p.includes(':') ? p : `${p}${own && !p.includes('[') ? '?' : ''}: any`)).join(',')})${arrow}`;
+    })
+    .replace(/(^|[^\w$.])api\./g, `$1${UNTYPED_API}.`)
+    .replace(/^(\s*const Q) = \[\]$/, '$1: any[] = []')
+    .replace(/^(\s*const q) = \{/, '$1: any = {'));
+}
+
+/**
+ * The start of the function that plays the scene (target 'function'): the
+ * place, and the way it is turned. In TypeScript the lists it works with can
+ * be anything: with strict settings a number out of a list counts as "maybe
+ * not there", and the sums would be refused.
+ */
+const functionLines = (name, typed) => {
+  const any = typed ? ': any' : '';
+  return [
+    ...(typed ? UNTYPED_API_LINES : []),
+    typed ? `const ${name} = (pos: number[], facing?: number[] | null) => {` : `const ${name} = (pos, facing) => {`,
+    `const [X, Y, Z]${any} = pos`,
+    // R: where right, up and ahead of the scene point in the game
+    `let R${any} = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]`,
+    'if (facing && Math.hypot(...facing) > 1e-6) {',
+    '  const far = Math.hypot(...facing)',
+    `  const ahead${any} = facing.map((v${any}) => v / far)`,
+    '  const flat = Math.hypot(ahead[0], ahead[2])',
+    `  const side${any} = flat > 1e-6`,
+    '    ? [ahead[2] / flat, 0, -ahead[0] / flat] : [1, 0, 0]',
+    '  R = [side, [',
+    '    ahead[1] * side[2] - ahead[2] * side[1],',
+    '    ahead[2] * side[0] - ahead[0] * side[2],',
+    '    ahead[0] * side[1] - ahead[1] * side[0],',
+    '  ], ahead]',
+    '}',
+    `const W = (v${any}) => [0, 1, 2].map((j${any}) =>`,
+    '  v[0] * R[0][j] + v[1] * R[1][j] + v[2] * R[2][j])',
+  ];
+};
+
 /**
  * objects : scene objects
- * opts    : { precision, hideDist, target: 'block' | 'world', worldPos, maxChars, maxLines, width }
+ * opts    : { precision, hideDist, target: 'block' | 'world' | 'function', worldPos, maxChars, maxLines, width,
+ *             name (of the function, target 'function'), typed (TypeScript, target 'function') }
  * returns : { parts: [{ code, chars, lines, particles }], particles, groups, seconds, rush, families }
  *           rush     : see rushOf(); what moves fast and all at the same moment
  *           families : { id of an object with timing: the number of its family }, see familiesOf()
@@ -653,7 +818,10 @@ export function generateCode(objects, options = {}) {
     ...options,
   };
   opts.hideDist = Number(opts.hideDist) > 0 ? Number(fmt(opts.hideDist)) : 0;
+  if (!(opts.precision > 0)) opts.precision = 100;
   const world = opts.target === 'world';
+  const asFunction = opts.target === 'function'; // see the top of the file
+  const name = /^[A-Za-z_$][\w$]*$/.test(opts.name || '') ? opts.name : 'psPlay';
   const tree = sceneTree(objects);
   const groups = buildGroups(tree, opts);
   const timedLeaves = tree.leaves().filter((o) => !tree.plain(o));
@@ -677,12 +845,13 @@ export function generateCode(objects, options = {}) {
       hue,
       grow,
       families: timed.some((t) => t.family !== 0),
+      wide: timed.some((t) => t.sets.some((set) => set.stride === 6)),
     } : null,
   };
   const seconds = sceneDuration(objects);
   // World Code has no line limit and is never split.
-  const budgetChars = world ? Infinity : opts.maxChars;
-  const budgetLines = world ? Infinity : opts.maxLines;
+  const budgetChars = world || asFunction ? Infinity : opts.maxChars;
+  const budgetLines = world || asFunction ? Infinity : opts.maxLines;
 
   // What goes into the code, as "units" that can be cut between two particles
   // (or, with timing, between two points of the shape).
@@ -691,12 +860,12 @@ export function generateCode(objects, options = {}) {
     per: 1,
     lines: (from, take) => callLines(g, base, g.data.slice(from * 3, (from + take) * 3), opts.width),
   }));
-  for (const t of timed) {
+  for (const [t, set] of timed.flatMap((t) => t.sets.map((set) => [t, set]))) {
     // A table of pieces that would fill most of a code block on its own is
     // cut into runs; every run comes with the points again.
     const runs = [];
     let run = [];
-    for (const piece of tuplesOf(t, grow)) {
+    for (const piece of tuplesOf(set, grow)) {
       const lines = tableLines([...run, piece], opts.width);
       if (run.length && (sizeOf(lines) > budgetChars * 0.45 || lines.length > budgetLines * 0.45)) {
         runs.push(run);
@@ -708,9 +877,10 @@ export function generateCode(objects, options = {}) {
     for (const pieces of runs) {
       const table = tableLines(pieces, opts.width);
       units.push({
-        atoms: t.points.length / 3,
+        atoms: set.points.length / set.stride,
         per: pieces.length,
-        lines: (from, take) => timedCallLines(t, t.points.slice(from * 3, (from + take) * 3), table, opts.width, hue, helpers.timed),
+        lines: (from, take) => timedCallLines(
+          t, set, set.points.slice(from * set.stride, (from + take) * set.stride), table, opts.width, hue, helpers.timed),
       });
     }
   }
@@ -719,11 +889,24 @@ export function generateCode(objects, options = {}) {
   const footer = world
     ? [...play, '}', 'let psWait = 0', 'tick = (ms) => {', '  psWait -= ms', '  if (psWait > 0) return',
       '  psWait = PS_EVERY', '  psDraw()', '}', '}']
-    : play;
+    : asFunction ? [...play, '}'].map((line) => (opts.typed ? typedLine(line) : line)) : play;
 
   const makePrelude = (index, total) => {
     const n = `${particles} particle${particles === 1 ? '' : 's'}`;
     const lines = [];
+    if (asFunction) {
+      lines.push(
+        `// Bloxd Particle Studio: ${n}.`,
+        `// ${name}(pos, facing) plays them. pos: where the middle of the floor`,
+        '// of the studio\'s code block goes. facing (optional): the scene is',
+        '// turned so that what points along +Z in the studio points this way.',
+      );
+      const made = [...lines, ...preludeLines({
+        base, precision: opts.precision, width: opts.width, useExpand, useMixFade, turn: true,
+        anchor: functionLines(name, !!opts.typed), ...helpers,
+      })];
+      return opts.typed ? made.map(typedLine) : made;
+    }
     if (world) {
       const [x, y, z] = opts.worldPos.map((v) => Number(fmt(v)));
       lines.push(

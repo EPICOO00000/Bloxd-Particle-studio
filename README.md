@@ -6,6 +6,10 @@ many particles, pick a texture and a colour, and paste the result into your
 world. A timeline sets when each of them appears, where it moves and when it
 goes away. Groups move many objects as one, ready-made moves such as Flap, Spin
 and Orbit do the animating for you, and three examples show what is possible.
+The [Shape Studio](#shape-studio) bends, twists and pulls a shape or lets you
+draw your own, [Morph](#morph) turns one shape into another, and the
+[Code window](#code-when-and-where-it-plays) says when and where the scene
+plays in the game, with nodes or with code of your own.
 
 ![The studio with its panels open: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
 
@@ -317,6 +321,87 @@ A key without a tick keeps the look of the key before it.
 The colour changes smoothly. A particle keeps its size all its life in the
 game, so a change of size is shown in a few steps.
 
+### Shape Studio
+
+Select a shape and press **Shape Studio** in the top bar, or the key **S**.
+The settings open on the Shape Studio category. It changes the points a shape
+is made of, in three ways.
+
+![A star that is twisted, with one tip pulled out by a white dot in the 3D view, and the Twist and Drag point tools in the settings on the right](docs/studio.png)
+
+**Tools.** Choose one under "Add a tool". A shape can have up to 12, and each
+works on what the tools above it have made. Every tool has an on and off tick,
+Up and Down to change the order, and its own sliders.
+
+| Tool | What it does |
+|---|---|
+| Drag point | A point of the shape that you drag: the shape around it comes along, the further away the less. |
+| Cage | A box around the shape with eight corners to drag: the whole shape leans, widens and bends with them. |
+| Bulge or pinch | Pushes the shape away from a point you place, or pulls it in. |
+| Inflate | Blows the shape up like a balloon. Below 0 lets the air out. |
+| Make round | Moves every point towards a ball around the middle. |
+| Twist | Wrings the shape like a towel. |
+| Bend | Bends the shape into an arc. 360 degrees rolls it into a ring. |
+| Taper | One end wide, the other narrow, like a cone. |
+| Lean | Pushes the top one way and the bottom the other, like italic letters. |
+| Squash and stretch | Longer and thinner, or shorter and fatter, like rubber. |
+| Flatten | Presses the shape flat. |
+| Swirl | Turns the middle more than the edge. |
+| Wave | Lays the shape over waves that run along it. |
+| Ripple | Rings of waves from the middle. |
+| Wobble | Bumps and dents, as if drawn with a shaky hand. |
+| Scatter | Moves every point a little, each its own way. |
+| Snap to a grid | A blocky, pixel look. |
+| Mirror | Adds the mirror image: draw half a butterfly and get the whole one. |
+| Repeat | Copies inside the shape itself, in a row or a ring. |
+| Thin out | Keeps only some of the points, evenly. |
+| Fill in | A new point between every two neighbours. |
+| Move, turn, resize inside | Moves the points before the next tool, so a Mirror or a Repeat works from another place. |
+
+**Dots to drag.** Drag point, Cage and Bulge have white dots in the 3D view.
+Drag a dot and the shape follows. While the dots are there the arrows of the
+object are away: press S again, or Escape, to get them back. With Snap ticked a
+dot moves in steps.
+
+**Your own shape.** "+ Draw your own shape" in Add starts a line with four
+corners. Drag the corners; "Add" under Shape Studio puts a new one after the
+corner you clicked, Delete takes it away. The line can be closed and smooth,
+and its particles can run along it, fill its inside, or be spun around into a
+3D form, like clay on a wheel.
+
+**Loose points.** "Turn into loose points" makes every particle of a shape a
+point of its own: drag them one by one, add some, delete some. The sliders and
+tools of the shape are worked in and go away. **Join**, with several shapes
+selected, makes one shape of loose points out of all of them.
+
+A shape holds 600 points at most. Everything else (colours, keys, groups,
+arrays, the export) works on a shaped object as on any other.
+
+### Morph
+
+Select the shape that should change, Ctrl+click the shape it should turn into,
+and press **Morph** in the top bar, or the key **M**. Type how long it keeps
+its own shape first and how long the change takes, and press the button.
+
+![A ring and a heart are selected, and the Morph category of the settings offers to morph Ring into Heart: 1 second as it is, then 1.5 seconds to change](docs/morph.png)
+
+The first shape gets keys for it on the timeline. On the way to the last of
+them every particle flies straight to a place in the other shape, and the
+shape takes over the place, the turn, the size, the colour and the particle
+size of the other one. The second shape is taken out of the scene. When the
+new shape has more particles, the extra ones come out of the old ones and fade
+in; when it has fewer, the ones that are too many fly into others and fade
+away. Drag the keys to change when it happens, and morph again for a third
+shape.
+
+Any key can change the shape. Click a diamond on the timeline, open Keys and
+tick "changes here" next to Shape, then press "Pick a shape" and click one in
+Add. With the time marker on such a key, the Shape Studio works on the shape
+of that key: give it a Twist there and the object twists on its way.
+
+The picture (texture) stays the one the object has: the game cannot change it
+on the way. A single particle can morph into a shape too.
+
 ### Copy keys, and stretch time
 
 **Copy keys** (under Keys) remembers what an object does. Select another
@@ -371,6 +456,9 @@ for **Open**.
 | Ctrl+G, Ctrl+Shift+G | Group what is selected, take the group apart |
 | Ctrl+D | Duplicate, with all that is in it |
 | A | Array: copies of what is selected in a row, a grid or a ring |
+| S | Shape Studio: bend, twist and pull the selected shape, or move its points |
+| M | Morph: the first of two selected shapes turns into the second |
+| C | Code: when and where the scene plays in the game |
 | Delete or Backspace | Delete what is selected, or the key whose diamond was clicked last |
 | Ctrl+Z, Ctrl+Shift+Z (or Ctrl+Y) | Undo, Redo |
 | F | Center the view |
@@ -404,6 +492,52 @@ position where the studio's crate should be, then paste the code into World
 Code (F8). If your World Code already has a `tick` callback, merge the two by
 hand, because a world can only have one.
 
+### Code: when and where it plays
+
+A code block plays the scene where the block stands, when it is clicked. The
+**Code** button in the top bar (key **C**) makes World Code that plays it
+wherever and whenever something happens in the game: around a player who
+joins, where a player looks on a right click, at a mob that is hit.
+
+![The Code window with four nodes joined by wires: When a player clicks (right click), If the player holds a Stick, Not too often, Play the particles in front of the player's eyes](docs/code.png)
+
+**Nodes.** Press **+ Add Node** and pick an event, then add "Play the
+particles". A new node is wired to the one that is picked. Pull a wire from a
+red square on the right of a node onto the node that runs next; click a wire
+to cut it. Drag the background to slide the picture, the wheel zooms. The
+**Examples** are pictures to start from.
+
+| Kind | Nodes |
+|---|---|
+| Events | When a player joins, clicks, uses something, says (chat), jumps, hits a mob, kills a mob, hits a player, kills a player, stands on a block, lets a charged item go; when a mob hits a player; when something thrown lands; Every (at once, and then again every so many seconds); When the world starts |
+| Loops | For each player, Repeat, Wait |
+| Logic | If (luck, crouching, holds an item, is near a place, the kind of mob), Not too often |
+| Particles | Play the particles: at the player, in front of the player's eyes, on the block the player looks at, at the mob or player the event is about, on the block it is about, or at a fixed place. Turned as built, the way the player looks, from the player to the mob, or a random way round |
+| Actions | Send a message, Play a sound, Push, Change health, Run your own code |
+
+A run knows what its event knows: which player, which mob, which block. A node
+that needs a player in a run without one (after "Every", for example) says so
+on its card: put "For each player" before it.
+
+The place a scene is played at is where the middle of the floor of the
+studio's crate goes: build an aura around the crate and it plays around the
+player. When the scene is turned, what points along +Z (the blue arrow) in the
+studio points the way the player looks.
+
+**Your own code.** The second tab takes code you write yourself. It goes into
+the World Code as it is. `psPlay(pos, facing)` plays the particles from there
+too. Set the language to **TypeScript** to write types, which the game checks;
+the World Code then belongs in a file called `index.ts`. What the studio itself
+writes asks the game through `psApi`, a name without types, so that no type of
+the game's holds it up. Your own code uses `api`.
+
+When your own code sets a callback that the nodes use too (`onPlayerJump`, for
+example), both run: the nodes first, then yours.
+
+**World Code** is the third tab: copy it, press F8 in a world of your own and
+paste it in place of what is there. With TypeScript, rename `index.js` to
+`index.ts` first.
+
 **Export options**
 
 | Option | Meaning |
@@ -434,6 +568,17 @@ hand, because a world can only have one.
 | Move only the pivot | Groups only. While ticked, moving the group moves the point it turns about and leaves what is in it where it is. |
 
 ## Good to know
+
+- **The Code window was not tried in the game from here.** Its World Code uses
+  callbacks and functions as the Bloxd documentation describes them, and the
+  tests run it against a stand-in for the game and check the TypeScript with
+  the TypeScript compiler. Which way round a turned scene comes out, and how
+  the game takes a long World Code, has to be seen in a world. Try one of the
+  Examples first.
+- **A morph costs particles.** A game particle flies one straight line, so the
+  change needs particles of its own, and the shape that stays afterwards needs
+  new ones again. The particle count at the top says how many the scene makes
+  in all.
 
 - **Not tested inside Bloxd.** The exported code is checked by automated tests
   against the documented API and against how the game's own code reads its
@@ -567,7 +712,12 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
 | `js/viewport.js` | The 3D view (three.js) |
 | `js/timeline.js` | The timeline: bars, diamonds, the time marker |
-| `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, array, stretch time, copy and paste keys, move a pivot |
+| `js/deform.js` | The tools of the Shape Studio: every deformer, its sliders and its dots |
+| `js/forms.js` | The form of an object: a shape of the library, a drawn line or loose points, with its deformers on top |
+| `js/morph.js` | Morphing: which particle of one shape becomes which particle of the other |
+| `js/nodes.js` | The Code window without the page: the kinds of node, and the World Code a picture of nodes makes |
+| `js/code-ui.js` | The Code window: cards, wires, dragging, the list of nodes |
+| `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, array, stretch time, copy and paste keys, move a pivot, morph, join |
 | `js/moves.js` | The ready-made moves |
 | `js/examples-data.js` | The scenes behind the Examples button. Written by `examples/build.mjs` |
 | `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window |
@@ -575,6 +725,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/assets.js` | Finds the pictures, as files or inside the single-file build |
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
+| `tests/studio.test.mjs` | Tests for the Shape Studio, Morph and the Code window. The one that checks the TypeScript needs `npm install` and is skipped without it |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second, and with the particles of a click made one after the other instead of all at once |
 | `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |

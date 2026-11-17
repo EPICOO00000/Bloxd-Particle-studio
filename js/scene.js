@@ -7,11 +7,12 @@
 //                 right-handed, so view = [x, y, -z]. Flipping Z keeps the scene
 //                 from coming out mirrored in the game.
 
-import { shapePoints, SHAPE_BY_ID, defaultParams } from './shapes.js';
+import { SHAPE_BY_ID, defaultParams } from './shapes.js';
+import { formPoints, formBox, formName, sanitizeForm, isCustom, isShaped } from './forms.js';
 import {
   LIFE_PER_SECOND, FADE_START, rotationMatrix, MAX_KEYS, MIN_KEY_GAP, MAX_START, MAX_REPEAT, MIN_EVERY, isEase,
   planOf, piecesAt, spanOf, staySeconds, poseAt, restPose, applyMatrix, isPlain,
-  viewMatrix, mulAffine, flipZ, inBloxd, lineageMatrix, tintAt,
+  viewMatrix, mulAffine, flipZ, inBloxd, lineageMatrix, tintAt, formsOf,
 } from './motion.js';
 
 export { LIFE_PER_SECOND, FADE_START, rotationMatrix };
@@ -63,10 +64,14 @@ export const DEFAULTS = {
   expand: 0,
   gravity: 0,
   hidden: false,
+  // An object can also have (js/forms.js; only there when used, so old files stay as they are):
+  //   deform : [{ kind, ... }] deformers of the Shape Studio, worked through in order on its points
+  //   path   : { nodes, closed, smooth, mode } with shape 'own:path': a line drawn in the Shape Studio
+  //   points : [[x, y, z], ...] with shape 'own:cloud': loose points
   // time (js/motion.js)
   start: 0, // seconds after the click until it appears
   fadeIn: false,
-  keys: [], // [{ t, pos, rot, scale, ease }]: where it is `t` seconds after it appeared
+  keys: [], // [{ t, pos, rot, scale, ease }]: where it is `t` seconds after it appeared (a key can also have a colour, a size and a form)
   spin: false, // turn by the angles as written (full turns) instead of the short way round
   // groups and repeats
   parent: null, // id of the group it is in. Then pos, rot, scale and start count from that group.
@@ -91,7 +96,7 @@ export function createObject(shape = 'point', overrides = {}) {
   const obj = {
     ...structuredCloneSafe(DEFAULTS),
     shape,
-    name: def ? def.name : 'Particle',
+    name: def ? def.name : isCustom(shape) ? formName({ shape, ...overrides }) : 'Particle',
     count: def ? def.count : 1,
     params: defaultParams(shape),
     ...structuredCloneSafe(overrides),
@@ -135,14 +140,13 @@ const hex = (v, fallback) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)
 export function sanitizeObject(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
   if (o.shape === GROUP) return sanitizeGroup(o);
-  const shape = o.shape === 'point' || SHAPE_BY_ID[o.shape] ? o.shape : 'point';
-  const def = SHAPE_BY_ID[shape];
-  const out = createObject(shape, { id: typeof o.id === 'string' ? o.id : undefined });
+  // which points it is made of: a shape of the library, a drawn line or loose points, maybe with deformers
+  const form = o.shape === 'point' ? null : sanitizeForm(o);
+  const shape = form ? form.shape : 'point';
+  const out = createObject(shape, { id: typeof o.id === 'string' ? o.id : undefined, path: form ? form.path : undefined });
   out.name = typeof o.name === 'string' && o.name.trim() ? o.name.slice(0, 40) : out.name;
-  out.count = def ? clamp(Math.round(num(o.count, def.count)), def.min, 600) : 1;
-  if (def && o.params && typeof o.params === 'object') {
-    for (const p of def.params || []) out.params[p.key] = clamp(num(o.params[p.key], p.default), p.min, p.max);
-  }
+  if (form) Object.assign(out, form);
+  else out.count = 1;
   out.pos = vec3(o.pos, DEFAULTS.pos).map((v) => clamp(v, -500, 500));
   out.rot = vec3(o.rot, DEFAULTS.rot);
   out.scale = vec3(o.scale, DEFAULTS.scale).map((v) => clamp(v, -100, 100));
@@ -213,6 +217,9 @@ export function sanitizeKeys(raw, obj) {
         key.size = clamp(k.size, 0.01, 50);
         key.size2 = typeof k.size2 === 'number' && Number.isFinite(k.size2) ? clamp(k.size2, 0.01, 50) : null;
       }
+      // or another shape: on the way to this key the object morphs into it (a single particle stays what it is)
+      const form = obj.shape !== 'point' && k.form ? sanitizeForm(k.form) : null;
+      if (form) key.form = form;
       return key;
     })
     .sort((a, b) => a.t - b.t);
@@ -255,9 +262,9 @@ export const rgbToHex = (rgb) => '#' + rgb.map((v) => clamp(Math.round(v), 0, 25
 export const toView = (p) => [p[0], p[1], -p[2]];
 export const toBloxd = toView; // the flip is its own inverse
 
-/** Shape points before the object's transform. */
+/** Shape points before the object's transform: the shape it starts with, after its deformers. */
 export function localPoints(obj) {
-  return isGroup(obj) ? [] : shapePoints(obj.shape, obj.count, obj.params);
+  return isGroup(obj) ? [] : formPoints(obj);
 }
 
 /** Where each particle of an object is when the object stands at a pose ({ pos, rot, scale }), in Bloxd space. */
@@ -284,16 +291,28 @@ export const isMoving = (obj) => obj.move.some((v) => v !== 0) || obj.spread > 0
 
 const boxes = new Map();
 /** Two opposite corners of the box the points of a shape fit in. */
-function localBox(obj) {
-  const key = `${obj.shape}|${obj.count}|${JSON.stringify(obj.params)}`;
+function shapeBox(form) {
+  if (isShaped(form)) return formBox(form);
+  const key = `${form.shape}|${form.count}|${JSON.stringify(form.params)}`;
   let box = boxes.get(key);
   if (!box) {
-    const points = localPoints(obj);
+    const points = formPoints(form);
     box = [[0, 1, 2].map((i) => Math.min(...points.map((l) => l[i]))), [0, 1, 2].map((i) => Math.max(...points.map((l) => l[i])))];
     if (boxes.size > 2000) boxes.clear();
     boxes.set(key, box);
   }
   return box;
+}
+
+/** The box all the shapes of an object fit in: the one it starts with, and those its keys give it. */
+function localBox(obj) {
+  const box = shapeBox(obj);
+  const others = obj.keys.filter((k) => k.form).map((k) => shapeBox(k.form));
+  if (!others.length) return box;
+  return [
+    [0, 1, 2].map((i) => Math.min(box[0][i], ...others.map((b) => b[0][i]))),
+    [0, 1, 2].map((i) => Math.max(box[1][i], ...others.map((b) => b[1][i]))),
+  ];
 }
 
 const repeatOf = (node) => (node.repeat > 1 ? Math.round(node.repeat) : 1);
@@ -497,6 +516,7 @@ export function computeParticles(objects, time = null, options = {}) {
   for (const obj of objects) {
     if (isGroup(obj) || tree.isHidden(obj)) continue;
     const local = localPoints(obj);
+    const forms = formsOf(obj); // (its keys change its shape)
     const c1 = hexToRgb(obj.color);
     const c2 = obj.color2 ? hexToRgb(obj.color2) : c1;
     const plain = tree.plain(obj);
@@ -512,14 +532,14 @@ export function computeParticles(objects, time = null, options = {}) {
       if (ghost) item.ghost = true;
       out.push(item);
     };
-    /** The whole shape standing still at a matrix, in the look it starts with. */
-    const standing = (m, ghost) => {
+    /** The whole shape (or the one it ends with: `points`) standing still at a matrix, in the look it starts with. */
+    const standing = (m, ghost, points = local) => {
       const rnd = seeded(hashString(obj.id));
-      for (let i = 0; i < local.length; i++) {
+      for (let i = 0; i < points.length; i++) {
         const mix = rnd(), sizeMix = rnd();
         rnd(); rnd(); rnd();
         const size = obj.size2 === null ? obj.size : obj.size + (obj.size2 - obj.size) * sizeMix;
-        add(i, applyMatrix(m, local[i]), size, c1.map((v, k) => v + (c2[k] - v) * mix), ghost ? GHOST : 1, ghost);
+        add(i, applyMatrix(m, points[i]), size, c1.map((v, k) => v + (c2[k] - v) * mix), ghost ? GHOST : 1, ghost);
       }
     };
     if (time === null) {
@@ -536,12 +556,16 @@ export function computeParticles(objects, time = null, options = {}) {
       seen = true;
       // every play picks its own colours, sizes and ways, as the game does
       const rnd = seeded(hashString(obj.id) + n * 7919);
-      for (let i = 0; i < local.length; i++) {
+      // (a piece can be for other points than the ones the object starts with: the shape a key gave it, or the rows of a morph)
+      const most = Math.max(local.length, ...shown.map(({ piece }) => (piece.pts ? piece.pts.length : 0)));
+      for (let i = 0; i < most; i++) {
         const mix = rnd(), sizeMix = rnd(), jx = rnd(), jy = rnd(), jz = rnd();
         for (const { piece, u, w, visible } of shown) {
-          const pos = applyMatrix(piece.P, local[i]);
+          const l = (piece.pts || local)[i];
+          if (!l) continue;
+          const pos = applyMatrix(piece.P, l);
           if (piece.V && u !== 0) {
-            const dir = applyMatrix(piece.V, local[i]);
+            const dir = applyMatrix(piece.V, l);
             const jitter = [jx, jy, jz];
             for (let k = 0; k < 3; k++) pos[k] += (dir[k] + (jitter[k] * 2 - 1) * piece.spread) * u;
           }
@@ -559,7 +583,7 @@ export function computeParticles(objects, time = null, options = {}) {
     const play = latestPlay(plays, time);
     const gone = time >= play.start + staySeconds(obj);
     const around = lineageMatrix(play.ancestors, gone ? play.start + staySeconds(obj) : play.start);
-    standing(flipZ(mulAffine(around, viewMatrix(restPose(obj, gone)))), true);
+    standing(flipZ(mulAffine(around, viewMatrix(restPose(obj, gone)))), true, gone && forms ? formPoints(forms[forms.length - 1]) : local);
   }
   return out;
 }

@@ -5,10 +5,12 @@
 // list in its new order; app.js keeps what was there before for Undo.
 
 import {
-  viewMatrix, mulAffine, poseOfView, poseAt, applyMatrix, rotationMatrix, IDENTITY,
-  MAX_KEYS, MIN_KEY_GAP, MAX_START, MIN_EVERY, keyHasColor, keyHasSize, lookAt,
+  viewMatrix, mulAffine, poseOfView, poseAt, applyMatrix, rotationMatrix, IDENTITY, flipZ, formAt, staySeconds,
+  MAX_KEYS, MIN_KEY_GAP, MAX_START, MIN_EVERY, LIFE_PER_SECOND, keyHasColor, keyHasSize, lookAt,
 } from './motion.js';
-import { isGroup, createGroup, sceneTree, newId, localPoints, rgbToHex, MAX_DEPTH } from './scene.js';
+import { isGroup, createGroup, sceneTree, newId, localPoints, rgbToHex, stillPoints, MAX_DEPTH } from './scene.js';
+import { formOf, formPoints, cloudOf, CLOUD } from './forms.js';
+import { MAX_POINTS } from './deform.js';
 
 /** A scene holds this many objects and groups at most (more are dropped when a file is opened). */
 export const MAX_OBJECTS = 500;
@@ -613,6 +615,7 @@ export function pasteKeys(node, clip, at = 0) {
     };
     if (leaf && keyHasColor(key)) Object.assign(made, { color: key.color, color2: key.color2 || null });
     if (leaf && keyHasSize(key)) Object.assign(made, { size: key.size, size2: key.size2 ?? null });
+    if (leaf && !point && key.form) made.form = clone(key.form); // a morph comes along
     node.keys.push(made);
   }
   if (clip.spin && !point) node.spin = true;
@@ -640,3 +643,106 @@ export function movePivot(objects, id, pos) {
   for (const child of tree.childrenOf(group)) rebase(child, m);
   return true;
 }
+
+// ---------------------------------------------------------------- shapes: morph, join, loose points
+
+/** Seconds a morph waits before it begins, and seconds it takes, when nothing else is asked for. */
+export const MORPH_WAIT = 1;
+export const MORPH_TIME = 1.5;
+
+/** The fields that say which points an object is made of, set to those of a form (see js/forms.js). */
+export function setForm(node, form) {
+  for (const field of ['path', 'points', 'deform']) delete node[field];
+  Object.assign(node, clone(form));
+  return node;
+}
+
+/**
+ * Turn an object into loose points: the points it is made of now (after its
+ * sliders and its deformers) become its own, each to be moved by hand.
+ * `form`: the object itself, or the form of one of its keys.
+ */
+export function bakeForm(form) {
+  return setForm(form, cloudOf(formPoints(form)));
+}
+
+/**
+ * Morph: the first of two objects turns into the second.
+ *   ids  : the two, the one that changes first
+ *   spec : { wait: seconds it keeps its own shape first, time: seconds the change takes }
+ * The first gets a key at which it has the shape, the place, the turn, the size,
+ * the colour and the particle size of the second (and, with a wait, a key
+ * before it at which the change begins). It comes after the keys it has
+ * already. The second is taken out of the scene: its particles are the ones
+ * the first one turns into.
+ * Returns { objects, ids: [the first], from, to (seconds after it appears at which the change begins and ends) } or { error }.
+ */
+export function morphNodes(objects, ids, spec = {}) {
+  const tree = sceneTree(objects);
+  const [a, b] = ids.map((id) => tree.byId.get(id));
+  if (ids.length !== 2 || !a || !b || a === b) {
+    return { error: 'Morph turns one shape into another. Select the shape that changes, then Ctrl+click the shape it turns into.' };
+  }
+  if (isGroup(a) || isGroup(b)) return { error: 'A group cannot be morphed. Select two shapes, or two shapes inside the group.' };
+  const wait = Math.max(0, Number.isFinite(Number(spec.wait)) ? Number(spec.wait) : MORPH_WAIT);
+  const time = Math.max(MIN_KEY_GAP, Number.isFinite(Number(spec.time)) ? Number(spec.time) : MORPH_TIME);
+  const needs = wait >= MIN_KEY_GAP ? 2 : 1;
+  if (a.keys.length + needs > MAX_KEYS) {
+    return { error: `${a.name} has ${a.keys.length} keys already, and a morph needs ${needs} more (${MAX_KEYS} at most). Remove some keys first.` };
+  }
+  // where the second one stands, as the group around the first one sees it
+  let target = { pos: b.pos, rot: b.rot, scale: b.scale };
+  if (a.parent || b.parent) {
+    const inverse = invAffine(tree.aroundOf(a, -Infinity));
+    if (!inverse) return { error: `The group around ${a.name} is squashed flat (a size of 0). Give it a size first.` };
+    target = poseOfView(mulAffine(inverse, mulAffine(tree.aroundOf(b, -Infinity), viewMatrix(b))));
+  }
+  target = tidyPose(target);
+  // a single particle has no turn and no size of its own: as one loose point it can have them
+  if (a.shape === 'point') setForm(a, cloudOf([[0, 0, 0]]));
+  const last = a.keys.length ? a.keys[a.keys.length - 1] : a;
+  const from = round((a.keys.length ? last.t : 0) + (needs === 2 ? wait : 0));
+  const to = round(from + time);
+  if (needs === 2) a.keys.push({ t: from, pos: last.pos.slice(), rot: last.rot.slice(), scale: last.scale.slice(), ease: 'smooth' });
+  const look = lookAt(a, from);
+  const key = { t: to, ...target, ease: 'smooth' };
+  const sizes = [b.size, b.size2 === null || b.size2 === undefined ? b.size : b.size2];
+  if (rgbToHex(look.c1) !== b.color || rgbToHex(look.c2) !== (b.color2 || b.color)) Object.assign(key, { color: b.color, color2: b.color2 || null });
+  if (Math.abs(look.lo - Math.min(...sizes)) > 1e-9 || Math.abs(look.hi - Math.max(...sizes)) > 1e-9) {
+    Object.assign(key, { size: b.size, size2: b.size2 ?? null });
+  }
+  // (the form last, the order in which a loaded file has the fields of a key)
+  key.form = clone(b.shape === 'point' ? cloudOf([[0, 0, 0]]) : formOf(b));
+  a.keys.push(key);
+  // it stays for a while as what it has become: as long as the second one would have, but two seconds are enough
+  a.life = round(clamp(Math.max(a.life, (to + Math.min(2, staySeconds(b))) * LIFE_PER_SECOND), 0.05, 1000), 2);
+  return { objects: objects.filter((o) => o !== b), ids: [a.id], from, to };
+}
+
+/**
+ * Join: several shapes become one, made of loose points. The first keeps its
+ * place, its look and what it does; the points of the others are put into it
+ * where they stand at the start, and the others are taken out of the scene.
+ * Returns { objects, ids: [the first], left (points that did not fit) } or { error }.
+ */
+export function joinNodes(objects, ids) {
+  const tree = sceneTree(objects);
+  const chosen = new Set(ids);
+  const leaves = objects.filter((o) => chosen.has(o.id) && !isGroup(o));
+  if (leaves.length < 2 || leaves.length !== ids.length) return { error: 'Join makes one shape out of several. Select two or more shapes (no groups).' };
+  const first = tree.byId.get(ids[0]);
+  const inverse = invAffine(flipZ(mulAffine(tree.aroundOf(first, -Infinity), viewMatrix(first))));
+  if (!inverse) return { error: `${first.name} is squashed flat (a size of 0). Give it a size first.` };
+  const points = [];
+  for (const leaf of [first, ...leaves.filter((o) => o !== first)]) {
+    for (const p of stillPoints(tree, leaf)) points.push(applyMatrix(inverse, p));
+  }
+  const left = Math.max(0, points.length - MAX_POINTS);
+  setForm(first, cloudOf(points));
+  for (const key of first.keys) delete key.form;
+  return { objects: objects.filter((o) => o === first || !chosen.has(o.id)), ids: [first.id], left };
+}
+
+/** The form an object has `t` seconds after it appears, as a copy that can be given to a key. */
+export const formCopyAt = (node, t) => clone(formAt(node, t));
+export { CLOUD };
