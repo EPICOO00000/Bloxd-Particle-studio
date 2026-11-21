@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=a6b7bf31">
+<link rel="stylesheet" href="css/style.css?v=3457229d">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,7 +15,7 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=b3098222",
+  "./js/app.js": "./js/app.js?v=5ac1a830",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
   "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
   "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
@@ -55,6 +55,8 @@
   "./js/shapes-wild.js": "./js/shapes-wild.js?v=c6eb32f0",
   "./js/shapes-words.js": "./js/shapes-words.js?v=99a944a2",
   "./js/shapes.js": "./js/shapes.js?v=eea98c2f",
+  "./js/share-ui.js": "./js/share-ui.js?v=7970dbf5",
+  "./js/share.js": "./js/share.js?v=dfc76e88",
   "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
   "./js/ui.js": "./js/ui.js?v=10b9fe96",
   "./js/viewport.js": "./js/viewport.js?v=6ec52ad8",
@@ -70,7 +72,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = '1ee6d2d65743';
+  var mine = 'd80d5706c241';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {
@@ -118,6 +120,7 @@
     </span>
     <button id="open" title="Open a saved scene file">Open</button>
     <button id="save" title="Save the scene as a file">Save</button>
+    <button id="share" title="Share: a link that opens this scene in anyone's browser">Share</button>
     <button id="code" title="Code: when and where the scene plays in the game, with nodes or your own TypeScript (C)">Code</button>
     <button id="export" class="primary">Export code</button>
   </div>
@@ -284,6 +287,41 @@
       <textarea id="code-text" readonly spellcheck="false" wrap="off" aria-label="World Code"></textarea>
     </div>
   </section>
+</dialog>
+
+<dialog id="share-dialog" class="small-dialog" aria-labelledby="share-title">
+  <form method="dialog" class="dialog-head">
+    <h2 id="share-title">Share link</h2>
+    <button class="close" aria-label="Close">Close</button>
+  </form>
+  <div class="dialog-body">
+    <p class="dialog-text">Whoever opens this link sees your scene in the studio, in any browser. Nothing is uploaded: the scene is in the link itself.</p>
+    <div class="share-row">
+      <input id="share-link" type="text" readonly spellcheck="false" autocomplete="off" aria-label="The share link">
+      <button id="share-copy" type="button" class="primary">Copy link</button>
+    </div>
+    <label id="share-code-row" class="check" hidden><input type="checkbox" id="share-code" checked> <span id="share-code-text"></span></label>
+    <div id="share-status" class="status" role="status" aria-live="polite"></div>
+    <ul class="steps">
+      <li>The link holds the scene <b>as it is now</b>. Change the scene, and you copy a new link.</li>
+      <li>Someone who has a scene of their own is asked before yours takes its place.</li>
+    </ul>
+  </div>
+</dialog>
+
+<dialog id="shared-dialog" class="small-dialog" aria-labelledby="shared-title">
+  <div class="dialog-head"><h2 id="shared-title">Open the shared scene?</h2></div>
+  <div class="dialog-body">
+    <p id="shared-theirs" class="dialog-text"></p>
+    <p id="shared-mine" class="dialog-text"></p>
+    <p id="shared-code" class="dialog-text warn" hidden>What is in your Code window is replaced as well, and Undo does not bring that back.</p>
+    <div class="export-actions">
+      <button id="shared-open" type="button" class="primary">Open the shared scene</button>
+      <button id="shared-save" type="button">Save mine to a file</button>
+      <button id="shared-keep" type="button">Keep mine</button>
+    </div>
+    <p id="shared-saved" class="muted" role="status" hidden>Saved as particle-scene.json: look in your downloads.</p>
+  </div>
 </dialog>
 
 <dialog id="export-dialog">

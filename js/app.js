@@ -26,6 +26,8 @@ import { EXAMPLES } from './examples-data.js';
 import { createViewport } from './viewport.js';
 import { createCodeWindow } from './code-ui.js';
 import { sanitizeCode, WORLD_CHARS } from './nodes.js';
+import { createShare } from './share-ui.js';
+import { sceneText, SHARE_ERRORS } from './share.js';
 import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
 import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.js';
@@ -88,6 +90,18 @@ Object.defineProperty(state, 'selected', {
 let viewport = null;
 let timeline = null;
 let codeWindow = null;
+let share = null; // the Share window, and what reads a share link (js/share-ui.js)
+/**
+ * A scene that came by a share link is on trial until the studio has worked it
+ * out once: drawn it, counted its particles, and looked where it is through
+ * the show. Only then is it stored in the browser. A link can be made by
+ * anyone, and a scene the studio chokes on must not be what the next visit
+ * starts with. { spent: milliseconds of work so far, back(): puts back what
+ * was there, quiet: it came before the page was drawn }
+ */
+let trial = null;
+/** A shared scene that takes longer than this to work out is not kept. (The dragon takes a quarter of a second.) */
+const SHARED_PATIENCE = 8000;
 let keyPressed = false; // the last press was on a key of the timeline: Delete then removes that key, never the object
 const images = {};
 const history = [];
@@ -150,6 +164,7 @@ const fileData = () => ({
 });
 
 function store() {
+  if (trial) return; // (a shared scene is stored once it has shown that the studio can work it out: see `trial`)
   try {
     localStorage.setItem(STORE, JSON.stringify(fileData()));
   } catch { /* private mode or sandboxed frame: the Save button still works */ }
@@ -273,7 +288,9 @@ function refresh() {
   // Not playing, time marker at the start: everything where it starts, fully
   // visible, to build with. Anywhere else: that moment, with the objects that
   // are not there then drawn see-through so they can still be picked.
+  const began = performance.now();
   if (!state.playing) viewport.setParticles(arrayGhosts() || computeParticles(state.objects, state.time > 0 ? state.time : null, { ghosts: true }));
+  if (trial) trial.spent += performance.now() - began;
   const nodes = selectedNodes();
   const ids = [...new Set(nodes.flatMap((n) => tr.leavesOf(n)).map((leaf) => leaf.id))];
   // the handles sit where the object is at that moment; several objects have none
@@ -291,7 +308,19 @@ function refresh() {
 
 /** Particle count and how many code blocks the scene needs. */
 function updateStats() {
-  const result = generateCode(state.objects, state.export);
+  const began = performance.now();
+  let result;
+  try {
+    result = generateCode(state.objects, state.export);
+  } catch (err) {
+    if (!trial) throw err;
+    endTrial(true); // (a shared scene the studio cannot work out at all: what was there comes back, and is counted instead)
+    return updateStats();
+  }
+  if (trial) {
+    trial.spent += performance.now() - began;
+    if (endTrial(false)) return updateStats();
+  }
   const pill = $('#count');
   const blocks = result.parts.length;
   const split = state.export.target === 'block' && blocks > 1;
@@ -578,12 +607,17 @@ function toggleFold(id) {
   refresh();
 }
 
-/** Places to frame the camera on: where the particles are at the start and through the show. */
-function allPoints() {
+/**
+ * Places to frame the camera on: where the particles are at the start and
+ * through the show. `enough`: asked before every moment of the show; when it
+ * says yes, the moments that are left are left out.
+ */
+function allPoints(enough = null) {
   const points = computeParticles(state.objects, null).map((p) => p.pos);
   const end = duration();
   if (state.objects.some((o) => o.keys.length || o.move && o.move.some((v) => v))) {
     for (let i = 1; i <= 8; i++) {
+      if (enough && enough()) break;
       const shown = computeParticles(state.objects, (end * i) / 8.02);
       const step = Math.max(1, Math.floor(shown.length / 150));
       for (let k = 0; k < shown.length; k += step) points.push(shown[k].pos);
@@ -2275,7 +2309,7 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A short message over the 3D view. (alert and confirm do not work in every embedded page.) */
+/** A short message over the 3D view, there for as long as it takes to read. (alert and confirm do not work in every embedded page.) */
 let toastTimer = 0;
 function toast(message, kind = '') {
   const el = $('#toast');
@@ -2283,7 +2317,7 @@ function toast(message, kind = '') {
   el.className = `toast ${kind}`.trim();
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 6000);
+  toastTimer = setTimeout(() => { el.hidden = true; }, Math.max(6000, message.length * 70));
 }
 
 // ------------------------------------------------------------------ files and examples
@@ -2299,7 +2333,8 @@ function openScene(objects, message) {
   commit();
   renderInspector();
   refresh();
-  if (viewport) viewport.focus(allPoints());
+  // (a shared scene on trial: the view goes to where it starts; where it is later is worked out at the end of the trial)
+  if (viewport) viewport.focus(allPoints(trial ? () => true : null));
   toast(`${message}${hadScene ? ' Undo brings the old scene back.' : ''}`);
 }
 
@@ -2321,6 +2356,134 @@ async function openFile(file) {
 
 function openExample(example) {
   openScene(sanitizeScene(clone(example.scene)).objects, `${example.name}: press Play.`);
+}
+
+const saveFile = () => download('particle-scene.json', JSON.stringify(fileData(), null, 1), 'application/json');
+
+// ------------------------------------------------------------------ share links
+
+/**
+ * Nothing here is the user's own work: the scene is empty, or the one a first
+ * visit starts with, or an example as it comes, and the Code window is empty.
+ * Then a shared scene can take its place without a question.
+ */
+function untouched() {
+  if (state.code.graph.nodes.length || state.code.own) return false;
+  if (!state.objects.length) return true;
+  const text = (objects) => sceneText({ objects: sanitizeScene({ objects: clone(objects) }).objects, export: null, code: null });
+  const mine = text(state.objects);
+  return mine === text(starterScene()) || EXAMPLES.some((example) => mine === text(example.scene.objects));
+}
+
+/**
+ * The scene of a share link takes the place of the one that is here, on trial
+ * (see `trial`). `quiet`: before the page is drawn for the first time, so
+ * nothing else is ever seen; else like a file that is opened.
+ */
+function takeShared(scene, quiet = false) {
+  const before = { code: state.code, options: { ...state.export }, objects: snapshot() };
+  trial = {
+    spent: 0,
+    quiet,
+    back: () => {
+      state.code = before.code;
+      Object.assign(state.export, before.options);
+      // Undo and Redo are no way back to it: the steps go back to the scene that was there
+      if (quiet) history.length = 0;
+      else while (history.length > 1 && history[history.length - 1] !== before.objects) history.pop();
+      if (!history.length) history.push(before.objects);
+      future.length = 0;
+      restore(history[history.length - 1]);
+      if (viewport) viewport.focus(allPoints());
+    },
+  };
+  applyExportOptions(scene.export);
+  if (scene.code) state.code = scene.code; // (a link without a Code window leaves what is there, as a file does)
+  if (quiet) {
+    // (what was there is nobody's work: the shared scene is where Undo ends)
+    state.objects = scene.objects;
+    history[history.length - 1] = snapshot();
+    return;
+  }
+  if (codeWindow) codeWindow.close();
+  if ($('#export-dialog').open) $('#export-dialog').close();
+  share.hide();
+  openScene(scene.objects, 'Opened the shared scene: press Play.');
+}
+
+/** The first words about a shared scene that is on show. `first`: on a first visit, where the parts of the page are as well. */
+const sharedWelcome = (first) => `A shared scene: press Play.${state.code.graph.nodes.length || state.code.own ? ' The Code window has what belongs to it.' : ''}${
+  first ? ' The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.' : ''}`;
+
+/**
+ * The end of a trial: the studio has drawn the shared scene and counted its
+ * particles, or could not (`failed`). The last of the work is done here: where
+ * the scene is through the show, which the view goes to. Kept: it is stored
+ * now, and the link goes out of the address. Not kept, because it could not be
+ * worked out or took too long: what was there is back. Returns true when the
+ * scene was not kept.
+ */
+function endTrial(failed) {
+  const { back, quiet } = trial;
+  let points = null;
+  let kept = !failed && trial.spent <= SHARED_PATIENCE;
+  if (kept) {
+    const began = performance.now();
+    try {
+      points = allPoints(() => trial.spent + performance.now() - began > SHARED_PATIENCE);
+    } catch {
+      kept = false;
+    }
+    kept = kept && trial.spent + performance.now() - began <= SHARED_PATIENCE;
+  }
+  trial = null;
+  share.forget();
+  if (!kept) {
+    back();
+    toast('This shared scene is more than the studio can work out here, so it was not kept. Ask for it as a file, or for a smaller one.', 'warn');
+    return true;
+  }
+  store();
+  if (viewport) viewport.focus(points);
+  if (quiet) toast(sharedWelcome(welcome()));
+  return false;
+}
+
+/** The first visit? Asked once: after that it is not the first any more. */
+function welcome() {
+  if (recall('welcomed')) return false;
+  keep('welcomed', true);
+  return true;
+}
+
+/**
+ * A share link is in the address (`arrived`: what share.arrival() gave), at
+ * the start of the page or put there while the page is open. Its scene is
+ * opened, after a question when there is a scene here that is somebody's work.
+ */
+async function sharedArrived(arrived, starting = false) {
+  if (!arrived) return;
+  if (trial) {
+    // (another shared scene is still on trial, for a moment: one after the other)
+    setTimeout(() => sharedArrived(arrived, starting), 300);
+    return;
+  }
+  if (arrived.error) {
+    // (a link from a newer studio stays in the address: the page loads again by itself when there is a newer one)
+    if (arrived.error !== 'newer') share.forget();
+    toast(SHARE_ERRORS[arrived.error] || SHARE_ERRORS.broken, 'warn');
+  } else if (share.here(arrived.scene)) {
+    share.forget();
+    toast(starting ? sharedWelcome(welcome()) : 'This shared scene is open already.');
+  } else if (untouched()) takeShared(arrived.scene);
+  else {
+    const yes = await share.ask(arrived.scene);
+    if (yes) takeShared(arrived.scene);
+    else if (yes === false) {
+      share.forget();
+      toast('Your scene was kept.');
+    } // (null: another link asks in its place)
+  }
 }
 
 /** The Examples button and its menu. */
@@ -2688,7 +2851,8 @@ function bindUi() {
     if (viewport) viewport.focus([]); // back to the opening view
     toast(hadScene ? 'New empty scene. Undo brings the old one back.' : 'The scene is already empty.');
   };
-  $('#save').onclick = () => download('particle-scene.json', JSON.stringify(fileData(), null, 1), 'application/json');
+  $('#save').onclick = saveFile;
+  $('#share').onclick = () => { share.show(); $('#share').blur(); };
   $('#open').onclick = () => $('#file').click();
   $('#file').onchange = () => {
     const file = $('#file').files[0];
@@ -2706,7 +2870,7 @@ function bindUi() {
 
   window.addEventListener('keydown', (e) => {
     const t = e.target;
-    if ($('#export-dialog').open || $('#code-dialog').open) return;
+    if (document.querySelector('dialog[open]')) return; // (a window is open: the keys are for it)
     if (e.key === 'Escape' && !$('#examples-menu').hidden) { closeExamples(); return; }
     if (t instanceof HTMLElement) {
       if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return; // typing
@@ -2759,10 +2923,23 @@ function bindUi() {
 
 async function start() {
   if (!loadStored()) state.objects = starterScene();
+  share = createShare({
+    data: () => ({ objects: state.objects, export: fileData().export, code: state.code }),
+    save: saveFile,
+  });
+  history.push(snapshot());
+  // A share link in the address. When nothing here is the user's own work, its scene is put in before the page is
+  // drawn; else it waits until the page is up, and asks.
+  let arrived = await share.arrival();
+  const linked = !!arrived; // (then what is said first is about the link)
+  const guest = linked && !!arrived.scene && !share.here(arrived.scene) && untouched();
+  if (guest) {
+    takeShared(arrived.scene, true);
+    arrived = null;
+  }
   bindUi();
   renderList();
   renderInspector();
-  history.push(snapshot());
   updateHistoryButtons();
 
   const loaded = await Promise.all([...TEXTURES.map((t) => loadImage(assetUrl(`textures/${t}.png`))), loadImage(assetUrl('textures/ui/code_block.png'))]);
@@ -2795,19 +2972,20 @@ async function start() {
   viewport.setSnap(state.snap);
   viewport.setTheme(state.sky ? 'sky' : 'dark');
   refresh();
-  updateStats();
+  updateStats(); // (a shared scene that was put in above has been worked out now: the end of its trial)
   // the first time: where everything is
-  if (!recall('welcomed')) {
-    keep('welcomed', true);
-    toast('The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
-  }
+  if (!linked && welcome()) toast('The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
   // Handy in the console and for tests. After changing studio.state by hand, call studio.redraw().
   window.studio = {
     state, viewport, timeline, generateCode, select, addObject, seek, examples: EXAMPLES, openExample,
     redraw: () => { commit(); renderInspector(); refresh(); },
     showPanel, panels: () => ({ ...shown }),
     code: codeWindow,
+    share,
   };
+  sharedArrived(arrived, true);
+  // a share link pasted into the address while the page is open
+  window.addEventListener('hashchange', async () => sharedArrived(await share.arrival()));
 }
 
 start();

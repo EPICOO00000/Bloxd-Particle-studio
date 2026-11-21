@@ -1708,8 +1708,9 @@ test('the page: Shape Studio, Morph and Code have buttons that are always in sig
   // the scene file and the browser's store keep the picture of nodes and your own code
   assert.match(app, /sky: state\.sky, snap: state\.snap, code: state\.code,/);
   assert.match(app, /state\.code = sanitizeCode\(raw\.code\);/);
-  // while the Code window is open the keys of the page are its own
-  assert.ok(app.includes("if ($('#export-dialog').open || $('#code-dialog').open) return;"));
+  // while the Code window is open the keys of the page are its own (as for every window that is open)
+  assert.ok(app.includes("if (document.querySelector('dialog[open]')) return;"));
+  assert.match(html, /<dialog id="code-dialog"/);
   // the look that was asked for: a dark canvas with dots, cards with a coloured heading, red Run wires and square ports
   const css = fs.readFileSync(new URL('css/style.css', root), 'utf8');
   assert.match(css, /\.code-canvas \{[^}]*radial-gradient\(circle, #[0-9a-f]{6}/);

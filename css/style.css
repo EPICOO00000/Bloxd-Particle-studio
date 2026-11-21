@@ -77,6 +77,11 @@ input[type="color"] {
   .topbar button { padding: 6px; }
   .tools, .actions { gap: 3px; }
 }
+@media (max-width: 1400px) {
+  .brand { display: none; }
+  .topbar button { padding: 6px 5px; }
+  .topbar .sep { margin: 0; }
+}
 .tools, .actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .actions { margin-left: auto; }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
@@ -387,6 +392,15 @@ dialog::backdrop { background: #000a; }
 .steps { margin: 0; padding-left: 20px; color: var(--muted); }
 .steps li { margin: 2px 0; }
 .steps b, .steps code { color: var(--text); }
+/* (the Share window, and the question a share link asks) */
+.small-dialog { width: min(620px, 96vw); }
+.dialog-text { margin: 0; text-wrap: pretty; overflow-wrap: anywhere; }
+.dialog-text.warn { color: var(--warn); }
+.share-row { display: flex; gap: 8px; }
+.share-row input {
+  flex: 1; min-width: 0; background: #0f1320; padding: 7px 9px;
+  font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
 /* ---------- timeline: one row per object, time runs to the right ---------- */
 .timeline { flex: none; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line); }
