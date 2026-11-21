@@ -9,8 +9,9 @@ and Orbit do the animating for you, and three examples show what is possible.
 The [Shape Studio](#shape-studio) bends, twists and pulls a shape or lets you
 draw your own, [Morph](#morph) turns one shape into another, and the
 [Code window](#code-when-and-where-it-plays) says when and where the scene
-plays in the game, with nodes or with code of your own. A
-[share link](#share-a-link) opens your scene in anyone's browser.
+plays in the game, with nodes or with code of your own.
+[My scenes](#my-scenes) keeps every scene you make, each with a small picture,
+and a [share link](#share-a-link) opens one in anyone's browser.
 
 ![The studio with its panels open: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
 
@@ -70,9 +71,10 @@ says in a few words what is in it, and the studio remembers which ones you keep
 open. Add and Scene share the height of the left panel when both are open,
 and the scene list scrolls by itself.
 
-Your scene is kept in the browser between visits. **Save** writes it to a file
-and **Open** loads one, so you can keep several scenes. **Share** copies a
-link that opens the scene in anyone's browser: see
+Every scene you make is kept in the browser between visits, and **My scenes**
+lists them all: see [My scenes](#my-scenes). **Save** writes the scene to a
+file and **Open** loads one, to keep a copy or to take it to another computer.
+**Share** copies a link that opens the scene in anyone's browser: see
 [Share a link](#share-a-link).
 
 ### Shapes
@@ -422,7 +424,8 @@ so a stretch stops there.
 ![A dragon made of particles breathes fire at the ground in front of the code block](docs/dragon.png)
 
 The **Examples** button at the top opens finished scenes to play and to take
-apart. Undo brings your own scene back.
+apart. Each one opens as a scene of its own: yours stays in
+[My scenes](#my-scenes).
 
 - **Dragon.** A dragon 76 blocks wide glides towards the code block with its
   wings spread, throws its head back, opens its jaws and breathes fire at the
@@ -449,6 +452,40 @@ the one for the dragon. Change the numbers at the top and run
 `node examples/build.mjs`. `examples/dragon.json` is the dragon as a scene file
 for **Open**.
 
+### My scenes
+
+![The My scenes window: a card for a new scene and seven scenes, each with a small picture, its name, how many objects it has and when it was changed last; the one that is open has a blue rim](docs/scenes.png)
+
+Every scene you make is kept in your browser while you work, by itself: there
+is nothing to press. **My scenes** in the top bar shows them all, each with a
+small picture, its name and when it was changed last.
+
+- **Click a picture** to open that scene. The one you had stays in the list.
+- **Click a name** to type another one. A file you **Save** is called what the
+  scene is called.
+- **Copy** makes a second scene of one, to try something without risk.
+  **Delete** removes one, and the Undo button next to the message brings it
+  back while the window is open.
+- **Nothing takes the place of anything.** **New**, **Open**, an example and a
+  share link each start a scene of their own, and the scene you had stays in
+  My scenes. Undo starts anew in every scene you open: its steps belong to one
+  scene.
+- **The picture** shows the scene where it starts, from the side you look at
+  it. It is taken when you leave the scene or open My scenes, so turn the view
+  first for another angle.
+- **A scene nobody worked on is not kept:** the one a first visit starts with,
+  an empty one, an example you only looked at. Change something in it or give
+  it a name, and it stays.
+- **Two tabs** can each have a scene open. With the same scene in two tabs,
+  the tab you come back to shows it as the other tab left it.
+- **The scenes are in this browser, on this computer.** Another browser,
+  another computer or a phone has a list of its own, and so has a copy of the
+  studio opened from a file (`START-HERE.html`). Clearing the browser's data
+  for the site removes them. For a scene that matters, press **Save** and keep
+  the file. The list holds 200 scenes.
+- **A private window** keeps the scenes until the page is closed, and so does
+  a browser whose store is full. My scenes says so when that is the case.
+
 ### Share a link
 
 ![The Share window over the campfire example: a link in a box, a Copy link button, and the line "Link copied: 994 characters. Paste it into a chat or a post."](docs/share.png)
@@ -470,9 +507,9 @@ scene in it, in any browser: nothing to install, no file to send.
   "with what is in the Code window" to leave it out. When a link brings code
   to you, read it before you paste it into your world, as you would with code
   from anywhere.
-- **Nobody loses a scene to a link.** Someone who has a scene of their own is
-  asked first, and can save it to a file right from the question. After a
-  yes, Undo still brings it back while the page stays open.
+- **Nobody loses a scene to a link.** A shared scene opens as one more scene
+  in [My scenes](#my-scenes), and the scene that was open stays there. The
+  same link opened again brings up the scene it made the first time.
 - **A link cannot break the studio.** Anyone can make a link, so the studio
   does not trust one: a damaged link changes nothing, a scene far bigger than
   the game could play is refused, and a scene is only kept in the browser
@@ -754,16 +791,19 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/code-ui.js` | The Code window: cards, wires, dragging, the list of nodes |
 | `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, array, stretch time, copy and paste keys, move a pivot, morph, join |
 | `js/share.js` | Share links: how a scene is packed into a link and read out of one. The top of the file says what must never change, so that old links keep working |
-| `js/share-ui.js` | The Share window, and the question a share link asks before its scene takes the place of yours |
+| `js/share-ui.js` | The Share window, and what reads the share link in the address of the page |
+| `js/library.js` | My scenes without the page: every scene in an entry of its own in the browser's store. The top of the file says where everything is kept |
+| `js/library-ui.js` | The My scenes window: the cards with their pictures |
 | `js/moves.js` | The ready-made moves |
 | `js/examples-data.js` | The scenes behind the Examples button. Written by `examples/build.mjs` |
-| `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window |
+| `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window, and which scene is open |
 | `js/ui.js` | Small helpers for building the page, and the categories that open and close |
 | `js/assets.js` | Finds the pictures, as files or inside the single-file build |
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
 | `tests/studio.test.mjs` | Tests for the Shape Studio, Morph and the Code window. The one that checks the TypeScript needs `npm install` and is skipped without it |
 | `tests/share.test.mjs` | Tests for share links: every scene comes back as it was, old links keep working, and no link can harm the studio |
+| `tests/library.test.mjs` | Tests for My scenes: what is kept comes back, whatever the browser's store does; the scene from before there was a list is not lost; nothing read from the store is trusted |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second, and with the particles of a click made one after the other instead of all at once |
 | `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |

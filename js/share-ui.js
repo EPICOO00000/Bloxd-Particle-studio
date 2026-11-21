@@ -1,20 +1,12 @@
 // Bloxd Particle Studio: the Share window (a link that holds the scene), and
-// the question a share link asks before its scene takes the place of the one
-// that is there. What a link is made of is in js/share.js; what the studio
-// does with a scene that arrives is in js/app.js (sharedArrived).
+// what reads the link in the address of the page. What a link is made of is in
+// js/share.js; what the studio does with a scene that arrives is in js/app.js
+// (sharedArrived): it becomes one more of My scenes, so it asks nothing.
 
 import { makeLink, readLink, payloadOf, baseOf, shareData, sceneText, ShareError, CHAT_CHARS } from './share.js';
 import { $, h } from './ui.js';
 
 const count = (n, word) => `${n.toLocaleString('en')} ${word}${n === 1 ? '' : 's'}`;
-/** "12 objects": what a scene is made of, without the groups that only hold them. */
-const sizeOf = (objects) => count(objects.filter((o) => o.shape !== 'group').length, 'object');
-/** The first names of the scene list: "Fire, Sparks, Smoke and 4 more". */
-function namesOf(objects, most = 3) {
-  const top = objects.filter((o) => o.parent === null).map((o) => o.name);
-  const shown = top.slice(0, most).join(', ');
-  return top.length > most ? `${shown} and ${top.length - most} more` : shown;
-}
 /** "4 nodes and your own code": what is in a Code window. `typed`: what to call the code that was typed by hand. */
 function codeOf(code, typed) {
   const nodes = code.graph.nodes.length;
@@ -24,7 +16,6 @@ function codeOf(code, typed) {
 /**
  * hooks:
  *   data() : the scene as a saved file holds it: { objects, export, code }
- *   save() : saves the scene to a file
  */
 export function createShare(hooks) {
   const dialog = $('#share-dialog');
@@ -33,7 +24,6 @@ export function createShare(hooks) {
   const withCode = $('#share-code');
   let turn = 0; // (a link is made in the background: only the last one asked for counts)
   let shown = null; // the link in the window: what makeLink() gave
-  let asking = null; // the question that is up waits for this: asking(true | false | null)
 
   const say = (lines) => $('#share-status').replaceChildren(...lines.filter(Boolean).map(([text, kind]) => h('p', { class: kind || '' }, text)));
 
@@ -150,46 +140,6 @@ export function createShare(hooks) {
       const mine = shareData(hooks.data());
       // (a link without a Code window leaves the one that is here as it is: then that is not compared)
       return sceneText(scene) === sceneText({ ...mine, code: scene.code ? mine.code : null });
-    },
-
-    /**
-     * Asks whether the scene of a link may take the place of the one that is
-     * here. Gives true (open it), false (keep mine: also for Esc), or null:
-     * another link came while this one still asked, and asks in its place.
-     */
-    ask(scene) {
-      const question = $('#shared-dialog');
-      if (asking) asking(null);
-      const mine = shareData(hooks.data());
-      const names = namesOf(scene.objects);
-      $('#shared-theirs').replaceChildren(
-        'This link holds a scene of ', h('b', {}, sizeOf(scene.objects)), names ? `: ${names}.` : '.',
-        scene.code ? ` It also holds ${codeOf(scene.code, 'code typed by hand')} for the Code window.` : '');
-      $('#shared-mine').replaceChildren(
-        'It takes the place of the scene you have here (', h('b', {}, sizeOf(mine.objects)),
-        '). Undo brings yours back while this page stays open. To keep yours for later, save it to a file first.');
-      // (Undo is for the scene: what is in the Code window has no way back)
-      $('#shared-code').hidden = !(scene.code && mine.code);
-      $('#shared-saved').hidden = true;
-      return new Promise((resolve) => {
-        const answer = (open) => {
-          if (asking !== answer) return;
-          asking = null;
-          // (the window stays up for the link that asks next)
-          if (open !== null && question.open) question.close();
-          resolve(open);
-        };
-        asking = answer;
-        $('#shared-open').onclick = () => answer(true);
-        $('#shared-keep').onclick = () => answer(false);
-        $('#shared-save').onclick = () => { hooks.save(); $('#shared-saved').hidden = false; };
-        // Esc. A browser may shut the window without asking first: then the news that it is shut is all there is,
-        // and that comes a moment later, when the window can be up again for the next link.
-        question.oncancel = () => answer(false);
-        question.onclose = () => { if (!question.open) answer(false); };
-        if (!question.open) question.showModal();
-        $('#shared-open').focus();
-      });
     },
 
     /** Shut the Share window: the link in it is not for the scene that is here any more. */

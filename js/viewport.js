@@ -652,6 +652,105 @@ export function createViewport(canvas, images, names, callbacks) {
       renderer.render(scene, camera);
       return canvas.toDataURL('image/png');
     },
+    /**
+     * A small picture of the scene, for My scenes: a JPEG as a data URL,
+     * `width` by `height`. Everything is in the picture, seen from the side
+     * the view looks from now, without the handles and the box around what is
+     * selected. `list`: the particles to show (from computeParticles()); left
+     * out, the ones that are in the view. The view itself stays as it is.
+     * '' when no picture can be made.
+     */
+    picture(width, height, list = null) {
+      const parts = [gizmo.getHelper(), box, dots].map((part) => [part, part.visible]);
+      const shown = particles;
+      const fill = (all) => {
+        const byLayer = { normal: [], add: [], multiply: [] };
+        for (const p of all) for (const k of LAYERS_OF_BLEND[p.blend] || ['normal']) byLayer[k].push(p);
+        for (const k of Object.keys(layers)) layers[k].fill(byLayer[k], atlas.rects);
+      };
+      try {
+        resize();
+        if (list) fill(list);
+        const drawn = list || shown;
+        if (canvas.width < 16 || canvas.height < 16) return '';
+        // the picture is the middle of the view, as much of it as has the picture's shape
+        const scale = Math.max(width / canvas.width, height / canvas.height);
+        const w = width / scale;
+        const h = height / scale;
+        // (how far up and to the side the picture sees, for one block of distance)
+        const tall = Math.tan((camera.fov / 2) * (Math.PI / 180)) * (h / canvas.height);
+        const wide = Math.tan((camera.fov / 2) * (Math.PI / 180)) * camera.aspect * (w / canvas.width);
+        // Everything that is drawn, and the block, fill the picture: seen from the side the view looks from,
+        // the eye goes back just far enough for all of it, and looks at the middle of what it sees.
+        const dir = camera.position.clone().sub(orbit.target).normalize();
+        const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir);
+        if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+        right.normalize();
+        const up = new THREE.Vector3().crossVectors(dir, right).normalize();
+        const d = new THREE.Vector3();
+        /** Where the eye looks and how far back it is, for all of these to be in the picture: [[place, room around it]]. */
+        const fit = (spots) => {
+          const all = new THREE.Box3();
+          for (const [spot] of spots) all.expandByPoint(spot);
+          const middle = all.getCenter(new THREE.Vector3());
+          let far = 0;
+          for (let pass = 0; pass < 2; pass++) {
+            const reach = [Infinity, -Infinity, Infinity, -Infinity];
+            far = 0;
+            for (const [spot, room] of spots) {
+              d.copy(spot).sub(middle);
+              const x = d.dot(right);
+              const y = d.dot(up);
+              far = Math.max(far, d.dot(dir) + (Math.abs(x) + room) / wide, d.dot(dir) + (Math.abs(y) + room) / tall);
+              reach[0] = Math.min(reach[0], x - room);
+              reach[1] = Math.max(reach[1], x + room);
+              reach[2] = Math.min(reach[2], y - room);
+              reach[3] = Math.max(reach[3], y + room);
+            }
+            if (pass === 0) middle.addScaledVector(right, (reach[0] + reach[1]) / 2).addScaledVector(up, (reach[2] + reach[3]) / 2);
+          }
+          return { middle, far };
+        };
+        const own = drawn.map((p) => [new THREE.Vector3(...toView(p.pos)), p.size / 2]);
+        const block = [];
+        for (const x of [0, 1]) for (const y of [0, 1]) for (const z of [-1, 0]) block.push([new THREE.Vector3(x, y, z), 0]);
+        // (the block is in the picture when it is near the scene; a scene far away from it would be small then, and is shown alone)
+        let best = fit([...own, ...block]);
+        if (own.length) {
+          const alone = fit(own);
+          if (best.far > alone.far * 1.4) best = alone;
+        }
+        const centre = best.middle;
+        const dist = Math.max(4, best.far * 1.08);
+        const eye = camera.clone();
+        eye.position.copy(centre).addScaledVector(dir, dist);
+        eye.up.copy(up);
+        eye.lookAt(centre);
+        eye.near = Math.max(0.05, dist / 400);
+        eye.far = Math.max(600, dist * 12);
+        eye.updateProjectionMatrix();
+        eye.updateMatrixWorld(true);
+        for (const [part] of parts) part.visible = false;
+        renderer.render(scene, eye);
+        const small = document.createElement('canvas');
+        small.width = width;
+        small.height = height;
+        const ctx = small.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(canvas, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h, 0, 0, width, height);
+        const url = small.toDataURL('image/jpeg', 0.72);
+        return url.startsWith('data:image/jpeg') ? url : '';
+      } catch {
+        return '';
+      } finally {
+        for (const [part, was] of parts) part.visible = was;
+        // (what is on the screen is the view again, with its handles, before the browser shows anything)
+        try {
+          if (list) fill(shown);
+          renderer.render(scene, camera);
+        } catch { /* the next frame draws it */ }
+      }
+    },
     /** For tests. */
     debug: () => ({
       frames, particles: particles.length, selectedId: [...selectedIds][0] || null, selectedIds: [...selectedIds],

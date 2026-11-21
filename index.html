@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=3457229d">
+<link rel="stylesheet" href="css/style.css?v=6ef57e3d">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,7 +15,7 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=5ac1a830",
+  "./js/app.js": "./js/app.js?v=ab5de410",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
   "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
   "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
@@ -23,6 +23,8 @@
   "./js/edits.js": "./js/edits.js?v=69b9b8a8",
   "./js/examples-data.js": "./js/examples-data.js?v=724fab64",
   "./js/forms.js": "./js/forms.js?v=abc447c4",
+  "./js/library-ui.js": "./js/library-ui.js?v=6c527da0",
+  "./js/library.js": "./js/library.js?v=b7431bd2",
   "./js/morph.js": "./js/morph.js?v=d764243e",
   "./js/motion.js": "./js/motion.js?v=ac0014b8",
   "./js/moves.js": "./js/moves.js?v=65b3b429",
@@ -55,11 +57,11 @@
   "./js/shapes-wild.js": "./js/shapes-wild.js?v=c6eb32f0",
   "./js/shapes-words.js": "./js/shapes-words.js?v=99a944a2",
   "./js/shapes.js": "./js/shapes.js?v=eea98c2f",
-  "./js/share-ui.js": "./js/share-ui.js?v=7970dbf5",
+  "./js/share-ui.js": "./js/share-ui.js?v=71d552d1",
   "./js/share.js": "./js/share.js?v=dfc76e88",
   "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
   "./js/ui.js": "./js/ui.js?v=10b9fe96",
-  "./js/viewport.js": "./js/viewport.js?v=6ec52ad8",
+  "./js/viewport.js": "./js/viewport.js?v=1250586e",
   "./vendor/OrbitControls.js": "./vendor/OrbitControls.js?v=e9c4f268",
   "./vendor/TransformControls.js": "./vendor/TransformControls.js?v=c37314f3",
   "./vendor/three.module.min.js": "./vendor/three.module.min.js?v=08fd7545"
@@ -72,7 +74,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = 'd80d5706c241';
+  var mine = '7e0de1d3e3f1';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {
@@ -113,16 +115,17 @@
   </div>
   <div class="actions">
     <span id="count" class="pill">0 particles</span>
-    <button id="new">New</button>
+    <button id="scenes" title="My scenes: every scene you made, kept in this browser"><span class="long">My scenes</span><span class="short">Scenes</span></button>
+    <button id="new" title="A new empty scene. The one you have stays in My scenes">New</button>
     <span class="menu-wrap">
       <button id="examples" aria-haspopup="menu" aria-expanded="false" title="Ready scenes to look at and take apart">Examples</button>
       <div id="examples-menu" class="menu" role="menu" hidden></div>
     </span>
-    <button id="open" title="Open a saved scene file">Open</button>
+    <button id="open" title="Open a saved scene file. It becomes one more of My scenes">Open</button>
     <button id="save" title="Save the scene as a file">Save</button>
     <button id="share" title="Share: a link that opens this scene in anyone's browser">Share</button>
     <button id="code" title="Code: when and where the scene plays in the game, with nodes or your own TypeScript (C)">Code</button>
-    <button id="export" class="primary">Export code</button>
+    <button id="export" class="primary">Export<span class="long"> code</span></button>
   </div>
 </header>
 
@@ -146,7 +149,7 @@
     <section class="cat" id="cat-scene" data-cat="scene" hidden>
       <div class="cat-bar">
         <button class="cat-head" type="button" title="Close (2)">
-          <span class="chev" aria-hidden="true"></span><span class="cat-title">Scene</span>
+          <span class="chev" aria-hidden="true"></span><span class="cat-title">Scene</span><span class="cat-sum" id="scene-name"></span>
         </button>
         <button id="group" title="Put what is selected into a group (Ctrl+G). Ctrl+click selects several." disabled>Group</button>
       </div>
@@ -304,23 +307,20 @@
     <div id="share-status" class="status" role="status" aria-live="polite"></div>
     <ul class="steps">
       <li>The link holds the scene <b>as it is now</b>. Change the scene, and you copy a new link.</li>
-      <li>Someone who has a scene of their own is asked before yours takes its place.</li>
+      <li>For whoever opens it, it is one more scene in My scenes. Nothing of theirs is replaced.</li>
     </ul>
   </div>
 </dialog>
 
-<dialog id="shared-dialog" class="small-dialog" aria-labelledby="shared-title">
-  <div class="dialog-head"><h2 id="shared-title">Open the shared scene?</h2></div>
+<dialog id="scenes-dialog" aria-labelledby="scenes-title">
+  <form method="dialog" class="dialog-head">
+    <h2 id="scenes-title">My scenes</h2>
+    <button class="close" aria-label="Close">Close</button>
+  </form>
   <div class="dialog-body">
-    <p id="shared-theirs" class="dialog-text"></p>
-    <p id="shared-mine" class="dialog-text"></p>
-    <p id="shared-code" class="dialog-text warn" hidden>What is in your Code window is replaced as well, and Undo does not bring that back.</p>
-    <div class="export-actions">
-      <button id="shared-open" type="button" class="primary">Open the shared scene</button>
-      <button id="shared-save" type="button">Save mine to a file</button>
-      <button id="shared-keep" type="button">Keep mine</button>
-    </div>
-    <p id="shared-saved" class="muted" role="status" hidden>Saved as particle-scene.json: look in your downloads.</p>
+    <p class="dialog-text muted">Every scene you make is kept here, in this browser. Click a picture to open that scene. To take a scene to another computer, use Save or Share.</p>
+    <div id="scenes-status" class="status" role="status" aria-live="polite"></div>
+    <div id="scenes-grid" class="scene-grid"></div>
   </div>
 </dialog>
 
