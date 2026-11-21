@@ -9,7 +9,8 @@ and Orbit do the animating for you, and three examples show what is possible.
 The [Shape Studio](#shape-studio) bends, twists and pulls a shape or lets you
 draw your own, [Morph](#morph) turns one shape into another, and the
 [Code window](#code-when-and-where-it-plays) says when and where the scene
-plays in the game, with nodes or with code of your own.
+plays in the game, with nodes or with code of your own. A
+[share link](#share-a-link) opens your scene in anyone's browser.
 
 ![The studio with its panels open: the scene list with its groups on the left, the 3D view in the middle, the settings in categories on the right, the timeline below](docs/screenshot.png)
 
@@ -70,7 +71,9 @@ open. Add and Scene share the height of the left panel when both are open,
 and the scene list scrolls by itself.
 
 Your scene is kept in the browser between visits. **Save** writes it to a file
-and **Open** loads one, so you can keep several scenes or share them.
+and **Open** loads one, so you can keep several scenes. **Share** copies a
+link that opens the scene in anyone's browser: see
+[Share a link](#share-a-link).
 
 ### Shapes
 
@@ -446,6 +449,38 @@ the one for the dragon. Change the numbers at the top and run
 `node examples/build.mjs`. `examples/dragon.json` is the dragon as a scene file
 for **Open**.
 
+### Share a link
+
+![The Share window over the campfire example: a link in a box, a Copy link button, and the line "Link copied: 994 characters. Paste it into a chat or a post."](docs/share.png)
+
+**Share** in the top bar makes a link that holds your scene, and copies it.
+Paste it into a chat or a post. Whoever opens it gets the studio with your
+scene in it, in any browser: nothing to install, no file to send.
+
+- **Nothing is uploaded.** The scene is written into the link itself, after
+  the `#`. That is why it works on a site that only hands out files, such as
+  GitHub Pages.
+- **The link is a snapshot.** It holds the scene as it is when you press
+  Share. Change the scene and you copy a new link.
+- **Big scenes make long links.** The Portal example makes a link of about
+  870 characters, the Campfire about 990 and the Dragon about 5,400. One
+  Discord message holds 2,000, and the Share window says so when a link is
+  longer. For a big scene, send the file from **Save** instead.
+- **The Code window comes along** when there are nodes or code in it. Untick
+  "with what is in the Code window" to leave it out. When a link brings code
+  to you, read it before you paste it into your world, as you would with code
+  from anywhere.
+- **Nobody loses a scene to a link.** Someone who has a scene of their own is
+  asked first, and can save it to a file right from the question. After a
+  yes, Undo still brings it back while the page stays open.
+- **A link cannot break the studio.** Anyone can make a link, so the studio
+  does not trust one: a damaged link changes nothing, a scene far bigger than
+  the game could play is refused, and a scene is only kept in the browser
+  once the studio has worked it out without choking on it.
+
+A copy of the studio that was opened from a file (`START-HERE.html`) makes
+links that lead to the studio on the web.
+
 ### Keyboard and mouse
 
 | Key | Does |
@@ -718,6 +753,8 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/nodes.js` | The Code window without the page: the kinds of node, and the World Code a picture of nodes makes |
 | `js/code-ui.js` | The Code window: cards, wires, dragging, the list of nodes |
 | `js/edits.js` | Changes that involve several objects: group, ungroup, mirror copy, duplicate, array, stretch time, copy and paste keys, move a pivot, morph, join |
+| `js/share.js` | Share links: how a scene is packed into a link and read out of one. The top of the file says what must never change, so that old links keep working |
+| `js/share-ui.js` | The Share window, and the question a share link asks before its scene takes the place of yours |
 | `js/moves.js` | The ready-made moves |
 | `js/examples-data.js` | The scenes behind the Examples button. Written by `examples/build.mjs` |
 | `js/app.js` | Buttons, panels, the categories of settings, the shape picker, undo, saving, the export window |
@@ -726,6 +763,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `tests/core.test.mjs` | Tests. They run the exported code against a stand-in for the game's `api` |
 | `tests/edits.test.mjs` | Tests for `js/edits.js` and `js/moves.js` |
 | `tests/studio.test.mjs` | Tests for the Shape Studio, Morph and the Code window. The one that checks the TypeScript needs `npm install` and is skipped without it |
+| `tests/share.test.mjs` | Tests for share links: every scene comes back as it was, old links keep working, and no link can harm the studio |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second, and with the particles of a click made one after the other instead of all at once |
 | `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
 | `textures/` | Particle pictures used for the preview |
