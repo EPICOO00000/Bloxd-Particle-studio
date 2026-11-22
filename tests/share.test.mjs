@@ -512,7 +512,7 @@ test('share: a scene far bigger than the game could play is not opened from a li
 
 // ---------------------------------------------------------------- the page
 
-test('the page: Share has a button in sight, and its windows have what the scripts ask for', () => {
+test('the page: Share has a button in sight, its window has what the script asks for, and a link asks nothing', () => {
   const html = fs.readFileSync(new URL('index.html', root), 'utf8');
   const app = fs.readFileSync(new URL('js/app.js', root), 'utf8');
   const ui = fs.readFileSync(new URL('js/share-ui.js', root), 'utf8');
@@ -521,31 +521,41 @@ test('the page: Share has a button in sight, and its windows have what the scrip
   const bar = /<header class="topbar">([\s\S]*?)<\/header>/.exec(html)[1];
   assert.match(bar, /<button id="save"[^>]*>Save<\/button>\s*<button id="share" title="Share: [^"]+">Share<\/button>/);
   assert.ok(app.includes("$('#share').onclick = () => { share.show();"));
-  // everything the scripts of the two windows ask the page for is in the page
+  // everything the script of the Share window asks the page for is in the page
   const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   const asked = [...ui.matchAll(/\$\('#([\w-]+)'\)/g)].map((m) => m[1]);
-  assert.ok(asked.length >= 15, `${asked.length} elements asked for`);
+  assert.ok(asked.length >= 7, `${asked.length} elements asked for`);
   for (const id of asked) assert.ok(ids.has(id), `#${id} is in the page`);
-  for (const id of ['share-dialog', 'shared-dialog']) assert.match(html, new RegExp(`<dialog id="${id}"[^>]*aria-labelledby="[\\w-]+"`));
-  // the question has its three answers, and the one that changes nothing is the one Esc gives
-  assert.match(html, /<button id="shared-open"[^>]*class="primary">Open the shared scene<\/button>\s*<button id="shared-save"[^>]*>Save mine to a file<\/button>\s*<button id="shared-keep"[^>]*>Keep mine<\/button>/);
-  assert.ok(ui.includes('question.oncancel = () => answer(false);'));
-  assert.ok(ui.includes('question.onclose = () => { if (!question.open) answer(false); };'));
-  // a second link while the first one still asks: the first gets no answer (null), and the window stays up for the second
-  assert.ok(ui.includes('if (asking) asking(null);') && ui.includes('if (open !== null && question.open) question.close();'));
+  assert.match(html, /<dialog id="share-dialog"[^>]*aria-labelledby="[\w-]+"/);
+  // A link asks nothing: its scene is one more of My scenes, and the scene that was open stays there. (There
+  // was a question once, "open the shared scene, or keep mine?": with My scenes nothing is replaced any more.)
+  assert.ok(!/shared-(dialog|open|save|keep)/.test(html + ui + app), 'the question is gone from the page and from the scripts');
+  assert.ok(!/\bask\(|\basking\b/.test(ui) && !app.includes('share.ask'));
+  assert.match(html, /For whoever opens it, it is one more scene in My scenes\. Nothing of theirs is replaced\./);
   // while a window is open the keys of the page are not for the scene behind it
   assert.ok(app.includes("if (document.querySelector('dialog[open]')) return;"));
   // a scene from a link is stored only once the studio has worked it out (see `trial` in js/app.js) ...
   assert.match(app, /function store\(\) \{\n {2}if \(trial\) return;/);
   assert.match(app, /function endTrial\(failed\) \{[\s\S]*?if \(!kept\) \{\n {4}back\(\);[\s\S]*?\n {2}store\(\);/);
-  // ... a link is looked at when the page starts and when it is put into the address later, and asks before it replaces somebody's work
+  // ... a link is looked at when the page starts and when it is put into the address later ...
   assert.ok(app.includes('let arrived = await share.arrival();'));
   assert.ok(app.includes("window.addEventListener('hashchange', async () => sharedArrived(await share.arrival()));"));
-  assert.match(app, /\} else if \(untouched\(\)\) takeShared\(arrived\.scene\);\n {2}else \{\n {4}const yes = await share\.ask\(arrived\.scene\);\n {4}if \(yes\) takeShared\(arrived\.scene\);\n {4}else if \(yes === false\) \{/);
+  // ... the same link a second time opens the scene it made the first time, instead of making one more ...
+  assert.match(app, /const twin = sharedTwin\(arrived\.scene\);\n {2}if \(twin && openEntry\(twin\)\) \{\n {4}share\.forget\(\);/);
+  assert.match(app, /const twin = sharedTwin\(arrived\.scene\);\n {4}if \(twin && openEntry\(twin, true\)\) \{\n {6}share\.forget\(\);/);
+  // ... and when My scenes is full the link is not opened, and the address is clean again
+  assert.match(app, /if \(!roomForScene\(\)\) \{\n {4}share\.forget\(\);\n {4}return;\n {2}\}\n {2}takeShared\(arrived\.scene\);/);
+  // the scene of a link is a scene of its own (the one that was open is left as it is), and the scene it was
+  // made of is remembered, so that the same link is known the next time
+  assert.match(app, /function takeShared\(scene, quiet = false\) \{\n {2}const left = leaveScene\(\);\n {2}const back = hold\(\);\n {2}trial = \{ spent: 0, quiet, back, left \};\n[^\n]*\n {2}beginScene\('Shared scene', scene, \{ link: linkMark\(scene\), quiet \}\);/);
   // ... and one after the other: a second link waits until the first one is through its trial
   assert.match(app, /async function sharedArrived\(arrived, starting = false\) \{\n {2}if \(!arrived\) return;\n {2}if \(trial\) \{\n[^\n]*\n {4}setTimeout\(\(\) => sharedArrived\(arrived, starting\), 300\);\n {4}return;/);
-  // the Share window is shut when another scene takes the place of the one its link is for
-  assert.match(app, /function takeShared\([\s\S]*?\n {2}share\.hide\(\);\n {2}openScene\(/);
+  // the Share window is shut when another scene is opened: the link in it was for the one before
+  assert.match(app, /function settle\(\) \{\n[^\n]*\n[^\n]*\n {2}if \(share\) share\.hide\(\);/);
+  for (const opener of ['function beginScene(', 'function openEntry(', 'function deleteEntry(', 'function catchUp(']) {
+    const at = app.indexOf(opener);
+    assert.ok(at > 0 && /\n {2,6}settle\(\);/.test(app.slice(at, app.indexOf('\n}\n', at))), `${opener} settles the page`);
+  }
   // the address is cleared with the browser's own history (in js/app.js `history` is the list of steps for Undo)
   assert.ok(ui.includes('window.history.replaceState('));
   assert.ok(!/[^.\w]history\.replaceState\(/.test(app));

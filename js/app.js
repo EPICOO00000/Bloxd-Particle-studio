@@ -27,12 +27,13 @@ import { createViewport } from './viewport.js';
 import { createCodeWindow } from './code-ui.js';
 import { sanitizeCode, WORLD_CHARS } from './nodes.js';
 import { createShare } from './share-ui.js';
-import { sceneText, SHARE_ERRORS } from './share.js';
+import { sceneText, shareData, SHARE_ERRORS } from './share.js';
+import { createLibrary, browserStores, cleanName, cleanThumb, fileNameOf, nameOfFile, markOf, MAX_SCENES } from './library.js';
+import { createScenes } from './library-ui.js';
 import { createTimeline } from './timeline.js';
 import { assetUrl } from './assets.js';
 import { $, h, clone, round, selectOnEntry, category, recall, keep } from './ui.js';
 
-const STORE = 'bloxd-particle-studio.v1';
 const MANY_PARTICLES = 600; // above this one click may lag slower devices
 /**
  * Above this, things that move fast may be seen out of step in the game: so
@@ -91,6 +92,23 @@ let viewport = null;
 let timeline = null;
 let codeWindow = null;
 let share = null; // the Share window, and what reads a share link (js/share-ui.js)
+let scenesWindow = null; // the My scenes window (js/library-ui.js)
+/** My scenes: every scene the browser keeps, each in a place of its own (js/library.js). */
+const library = createLibrary(browserStores());
+/**
+ * The scene that is open, as My scenes has it. id: its place there. name, and
+ * named: somebody gave it that name (the studio's own are "Scene 3", or what an
+ * example is called). created, updated: when it was made and changed last.
+ * thumb: its small picture. link: it came by a share link (the mark of that
+ * scene, see sharedTwin). text: what it is made of, as it was last stored, and
+ * pictured: as it was when its picture was taken (see store and takePicture).
+ * seen: the `updated` of what My scenes held when this tab last read or wrote
+ * it (null: it is not there yet). Another tab that changes the scene changes
+ * that: see store and catchUp.
+ */
+const current = { id: '', name: 'Scene', named: false, created: 0, updated: 0, thumb: '', link: '', text: '', pictured: '', seen: null };
+/** The size of a scene's small picture. */
+const THUMB = [288, 180];
 /**
  * A scene that came by a share link is on trial until the studio has worked it
  * out once: drawn it, counted its particles, and looked where it is through
@@ -131,19 +149,44 @@ function starterScene() {
   ];
 }
 
+/** When an entry of My scenes was changed last, as a number that every change makes another one (0: it does not say). */
+const stampOf = (raw) => (Number.isFinite(raw.updated) ? raw.updated : 0);
+
+/** The scene of an entry of My scenes is what the studio holds from now on. (Nothing is drawn here: see settle.) */
+function takeRecord(id, raw) {
+  state.objects = sanitizeScene(raw).objects;
+  applyExportOptions(raw.export);
+  state.code = sanitizeCode(raw.code);
+  const time = (v) => (Number.isFinite(v) && v > 0 ? v : Date.now());
+  Object.assign(current, {
+    id, name: cleanName(raw.name) || 'Scene', named: raw.named === true, created: time(raw.created), updated: time(raw.updated),
+    thumb: cleanThumb(raw.thumb), link: typeof raw.link === 'string' ? raw.link.slice(0, 20) : '', pictured: '', seen: stampOf(raw),
+  });
+  current.text = contentText();
+}
+
+/**
+ * The scene the page starts with: the one this tab had before it was loaded
+ * again, else the one that was worked on last. False: there is none yet, and
+ * the scene that is made then has its place in My scenes ready.
+ */
 function loadStored() {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORE));
-    if (!raw) return false;
-    state.objects = sanitizeScene(raw).objects;
-    applyExportOptions(raw.export);
-    state.code = sanitizeCode(raw.code);
-    state.sky = !!raw.sky;
-    state.snap = !!raw.snap;
-    return true;
-  } catch {
-    return false;
-  }
+    library.adopt(); // (the one scene the browser kept before there was a list)
+    const id = library.pointer();
+    const raw = id ? library.read(id) : null;
+    if (raw) {
+      takeRecord(id, raw);
+      state.sky = !!raw.sky;
+      state.snap = !!raw.snap;
+      return true;
+    }
+  } catch { /* a scene that cannot be read: the page starts as on a first visit, and that scene stays where it is */ }
+  const time = Date.now();
+  Object.assign(current, {
+    id: library.newId(), name: library.nameFor('Scene', { numbered: true }), named: false, created: time, updated: time, thumb: '', link: '', pictured: '', seen: null,
+  });
+  return false;
 }
 
 function applyExportOptions(raw) {
@@ -158,17 +201,59 @@ function applyExportOptions(raw) {
 }
 
 const fileData = () => ({
-  app: 'bloxd-particle-studio', version: 1, objects: state.objects,
+  app: 'bloxd-particle-studio', version: 1, name: current.name, objects: state.objects,
   export: { target: state.export.target, precision: state.export.precision, hideDist: state.export.hideDist, worldPos: state.export.worldPos },
   sky: state.sky, snap: state.snap, code: state.code,
 });
 
+/** What the scene is made of, as a text that changes when the scene does. (Which groups are open in the lists is no change.) */
+const contentText = () => `${JSON.stringify(state.objects, (key, value) => (key === 'open' ? undefined : value))}${JSON.stringify([fileData().export, state.code])}`;
+
+/**
+ * The scene that is open goes to its place in My scenes, and is the one the
+ * next visit starts with.
+ *
+ * The same scene may be open in another tab, which may have changed it since
+ * this tab last looked (see `seen`, and catchUp, which looks whenever the tab
+ * is looked at). Then nothing of the other tab's work is written over:
+ *   - nothing has changed here (only the picture is new): nothing is written;
+ *   - something has changed here too: what this tab has becomes a scene of
+ *     its own, and says so;
+ *   - the other tab deleted the scene: a change here puts it back.
+ */
 function store() {
   if (trial) return; // (a shared scene is stored once it has shown that the studio can work it out: see `trial`)
-  try {
-    localStorage.setItem(STORE, JSON.stringify(fileData()));
-  } catch { /* private mode or sandboxed frame: the Save button still works */ }
+  const text = contentText();
+  const changed = text !== current.text;
+  const there = current.seen === null ? null : library.read(current.id);
+  const moved = current.seen !== null && (!there || stampOf(there) !== current.seen);
+  if (moved && !changed) {
+    library.point(current.id);
+    return;
+  }
+  if (moved && there) {
+    const was = current.name;
+    Object.assign(current, { id: library.newId(), name: library.nameFor(was), created: Date.now(), link: '', seen: null });
+    showName();
+    notice(`"${was}" was changed in another tab. What you have here is kept as "${current.name}".`);
+  }
+  if (changed) {
+    current.text = text;
+    current.updated = Date.now();
+  }
+  const kept = library.write(current.id, {
+    ...fileData(), named: current.named, created: current.created, updated: current.updated, thumb: current.thumb, link: current.link,
+  });
+  current.seen = current.updated;
+  library.point(current.id);
+  // (a private window, a page inside another page, a full store: everything works until the page is closed, and Save still does)
+  if (!kept && !unkeptTold && library.persistent()) {
+    unkeptTold = true;
+    toast('The store of this browser is full, so this scene is only kept until the page is closed. Save it as a file, or delete scenes in My scenes.', 'warn');
+  }
+  if (kept) unkeptTold = false;
 }
+let unkeptTold = false; // the words about a full store were said (once, until there is room again)
 
 // ------------------------------------------------------------------ history
 
@@ -2320,22 +2405,188 @@ function toast(message, kind = '') {
   toastTimer = setTimeout(() => { el.hidden = true; }, Math.max(6000, message.length * 70));
 }
 
-// ------------------------------------------------------------------ files and examples
+// ------------------------------------------------------------------ My scenes, files and examples
 
-/** Replace the scene by another one (Undo brings the old one back). */
-function openScene(objects, message) {
-  const hadScene = state.objects.length > 0;
-  state.objects = objects;
+/**
+ * Words about the scenes. While the My scenes window is open they are said in
+ * it: a toast lies under an open window, where nobody reads it.
+ */
+function notice(message, kind = '') {
+  if (!scenesWindow || !scenesWindow.say(message, kind)) toast(message, kind);
+}
+
+/** The name of the scene that is open, where it is shown: on the Scene panel and on the tab. */
+function showName() {
+  $('#scene-name').textContent = current.name;
+  $('#scene-name').title = `This scene is "${current.name}". My scenes has the others, and there it gets another name.`;
+  document.title = `${current.name} · Bloxd Particle Studio`;
+}
+
+/**
+ * A new small picture of the scene that is open, for My scenes: everything
+ * where it starts, as the 3D view shows it while nothing plays.
+ */
+function takePicture() {
+  if (!viewport || trial) return;
+  const url = viewport.picture(THUMB[0], THUMB[1], state.playing || state.time > 0 || arrayHover ? computeParticles(state.objects, null) : null);
+  if (!url) return;
+  current.thumb = url;
+  current.pictured = contentText();
+}
+
+/**
+ * This tab is looked at again. When another tab has changed the scene that is
+ * open here in the meantime, it is shown as it is now: two tabs never work on
+ * two copies of one scene. (A scene that was deleted in the other tab stays
+ * here as it is: the next change puts it back into My scenes.)
+ */
+function catchUp() {
+  if (trial || !viewport || current.seen === null || document.visibilityState === 'hidden') return;
+  const there = library.read(current.id);
+  if (!there) return;
+  if (stampOf(there) === current.seen) {
+    // (only its name is another one)
+    const name = cleanName(there.name);
+    if (name && name !== current.name) {
+      current.name = name;
+      current.named = there.named === true;
+      showName();
+    }
+    return;
+  }
+  try {
+    sanitizeScene(there);
+  } catch {
+    return;
+  }
+  takeRecord(current.id, there);
+  settle();
+  notice(`"${current.name}" was changed in another tab. Here it is as it is now.`);
+}
+
+/** The scene that is open goes into My scenes as it is now, with a new picture. `always`: also when it has not changed since the last one. */
+function keepScene(always = true) {
+  if (trial) return;
+  try {
+    if (!always && current.thumb && current.pictured === contentText()) return;
+    takePicture();
+    store();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/**
+ * A shared scene that is still on trial (see `trial`) is worked out now, not a
+ * moment later: after this it is kept as one of My scenes, or the scene that
+ * was open before it is back. Whatever leaves the scene asks for this first.
+ */
+function endTrialNow() {
+  if (trial) updateStats();
+}
+
+/**
+ * Nothing in the scene that is open is somebody's work: nobody gave it a name,
+ * it did not come by a link, and it is empty, or the scene a first visit
+ * starts with, or an example as it comes (see untouched()). Such a scene is
+ * not kept when another one is opened.
+ */
+const nobodys = () => !current.named && !current.link && untouched();
+
+/**
+ * The scene that is open is left for another one. It stays in My scenes, with
+ * a new picture; only one that is nobody's work is not kept. Returns the words
+ * about where it is, to end a message with.
+ */
+function leaveScene() {
+  endTrialNow();
+  stopPlaying();
+  if (nobodys()) {
+    // (only what this tab knows is taken out: a scene another tab has worked on in the meantime stays)
+    const there = library.read(current.id);
+    if (there && stampOf(there) === current.seen) library.remove(current.id);
+    return '';
+  }
+  keepScene();
+  return ` "${current.name}" is in My scenes.`;
+}
+
+/**
+ * Another scene is in the studio (state.objects, state.code and `current`
+ * are set): nothing is selected, the time is at the start, Undo starts anew,
+ * the windows that showed the old scene are shut, and all is drawn again.
+ */
+function settle() {
+  if (codeWindow) codeWindow.close();
+  if ($('#export-dialog').open) $('#export-dialog').close();
+  if (share) share.hide();
   state.selection = [];
   state.playing = false;
   state.time = 0;
+  state.pivot = false;
+  state.export.part = 0;
+  Object.assign(state.studio, { on: false, tool: -1, point: -1 });
+  endPick();
+  arrayStep = null;
+  arrayRest = false;
+  keyPressed = false;
+  history.length = 0;
+  future.length = 0;
+  history.push(snapshot());
+  current.text = contentText();
+  showName();
   updatePlayButtons();
   commit();
   renderInspector();
   refresh();
   // (a shared scene on trial: the view goes to where it starts; where it is later is worked out at the end of the trial)
   if (viewport) viewport.focus(allPoints(trial ? () => true : null));
-  toast(`${message}${hadScene ? ' Undo brings the old scene back.' : ''}`);
+}
+
+/**
+ * A scene that is not in My scenes yet is the one that is open from now on.
+ * `name`: what it is called ('' for the next "Scene 3"); if another scene has
+ * that name already, a number is added. `scene`: { objects, code, export }: with no code its
+ * Code window is empty, with no export the settings of the Export window stay.
+ * `quiet`: before the page is drawn for the first time (then nothing is drawn here either).
+ */
+function beginScene(name, scene, { named = false, link = '', quiet = false } = {}) {
+  const time = Date.now();
+  Object.assign(current, {
+    id: library.newId(), name: name ? library.nameFor(name) : library.nameFor('Scene', { numbered: true }), named: named && !!name,
+    created: time, updated: time, thumb: '', link, pictured: '', seen: null,
+  });
+  state.objects = scene.objects;
+  state.code = scene.code || sanitizeCode(null);
+  applyExportOptions(scene.export);
+  if (!quiet) {
+    settle();
+    return;
+  }
+  history.length = 0;
+  future.length = 0;
+  history.push(snapshot());
+  current.text = contentText();
+}
+
+/** Is there room in My scenes for one more scene? Says so when there is not. */
+function roomForScene() {
+  if (nobodys() || library.hasRoom()) return true;
+  notice(`My scenes is full: it holds ${MAX_SCENES} scenes. Delete some of them first.`, 'warn');
+  return false;
+}
+
+/** The New button: an empty scene of its own. True when there is one now. */
+function newScene() {
+  if (nobodys() && !state.objects.length) {
+    toast('The scene is already empty.');
+    return true;
+  }
+  if (!roomForScene()) return false;
+  const left = leaveScene();
+  beginScene('', { objects: [] });
+  toast(`New empty scene.${left}`);
+  return true;
 }
 
 async function openFile(file) {
@@ -2349,23 +2600,113 @@ async function openFile(file) {
     toast(`"${file.name}" is not a Bloxd Particle Studio scene. Nothing was changed.`, 'warn');
     return;
   }
-  applyExportOptions(raw.export);
-  if (raw.code) state.code = sanitizeCode(raw.code); // (a file from before the Code window leaves what is there)
-  openScene(objects, `Opened "${file.name}".`);
+  if (!roomForScene()) return;
+  const left = leaveScene();
+  beginScene(nameOfFile(raw, file.name), { objects, code: sanitizeCode(raw.code), export: raw.export }, { named: true });
+  toast(`Opened "${file.name}" as the scene "${current.name}".${left}`);
 }
 
 function openExample(example) {
-  openScene(sanitizeScene(clone(example.scene)).objects, `${example.name}: press Play.`);
+  if (!roomForScene()) return;
+  const left = leaveScene();
+  beginScene(example.name, { objects: sanitizeScene(clone(example.scene)).objects });
+  toast(`${example.name}: press Play.${left}`);
 }
 
-const saveFile = () => download('particle-scene.json', JSON.stringify(fileData(), null, 1), 'application/json');
+const saveFile = () => download(fileNameOf(current.name), JSON.stringify(fileData(), null, 1), 'application/json');
+
+/**
+ * A scene of My scenes is opened. True when it is the one that is open now.
+ * `quiet`: before the page is drawn for the first time (then nothing is drawn or said here either).
+ */
+function openEntry(id, quiet = false) {
+  endTrialNow();
+  if (id === current.id) return true;
+  const raw = library.read(id);
+  let sound = !!raw;
+  try {
+    if (raw) sanitizeScene(raw);
+  } catch {
+    sound = false;
+  }
+  if (!sound) {
+    notice('This scene could not be opened: it is not in the browser any more, or it is damaged.', 'warn');
+    return false;
+  }
+  leaveScene();
+  takeRecord(id, raw);
+  if (quiet) {
+    history.length = 0;
+    future.length = 0;
+    history.push(snapshot());
+    return true;
+  }
+  if (scenesWindow) scenesWindow.hide();
+  settle();
+  toast(`Opened "${current.name}".`);
+  return true;
+}
+
+/** A scene of My scenes gets another name. Returns the name it has now. */
+function renameEntry(id, name) {
+  const clean = cleanName(name);
+  if (id !== current.id) return library.rename(id, clean) || clean;
+  if (clean && clean !== current.name) {
+    current.name = clean;
+    current.named = true;
+    showName();
+    store();
+  }
+  return current.name;
+}
+
+/**
+ * A scene of My scenes is deleted. When it is the one that is open, the scene
+ * that was changed last before it takes its place, or a new empty one. Returns
+ * a function that puts it back into My scenes; null when there was nothing to delete.
+ */
+function deleteEntry(id) {
+  endTrialNow();
+  const raw = library.read(id);
+  if (!raw) return null;
+  library.remove(id);
+  if (id === current.id) {
+    stopPlaying();
+    const next = library.list().find((entry) => {
+      try { return !!sanitizeScene(library.read(entry.id)); } catch { return false; }
+    });
+    if (next) {
+      takeRecord(next.id, library.read(next.id));
+      settle();
+    } else beginScene('', { objects: [] });
+    keepScene(false); // (the window that asked stays open, and shows the scene that is open now with its picture)
+  }
+  return () => { library.write(id, raw); };
+}
+
+/** Why the scenes are not safe in this browser, for the My scenes window: { text, kind }, or null. */
+function storeTrouble() {
+  if (!library.persistent()) {
+    return {
+      kind: 'warn',
+      text: 'This browser does not keep anything for this page (a private window, or the page is inside another page). Your scenes are gone when the page is closed: use Save for the ones you want to keep.',
+    };
+  }
+  if (!library.safe()) {
+    return {
+      kind: 'bad',
+      text: 'The store of this browser is full. A scene that could not be kept is gone when the page is closed: save it as a file, or delete scenes you do not need.',
+    };
+  }
+  return null;
+}
 
 // ------------------------------------------------------------------ share links
 
 /**
  * Nothing here is the user's own work: the scene is empty, or the one a first
  * visit starts with, or an example as it comes, and the Code window is empty.
- * Then a shared scene can take its place without a question.
+ * (What that means for My scenes: see nobodys.)
  */
 function untouched() {
   if (state.code.graph.nodes.length || state.code.own) return false;
@@ -2376,55 +2717,80 @@ function untouched() {
 }
 
 /**
- * The scene of a share link takes the place of the one that is here, on trial
- * (see `trial`). `quiet`: before the page is drawn for the first time, so
- * nothing else is ever seen; else like a file that is opened.
+ * Everything that is open now: the scene, what My scenes knows of it, and the
+ * steps of Undo. Returns the function that puts it all back.
  */
-function takeShared(scene, quiet = false) {
-  const before = { code: state.code, options: { ...state.export }, objects: snapshot() };
-  trial = {
-    spent: 0,
-    quiet,
-    back: () => {
-      state.code = before.code;
-      Object.assign(state.export, before.options);
-      // Undo and Redo are no way back to it: the steps go back to the scene that was there
-      if (quiet) history.length = 0;
-      else while (history.length > 1 && history[history.length - 1] !== before.objects) history.pop();
-      if (!history.length) history.push(before.objects);
-      future.length = 0;
-      restore(history[history.length - 1]);
-      if (viewport) viewport.focus(allPoints());
-    },
+function hold() {
+  const was = { entry: { ...current }, code: state.code, options: { ...state.export }, steps: [...history], undone: [...future] };
+  return () => {
+    Object.assign(current, was.entry);
+    // (it was taken out of My scenes when it was left as nobody's work: now that it is open again, it is stored again)
+    if (current.seen !== null && !library.read(current.id)) current.seen = null;
+    state.code = was.code;
+    Object.assign(state.export, was.options);
+    history.length = 0;
+    history.push(...was.steps);
+    future.length = 0;
+    future.push(...was.undone);
+    showName();
+    restore(history[history.length - 1]);
+    if (viewport) viewport.focus(allPoints());
   };
-  applyExportOptions(scene.export);
-  if (scene.code) state.code = scene.code; // (a link without a Code window leaves what is there, as a file does)
-  if (quiet) {
-    // (what was there is nobody's work: the shared scene is where Undo ends)
-    state.objects = scene.objects;
-    history[history.length - 1] = snapshot();
-    return;
-  }
-  if (codeWindow) codeWindow.close();
-  if ($('#export-dialog').open) $('#export-dialog').close();
-  share.hide();
-  openScene(scene.objects, 'Opened the shared scene: press Play.');
 }
 
+/** The mark of a shared scene: what My scenes keeps of the link a scene came by (see sharedTwin). */
+const linkMark = (scene) => markOf(sceneText(scene));
+
+/**
+ * The same link opened a second time: the scene it holds is in My scenes
+ * already, as it came. Returns the id of that scene; null when there is none
+ * (also when the one that came by the link was changed since).
+ */
+function sharedTwin(scene) {
+  const text = sceneText(scene);
+  const mark = markOf(text);
+  for (const entry of library.list()) {
+    if (entry.link !== mark || entry.id === current.id) continue;
+    try {
+      const raw = library.read(entry.id);
+      if (sceneText(shareData({ objects: raw.objects, export: raw.export, code: raw.code })) === text) return entry.id;
+    } catch { /* a scene that cannot be read is not that one */ }
+  }
+  return null;
+}
+
+/**
+ * The scene of a share link is opened, as a scene of its own in My scenes:
+ * nothing takes the place of anything. It is on trial first (see `trial`).
+ * `quiet`: before the page is drawn for the first time, so nothing else is
+ * ever seen; else like a file that is opened.
+ */
+function takeShared(scene, quiet = false) {
+  const left = leaveScene();
+  const back = hold();
+  trial = { spent: 0, quiet, back, left };
+  if (scenesWindow) scenesWindow.hide();
+  beginScene('Shared scene', scene, { link: linkMark(scene), quiet });
+  if (!quiet) toast(`Opened the shared scene: press Play.${sharedCode()}${left}`);
+}
+
+/** What is said when a shared scene brought nodes or code along: nobody should paste code into a world without having seen that it is there. */
+const sharedCode = () => (state.code.graph.nodes.length || state.code.own ? ' The Code window has what belongs to it.' : '');
+
 /** The first words about a shared scene that is on show. `first`: on a first visit, where the parts of the page are as well. */
-const sharedWelcome = (first) => `A shared scene: press Play.${state.code.graph.nodes.length || state.code.own ? ' The Code window has what belongs to it.' : ''}${
+const sharedWelcome = (first) => `A shared scene: press Play.${sharedCode()}${
   first ? ' The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.' : ''}`;
 
 /**
  * The end of a trial: the studio has drawn the shared scene and counted its
  * particles, or could not (`failed`). The last of the work is done here: where
  * the scene is through the show, which the view goes to. Kept: it is stored
- * now, and the link goes out of the address. Not kept, because it could not be
- * worked out or took too long: what was there is back. Returns true when the
- * scene was not kept.
+ * now, as one more of My scenes, and the link goes out of the address. Not
+ * kept, because it could not be worked out or took too long: the scene that
+ * was open before is back. Returns true when the scene was not kept.
  */
 function endTrial(failed) {
-  const { back, quiet } = trial;
+  const { back, quiet, left } = trial;
   let points = null;
   let kept = !failed && trial.spent <= SHARED_PATIENCE;
   if (kept) {
@@ -2445,7 +2811,7 @@ function endTrial(failed) {
   }
   store();
   if (viewport) viewport.focus(points);
-  if (quiet) toast(sharedWelcome(welcome()));
+  if (quiet) toast(`${sharedWelcome(welcome())}${left}`);
   return false;
 }
 
@@ -2459,7 +2825,7 @@ function welcome() {
 /**
  * A share link is in the address (`arrived`: what share.arrival() gave), at
  * the start of the page or put there while the page is open. Its scene is
- * opened, after a question when there is a scene here that is somebody's work.
+ * opened as one more of My scenes: the scene that is here stays there.
  */
 async function sharedArrived(arrived, starting = false) {
   if (!arrived) return;
@@ -2471,19 +2837,25 @@ async function sharedArrived(arrived, starting = false) {
   if (arrived.error) {
     // (a link from a newer studio stays in the address: the page loads again by itself when there is a newer one)
     if (arrived.error !== 'newer') share.forget();
-    toast(SHARE_ERRORS[arrived.error] || SHARE_ERRORS.broken, 'warn');
-  } else if (share.here(arrived.scene)) {
-    share.forget();
-    toast(starting ? sharedWelcome(welcome()) : 'This shared scene is open already.');
-  } else if (untouched()) takeShared(arrived.scene);
-  else {
-    const yes = await share.ask(arrived.scene);
-    if (yes) takeShared(arrived.scene);
-    else if (yes === false) {
-      share.forget();
-      toast('Your scene was kept.');
-    } // (null: another link asks in its place)
+    notice(SHARE_ERRORS[arrived.error] || SHARE_ERRORS.broken, 'warn');
+    return;
   }
+  if (share.here(arrived.scene)) {
+    share.forget();
+    notice(starting ? sharedWelcome(welcome()) : 'This shared scene is open already.');
+    return;
+  }
+  const twin = sharedTwin(arrived.scene);
+  if (twin && openEntry(twin)) {
+    share.forget();
+    toast(`This shared scene is in My scenes already, as "${current.name}": it is open now.`);
+    return;
+  }
+  if (!roomForScene()) {
+    share.forget();
+    return;
+  }
+  takeShared(arrived.scene);
 }
 
 /** The Examples button and its menu. */
@@ -2838,19 +3210,28 @@ function bindUi() {
     intoGroup(null);
   });
 
-  $('#new').onclick = () => {
-    const hadScene = state.objects.length > 0;
-    state.objects = [];
-    state.selection = [];
-    state.playing = false;
-    state.time = 0;
-    updatePlayButtons();
-    commit();
-    renderInspector();
-    refresh();
-    if (viewport) viewport.focus([]); // back to the opening view
-    toast(hadScene ? 'New empty scene. Undo brings the old one back.' : 'The scene is already empty.');
-  };
+  $('#new').onclick = () => { newScene(); $('#new').blur(); };
+  scenesWindow = createScenes({
+    list: () => library.list(),
+    current: () => current.id,
+    refresh: keepScene,
+    open: openEntry,
+    fresh: newScene,
+    rename: renameEntry,
+    duplicate: (id) => {
+      const copy = library.duplicate(id);
+      return copy ? cleanName(library.read(copy).name) : null;
+    },
+    remove: deleteEntry,
+    trouble: storeTrouble,
+  });
+  $('#scenes').onclick = () => { endTrialNow(); stopPlaying(); scenesWindow.show(); $('#scenes').blur(); };
+  // the small picture of the scene is as new as the scene when the page is left ...
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') keepScene(false); else catchUp(); });
+  window.addEventListener('pagehide', () => keepScene(false));
+  // ... and when the page is looked at again, the scene is as new as another tab left it
+  window.addEventListener('focus', catchUp);
+  window.addEventListener('pageshow', (e) => { if (e.persisted) catchUp(); });
   $('#save').onclick = saveFile;
   $('#share').onclick = () => { share.show(); $('#share').blur(); };
   $('#open').onclick = () => $('#file').click();
@@ -2922,22 +3303,32 @@ function bindUi() {
 }
 
 async function start() {
-  if (!loadStored()) state.objects = starterScene();
+  if (!loadStored()) {
+    state.objects = starterScene();
+    current.text = contentText();
+  }
   share = createShare({
     data: () => ({ objects: state.objects, export: fileData().export, code: state.code }),
-    save: saveFile,
   });
   history.push(snapshot());
-  // A share link in the address. When nothing here is the user's own work, its scene is put in before the page is
-  // drawn; else it waits until the page is up, and asks.
+  // A share link in the address. Its scene is put in before the page is drawn, as one more of My scenes (or the
+  // one it already is there): nothing else is ever seen, and the scene that would have been here stays in My scenes.
   let arrived = await share.arrival();
   const linked = !!arrived; // (then what is said first is about the link)
-  const guest = linked && !!arrived.scene && !share.here(arrived.scene) && untouched();
-  if (guest) {
-    takeShared(arrived.scene, true);
-    arrived = null;
+  let known = ''; // the scene of the link was in My scenes already: its name
+  if (linked && arrived.scene && !share.here(arrived.scene)) {
+    const twin = sharedTwin(arrived.scene);
+    if (twin && openEntry(twin, true)) {
+      share.forget();
+      known = current.name;
+      arrived = null;
+    } else if (nobodys() || library.hasRoom()) {
+      takeShared(arrived.scene, true);
+      arrived = null;
+    }
   }
   bindUi();
+  showName();
   renderList();
   renderInspector();
   updateHistoryButtons();
@@ -2975,6 +3366,7 @@ async function start() {
   updateStats(); // (a shared scene that was put in above has been worked out now: the end of its trial)
   // the first time: where everything is
   if (!linked && welcome()) toast('The coloured buttons in the corners open the parts of the page: + Add, Scene, Settings and Timeline.');
+  if (known) toast(`This shared scene is in My scenes already, as "${known}": press Play.`);
   // Handy in the console and for tests. After changing studio.state by hand, call studio.redraw().
   window.studio = {
     state, viewport, timeline, generateCode, select, addObject, seek, examples: EXAMPLES, openExample,
@@ -2982,6 +3374,10 @@ async function start() {
     showPanel, panels: () => ({ ...shown }),
     code: codeWindow,
     share,
+    scenes: {
+      window: scenesWindow, library, current: () => ({ ...current }), open: openEntry, fresh: newScene, keep: keepScene,
+      rename: renameEntry, remove: deleteEntry, nobodys,
+    },
   };
   sharedArrived(arrived, true);
   // a share link pasted into the address while the page is open
