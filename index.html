@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=6ef57e3d">
+<link rel="stylesheet" href="css/style.css?v=6e884b6d">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,7 +15,7 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=ab5de410",
+  "./js/app.js": "./js/app.js?v=c110e434",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
   "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
   "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
@@ -31,32 +31,43 @@
   "./js/nodes.js": "./js/nodes.js?v=b894d335",
   "./js/scene.js": "./js/scene.js?v=a2193768",
   "./js/shape-kit.js": "./js/shape-kit.js?v=afc224e9",
-  "./js/shapes-count.js": "./js/shapes-count.js?v=c62132ce",
+  "./js/shapes-badges.js": "./js/shapes-badges.js?v=3fb96e9d",
+  "./js/shapes-bent.js": "./js/shapes-bent.js?v=b93445a1",
+  "./js/shapes-combos.js": "./js/shapes-combos.js?v=a58f9312",
+  "./js/shapes-count.js": "./js/shapes-count.js?v=a4a8d5f0",
   "./js/shapes-curves.js": "./js/shapes-curves.js?v=3ea7d503",
   "./js/shapes-effects.js": "./js/shapes-effects.js?v=0385b511",
   "./js/shapes-emblems.js": "./js/shapes-emblems.js?v=af9372fd",
   "./js/shapes-extra.js": "./js/shapes-extra.js?v=12813905",
+  "./js/shapes-famous.js": "./js/shapes-famous.js?v=de31321b",
   "./js/shapes-flat.js": "./js/shapes-flat.js?v=8c4c65d9",
   "./js/shapes-forms.js": "./js/shapes-forms.js?v=2c89112a",
   "./js/shapes-geo.js": "./js/shapes-geo.js?v=18acba7d",
   "./js/shapes-goods.js": "./js/shapes-goods.js?v=d59fbc0e",
   "./js/shapes-icons.js": "./js/shapes-icons.js?v=94ad530d",
+  "./js/shapes-labels.js": "./js/shapes-labels.js?v=58157431",
   "./js/shapes-living.js": "./js/shapes-living.js?v=96d8f550",
   "./js/shapes-magic.js": "./js/shapes-magic.js?v=4d5f20ec",
   "./js/shapes-marks.js": "./js/shapes-marks.js?v=32579b50",
   "./js/shapes-models.js": "./js/shapes-models.js?v=00bbd5a9",
+  "./js/shapes-names.js": "./js/shapes-names.js?v=12db0f5f",
+  "./js/shapes-numbers.js": "./js/shapes-numbers.js?v=6ddf4750",
+  "./js/shapes-ornaments.js": "./js/shapes-ornaments.js?v=c52304ca",
   "./js/shapes-outdoors.js": "./js/shapes-outdoors.js?v=231a866b",
-  "./js/shapes-pixel.js": "./js/shapes-pixel.js?v=3c775e85",
-  "./js/shapes-pixel2.js": "./js/shapes-pixel2.js?v=d5f82444",
+  "./js/shapes-pixel.js": "./js/shapes-pixel.js?v=48cbcd50",
+  "./js/shapes-pixel2.js": "./js/shapes-pixel2.js?v=418b654b",
+  "./js/shapes-pixel3.js": "./js/shapes-pixel3.js?v=0350d1cf",
   "./js/shapes-scripts.js": "./js/shapes-scripts.js?v=a93677a7",
   "./js/shapes-signs.js": "./js/shapes-signs.js?v=11c7cc7c",
   "./js/shapes-solid.js": "./js/shapes-solid.js?v=31dec678",
+  "./js/shapes-solids2.js": "./js/shapes-solids2.js?v=5e674f42",
   "./js/shapes-space.js": "./js/shapes-space.js?v=81225bb9",
   "./js/shapes-stuff.js": "./js/shapes-stuff.js?v=1419ae59",
-  "./js/shapes-text.js": "./js/shapes-text.js?v=38f8ff62",
+  "./js/shapes-text.js": "./js/shapes-text.js?v=2a8a45a4",
+  "./js/shapes-vocab.js": "./js/shapes-vocab.js?v=2e2ec5cc",
   "./js/shapes-wild.js": "./js/shapes-wild.js?v=c6eb32f0",
-  "./js/shapes-words.js": "./js/shapes-words.js?v=99a944a2",
-  "./js/shapes.js": "./js/shapes.js?v=eea98c2f",
+  "./js/shapes-words.js": "./js/shapes-words.js?v=a7c55c9e",
+  "./js/shapes.js": "./js/shapes.js?v=4d566c1c",
   "./js/share-ui.js": "./js/share-ui.js?v=71d552d1",
   "./js/share.js": "./js/share.js?v=dfc76e88",
   "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
@@ -74,7 +85,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = '7e0de1d3e3f1';
+  var mine = 'ebf35d3d2764';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {

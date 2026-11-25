@@ -293,6 +293,12 @@ input[type="color"] {
   font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--panel);
 }
 .shape-sub small { margin-left: 6px; font-weight: 400; opacity: 0.75; }
+/* "Show all 961" under the first rows of a long heading, and "Show 200 more" under what a search found */
+.shape-grid .shape-more {
+  grid-column: 1 / -1; flex-direction: row; justify-content: center; padding: 5px 4px; font-size: 11.5px; color: var(--muted);
+  border-style: dashed; background: transparent;
+}
+.shape-grid .shape-more:hover { color: var(--text); }
 .shape-note { font-size: 12px; margin: 6px 0 0; }
 
 /* ---------- scene list: a tree, what is in a group sits under it ---------- */

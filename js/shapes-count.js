@@ -16,18 +16,18 @@ const SCORE_SIGNS = {
   '%': 'M7,10 L1,0 O1.8,8.2 1.7 O6.2,1.8 1.7',
   '#': 'M2,0 L3,10 M5,0 L6,10 M0.5,3.3 L7,3.3 M1,6.7 L7.5,6.7',
 };
-const sign = (ch) => DIGITS[ch] || SCORE_SIGNS[ch] || SMALL[ch] || LETTERS[ch];
-const written = (what) => wordDrawing(what, sign);
+export const sign = (ch) => DIGITS[ch] || SCORE_SIGNS[ch] || SMALL[ch] || LETTERS[ch];
+export const written = (what) => wordDrawing(what, sign);
 
 // Written small (on a card, in a ring), four numbers are drawn another way. In the usual 3, 6, 8 and 9 two
 // curves touch without crossing, and at a small size the particles on either side of that spot sit on top of each other.
-const SMALL_DIGITS = {
+export const SMALL_DIGITS = {
   3: 'M0.4,10 L5.6,10 L2.6,6.2 A2.7,3.1 3.1 92 -150',
   6: 'O3,3 3 M0.88,5.12 Q1.6,8.6 4.8,10',
   8: 'M3,5.2 C6.4,7.4 5,10 3,10 C1,10 -0.4,7.4 3,5.2 C6.8,2.8 5.4,0 3,0 C0.6,0 -0.8,2.8 3,5.2',
   9: 'O3,7 3 M5.12,4.88 Q4.4,1.4 1.2,0',
 };
-const writtenSmall = (what) => wordDrawing(what, (ch) => SMALL_DIGITS[ch] || sign(ch));
+export const writtenSmall = (what) => wordDrawing(what, (ch) => SMALL_DIGITS[ch] || sign(ch));
 
 const ONES = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
 const TEENS = ['ten', 'eleven', 'twelve dozen', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];

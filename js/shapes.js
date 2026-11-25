@@ -36,6 +36,18 @@
 //   shapes-magic.js    more effects
 //   shapes-emblems.js  more symbols and faces
 //   shapes-outdoors.js more nature and animals
+// and, since it grew to 13,190 (shapes that are put together from parts):
+//   shapes-numbers.js   every number up to 999, percentages, rankings, prices, badges, a digital clock
+//   shapes-vocab.js     the Words tab: lists of words, also in five other languages
+//   shapes-names.js     the Names tab: first names
+//   shapes-bent.js      words on an arch, on a wave, round a circle, around a ring
+//   shapes-labels.js    words in outline letters, speech bubbles, keys, arrows, slanted letters
+//   shapes-combos.js    the Combos tab: a little picture many times, in a formation
+//   shapes-badges.js    a little picture or a letter in a frame
+//   shapes-ornaments.js snowflakes, flowers, suns, mandalas, shields, frames, magic circles
+//   shapes-solids2.js   more solids, found from their corners; letters with depth
+//   shapes-famous.js    curves with a name
+//   shapes-pixel3.js    more pixel art: words, numbers and faces
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -65,6 +77,17 @@ import { MODEL_SHAPES } from './shapes-models.js';
 import { MAGIC_SHAPES } from './shapes-magic.js';
 import { EMBLEM_SHAPES } from './shapes-emblems.js';
 import { OUTDOOR_SHAPES } from './shapes-outdoors.js';
+import { NUMBER_SHAPES } from './shapes-numbers.js';
+import { VOCAB_SHAPES, VOCAB_BREAKS } from './shapes-vocab.js';
+import { NAME_SHAPES, NAME_HEADINGS } from './shapes-names.js';
+import { COMBO_SHAPES, COMBO_HEADINGS } from './shapes-combos.js';
+import { BADGE_SHAPES } from './shapes-badges.js';
+import { BENT_SHAPES } from './shapes-bent.js';
+import { PIXEL3_SHAPES } from './shapes-pixel3.js';
+import { ORNAMENT_SHAPES } from './shapes-ornaments.js';
+import { SOLID2_SHAPES } from './shapes-solids2.js';
+import { FAMOUS_SHAPES } from './shapes-famous.js';
+import { LABEL_SHAPES } from './shapes-labels.js';
 
 export { resample };
 
@@ -74,22 +97,28 @@ export { resample };
  */
 export const CATEGORIES = [
   { id: 'basic', name: 'Basic', subs: ['More outlines', 'Shapes in shapes', 'More filled shapes', 'Lines'] },
-  { id: 'solid', name: '3D', subs: ['More solids', 'Round things', 'Buildings', 'Things', 'Plants and animals'] },
-  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Words', 'Outline letters', 'Accented capitals', 'Accented small letters', 'Greek letters', 'Cyrillic capitals', 'Cyrillic small letters', 'Hiragana', 'Katakana', 'Kanji', 'Hangul', 'Hebrew letters', 'Runes', 'Ogham', 'Morse code', 'Braille', 'Flag signals', 'Pigpen cipher'] },
-  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Bigger numbers', 'Digital numbers', 'Outline numbers', 'Circled numbers', 'Roman numerals', 'Mayan numbers', 'Scores', 'Dice', 'Dominoes',
+  { id: 'solid', name: '3D', subs: ['More solids', 'Polyhedra', 'Round things', 'Buildings', 'Things', 'Plants and animals', 'Letters in 3D', 'Words around a ring'] },
+  { id: 'letters', name: 'Letters', subs: ['Capital letters', 'Small letters', 'Outline letters', 'Accented capitals', 'Accented small letters', 'Greek letters', 'Cyrillic capitals', 'Cyrillic small letters', 'Hiragana', 'Katakana', 'Kanji', 'Hangul', 'Hebrew letters', 'Runes', 'Ogham', 'Morse code', 'Braille', 'Flag signals', 'Pigpen cipher', 'Slanted letters', 'Letter badges'] },
+  { id: 'words', name: 'Words', subs: ['Game words', 'Signs and orders', 'Places', 'People and teams', 'Games and sports', 'Wishes and days', 'Words for things', 'Levels and rounds',
+    'French words', 'Spanish words', 'German words', 'Italian words', 'Portuguese words',
+    'Words in outline letters', 'Words on an arch', 'Words in a valley', 'Words on a wave', 'Words round a circle', 'Words written downwards'] },
+  { id: 'names', name: 'Names', subs: NAME_HEADINGS },
+  { id: 'numbers', name: 'Numbers', subs: ['Numbers', 'Bigger numbers', 'Numbers up to 999', 'Big numbers', 'Digital numbers', 'Digital clock', 'Outline numbers', 'Slanted numbers', 'Circled numbers', 'Number badges',
+    'Roman numerals', 'Mayan numbers', 'Scores', 'Percentages', 'Rankings', 'Prices', 'Results', 'Times tables', 'Tally marks', 'Binary numbers', 'Dice', 'Dominoes',
     'Playing cards', 'Clock times', 'Signs', 'Punctuation', 'Money', 'Maths'] },
-  { id: 'symbols', name: 'Symbols', subs: ['Arrows', 'Signs', 'Hearts and sparkles', 'Music', 'Star signs', 'People and body'] },
+  { id: 'symbols', name: 'Symbols', subs: ['Arrows', 'Signs', 'Hearts and sparkles', 'Music', 'Star signs', 'People and body', 'Speech bubbles', 'Keys and mouse', 'Shields', 'Badges'] },
   { id: 'faces', name: 'Faces', subs: ['Smileys', 'Characters', 'Text faces'] },
-  { id: 'nature', name: 'Nature', subs: ['Sky and weather', 'Plants', 'Land and sea'] },
+  { id: 'nature', name: 'Nature', subs: ['Sky and weather', 'Suns', 'Snowflakes', 'Plants', 'Flowers', 'Land and sea'] },
   { id: 'animals', name: 'Animals', subs: ['Pets and farm', 'Wild animals', 'Birds', 'Sea animals', 'Bugs', 'Dinosaurs and dragons'] },
   { id: 'food', name: 'Food', subs: ['Fruit and vegetables', 'Meals', 'Sweets', 'Drinks'] },
   { id: 'things', name: 'Things', subs: ['Tools', 'Weapons', 'Treasure and magic', 'Games and sport', 'Music', 'Home', 'Party and holidays'] },
   { id: 'travel', name: 'Travel', subs: ['Vehicles', 'Buildings'] },
   { id: 'costume', name: 'Costume', subs: ['Wings', 'On the head', 'Clothes'] },
   { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel small letters', 'Pixel numbers', 'Pixel words'] },
-  { id: 'curves', name: 'Curves', subs: ['More flat curves', 'More curves in 3D'] },
-  { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Fractals'] },
+  { id: 'curves', name: 'Curves', subs: ['More flat curves', 'Famous curves', 'More curves in 3D'] },
+  { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Frames', 'Fractals', 'Mandalas'] },
   { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
+  { id: 'combos', name: 'Combos', subs: COMBO_HEADINGS },
 ];
 
 /**
@@ -352,6 +381,7 @@ export const SHAPES = (() => {
     ...SIGN_SHAPES, ...LIVING_SHAPES, ...STUFF_SHAPES, ...PIXEL_SHAPES,
     ...MARK_SHAPES, ...WILD_SHAPES, ...GOODS_SHAPES, ...EXTRA_SHAPES,
     ...SCRIPT_SHAPES, ...WORD_SHAPES, ...COUNT_SHAPES, ...PIXEL2_SHAPES, ...FORM_SHAPES, ...SPACE_SHAPES, ...MODEL_SHAPES, ...MAGIC_SHAPES, ...EMBLEM_SHAPES, ...OUTDOOR_SHAPES,
+    ...NUMBER_SHAPES, ...VOCAB_SHAPES, ...NAME_SHAPES, ...COMBO_SHAPES, ...BADGE_SHAPES, ...BENT_SHAPES, ...PIXEL3_SHAPES, ...ORNAMENT_SHAPES, ...SOLID2_SHAPES, ...FAMOUS_SHAPES, ...LABEL_SHAPES,
   ];
   const byId = new Map(all.map((s) => [s.id, s]));
   for (const [place, ids] of Object.entries(PLACES)) {
@@ -405,8 +435,12 @@ export function searchShapes(text) {
   searchIndex().forEach((x, order) => {
     // a single letter has to start a word, or "a" would find nearly everything (and the headings do not count for it)
     if (!words.every((w) => (w.length > 1 ? x.all.includes(w) || x.heading.includes(w) : x.parts.some((part) => part.startsWith(w))))) return;
+    // The shape of that very name comes first, and so does a sign ("A", "7", "GG"). A word under a picture that is
+    // what was typed comes right after: "cat" finds the cat before the word CAT, and "win" the word WIN first of all
+    // (the plain word before the same word on an arch or in pixels: the shorter name first).
     let rank = 5;
-    if (x.label === typed || x.name === typed) rank = 0;
+    if (x.name === typed || (x.label === typed && typed.length <= 2)) rank = 0;
+    else if (x.label === typed) rank = 0.5 + Math.min(400, x.name.length) / 1000;
     else if (x.name.startsWith(typed)) rank = 1;
     else if (x.words.some((w) => w.startsWith(typed))) rank = 2;
     else if (x.name.includes(typed)) rank = 3;
@@ -438,12 +472,20 @@ const BREAKS = new Map((
   + 'sub|marine succu|lent sum|moning sun|flower super|shape sur|prised suspen|sion sword|fish tele|scope '
   + 'tele|vision ter|dragon tetra|hedron tetro|mino thermo|meter tomb|stone tooth|brush trape|zoid tri|angles '
   + 'tricera|tops trilo|bite tri|quetra triske|lion trun|cated tschirn|hausen water|fall water|melon weight|lifter '
-  + 'wheel|chair whirl|pool wrist|watch'
+  + 'wheel|chair whirl|pool wrist|watch '
+  // (the Combos tab: a little picture many times)
+  + 'snow|flakes butter|flies mush|rooms umbrel|las '
+  // (the polyhedra of shapes-solids2.js)
+  + 'hexa|hedron delto|idal disdy|akis penta|gonal triaconta|hedron hexeconta|hedron stel|lated trian|gular tetra|hedra '
+  // (the famous curves of shapes-famous.js)
+  + 'hyper|bolic serpen|tine semi|cubical expo|nential loga|rithm stro|phoid trisec|trix'
 ).split(' ').map((word) => [word.replace('|', ''), word.indexOf('|')]));
+
+for (const [word, at] of VOCAB_BREAKS) if (!BREAKS.has(word)) BREAKS.set(word, at); // (the long words of the Words and Names tabs)
 
 /** What stands under the picture of a shape: its sign or its name, with a soft hyphen where a long word may break. */
 export function shapeCaption(shape) {
-  return (shape.label || shape.name).replace(/[A-Za-z]{9,}/g, (word) => {
+  return (shape.label || shape.name).replace(/\p{L}{9,}/gu, (word) => {
     const at = BREAKS.get(word.toLowerCase());
     return at ? `${word.slice(0, at)}\u00AD${word.slice(at)}` : word;
   });
