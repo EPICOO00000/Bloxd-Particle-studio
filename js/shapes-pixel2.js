@@ -77,6 +77,9 @@ const WORDS = [
   ['QUIT', 'leave exit'],
 ];
 
+/** The words that are pixel words here: shapes-pixel3.js has many more, and leaves these out. */
+export const PIXEL_WORD_TEXTS = WORDS.map(([word]) => word);
+
 const words = WORDS.map(([word, more]) => sprite('Pixel words', `word-${word.toLowerCase()}`, `Pixel word ${word}`, written(word), `text writing font arcade ${more}`, word));
 
 // ---------------------------------------------------------------- pictures
@@ -156,7 +159,7 @@ const CREATURES = [
   ['germ', 'Pixel germ', '#...#...#/.#..#..#./..#####../..#####../#########/..#####../..#####../.#..#..#./#...#...#', 'virus microbe sick'],
 ];
 
-const FACES = [
+export const FACES = [
   ['sleepy', 'Pixel sleepy face', half('...###/.#####/######/######/##...#/######/######/#####./######/.#####/...###'), 'tired asleep eyes closed'],
   ['crying', 'Pixel crying face', half('...###/.#####/######/###.##/###.##/###.##/###.##/####../###.##/.#####/...###'), 'tears sad sob'],
   ['neutral', 'Pixel straight face', half('...###/.#####/######/###.##/###.##/######/######/###.../######/.#####/...###'), 'neutral meh blank'],

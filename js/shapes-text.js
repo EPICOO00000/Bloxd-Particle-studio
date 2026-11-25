@@ -239,6 +239,12 @@ const JOINED_CAPITALS = [
   ['oelig', 'Letter Œ', 'Œ', 'E4.4,5 4.4,5 90 270 L8.8,0 M4.4,0 L4.4,10 L8.8,10 M4.4,5 L7.8,5', 'oe french'],
   ['oslash', 'Letter Ø', 'Ø', 'E3.75,5 3.75,5 90 450 M0.6,0 L6.9,10', 'slashed o nordic'],
 ];
+/** Every capital letter by its sign, the ones with an accent too ("É", "Ç", "Ñ"): for writing words. */
+export const CAPITALS = {
+  ...LETTERS,
+  ...Object.fromEntries(ACCENTED.map(([letter, mark, , capital]) => [capital, accented(letter, mark, false)])),
+  ...Object.fromEntries(JOINED_CAPITALS.map(([, , capital, d]) => [capital, d])),
+};
 const JOINED_SMALL = [
   ['aelig', 'Small letter æ', 'æ', 'M4.75,6.5 L4.75,0 N E2.5,3.25 2.5,3.25 25.84 334.16 N M4.75,3.25 L9.5,3.25 E7,3.25 2.5,3.25 0 154.16 N E7,3.25 2.5,3.25 205.84 320', 'ae ash nordic'],
   ['oelig', 'Small letter œ', 'œ', 'E2.6,3.25 2.6,3.25 90 450 M5.2,3.25 L9.6,3.25 E7,3.25 2.6,3.25 0 147.8 N E7,3.25 2.6,3.25 212.2 320', 'oe french'],

@@ -1,0 +1,345 @@
+// Tests for the shapes that are made from parts (numbers, words, names, combos,
+// badges, ornaments, solids), and the fingerprints of the whole library.
+// tests/core.test.mjs checks every single shape; here is what belongs to a
+// whole family.
+// Run with: npm test
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, shapeCaption } from '../js/shapes.js';
+import { inWords, romanNumeral } from '../js/shapes-numbers.js';
+import { slug, breakAt, writable, phrase } from '../js/shapes-vocab.js';
+import { shapeDigests } from '../tools/shape-digests.mjs';
+
+const root = new URL('..', import.meta.url);
+const points = (id, params = {}) => shapePoints(id, SHAPE_BY_ID[id].count, { ...defaultParams(id), ...params });
+const under = (cat, sub) => SHAPES.filter((s) => s.cat === cat && s.sub === sub);
+const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+/** How many groups the numbers fall into when a gap of more than `gap` separates two groups. */
+const groups = (values, gap) => values.slice().sort((a, b) => a - b).reduce((count, v, i, all) => count + (i && v - all[i - 1] > gap ? 1 : 0), 1);
+
+// ---------------------------------------------------------------- the points every shape gives
+
+test('every shape gives the points it gave: the fingerprint of every heading is what it was', () => {
+  const noted = JSON.parse(fs.readFileSync(new URL('tests/shape-digests.json', root), 'utf8'));
+  const now = shapeDigests();
+  const changed = Object.keys(now).filter((key) => now[key] !== noted[key]);
+  const gone = Object.keys(noted).filter((key) => !(key in now));
+  // After adding shapes on purpose, "node tools/shape-digests.mjs" notes the new fingerprints. If nothing was added
+  // under a heading that is named here, a shape that was there gives other points than before: saved scenes change.
+  assert.deepEqual(changed, [], `these headings have other shapes or other points than noted: ${changed.join('; ')}`);
+  assert.deepEqual(gone, [], `these headings are gone: ${gone.join('; ')}`);
+  assert.equal(Object.values(now).reduce((sum, text) => sum + Number(text.split(' ')[0]), 0), SHAPES.length);
+});
+
+// ---------------------------------------------------------------- numbers
+
+test('numbers: every number up to 999 is there, and so are its relatives', () => {
+  for (const n of range(0, 999)) {
+    const shape = SHAPE_BY_ID[n < 10 ? `digit-${n}` : `number-${n}`];
+    assert.ok(shape, `the number ${n}`);
+    assert.equal(shape.name, `Number ${n}`);
+    assert.equal(shape.label, String(n));
+    assert.equal(shape.cat, 'numbers');
+  }
+  // in words, for the search
+  assert.deepEqual([0, 7, 13, 20, 42, 99, 100, 101, 110, 999].map(inWords),
+    ['zero', 'seven', 'thirteen', 'twenty', 'forty two', 'ninety nine', 'one hundred', 'one hundred one', 'one hundred ten', 'nine hundred ninety nine']);
+  // Roman numbers
+  assert.deepEqual([1, 4, 9, 14, 19, 40, 44, 49, 88, 90, 99, 100, 400, 500, 900, 1000, 2024].map(romanNumeral),
+    ['I', 'IV', 'IX', 'XIV', 'XIX', 'XL', 'XLIV', 'XLIX', 'LXXXVIII', 'XC', 'XCIX', 'C', 'CD', 'D', 'CM', 'M', 'MMXXIV']);
+  for (const n of [...range(1, 100), 500, 1000]) assert.equal(SHAPE_BY_ID[`roman-${n}`].label, romanNumeral(n), `Roman ${n}`);
+  // every percentage (two of them were there before, under Scores), every place up to the 100th, with the right ending
+  for (const n of range(0, 100)) assert.ok(SHAPE_BY_ID[n === 50 || n === 100 ? `score-percent-${n}` : `percent-${n}`], `${n}%`);
+  const ending = (n) => SHAPE_BY_ID[`place-${n}`].label.slice(String(n).length);
+  assert.deepEqual([4, 11, 12, 13, 21, 22, 23, 42, 63, 100].map(ending), ['th', 'th', 'th', 'th', 'st', 'nd', 'rd', 'nd', 'rd', 'th']);
+  // a digital clock for every quarter of an hour, a clock face for every quarter too
+  const times = under('numbers', 'Digital clock').map((s) => s.label);
+  assert.equal(times.length, 96);
+  assert.deepEqual([times[0], times[1], times[47], times[95]], ['00:00', '00:15', '11:45', '23:45']);
+  assert.equal(under('numbers', 'Clock times').length, 48);
+  // the times tables are right
+  for (const a of range(1, 10)) for (const b of range(1, 10)) assert.equal(SHAPE_BY_ID[`times-${a}x${b}`].label, `${a}\u00D7${b}=${a * b}`);
+  // a number in a ring, on a badge, on a display
+  for (const n of range(1, 99)) assert.ok(SHAPE_BY_ID[`circled-${n}`], `circled ${n}`);
+  for (const frame of ['square', 'diamond', 'hexagon', 'star', 'shield']) for (const n of range(1, 20)) assert.ok(SHAPE_BY_ID[`badge-${frame}-${n}`], `${n} on a ${frame}`);
+  for (const n of range(0, 99)) assert.ok(SHAPE_BY_ID[`digital-${String(n).padStart(2, '0')}`], `digital ${n}`);
+});
+
+// ---------------------------------------------------------------- words and names
+
+test('words: every text once, in capital letters, with an id that says what it is', () => {
+  const words = SHAPES.filter((s) => s.cat === 'words' && s.id.startsWith('word-'));
+  assert.equal(words.length, 2538);
+  assert.equal(new Set(words.map((s) => s.label)).size, words.length, 'a text is one shape, whatever list it is in');
+  for (const s of words) {
+    assert.equal(s.label, s.label.toUpperCase(), s.id);
+    assert.ok(s.name === `The word ${s.label}` || s.name === `The words ${s.label}`, s.name);
+    assert.equal(s.name.startsWith('The words'), s.label.includes(' '), `${s.name}: "words" for more than one`);
+    assert.ok(writable(s.label), `${s.label} can be written`);
+    assert.ok(s.count >= 60 && s.count <= 300, `${s.id} count ${s.count}`);
+  }
+  // what the id is made of
+  assert.deepEqual(['JOYEUX NO\u00CBL', 'GO!', 'READY?', 'LET\'S GO', 'C\u0152UR', '\u00A1VAMOS!', 'BEM-VINDO', '1 VS 1'].map(slug),
+    ['joyeux-noel', 'go-x', 'ready-q', 'lets-go', 'coeur', 'vamos-x', 'bem-vindo', '1-vs-1']);
+  assert.ok(writable('HELLO!') && writable('\u00C0 BIENT\u00D4T') && !writable('HELLO@') && !writable('hello'));
+  assert.ok(phrase('LEVEL 12').polys.length > 6);
+  // labels with a number: none is missing
+  for (const [word, most] of [['LEVEL', 50], ['STAGE', 20], ['WAVE', 20], ['ROUND', 10], ['CHECKPOINT', 20], ['PLAYER', 8], ['TEAM', 8]]) {
+    for (const n of range(1, most)) assert.ok(SHAPE_BY_ID[`word-${word.toLowerCase()}-${n}`], `${word} ${n}`);
+  }
+  // the 80 words there were before the Words tab are in it, with the ids they had
+  for (const id of ['word-gg', 'word-win', 'word-welcome', 'word-bloxd', 'word-goal']) assert.equal(SHAPE_BY_ID[id].cat, 'words', id);
+  // other languages keep their accents, and say what they mean
+  for (const [id, label, meaning] of [['word-bienvenue', 'BIENVENUE', 'welcome'], ['word-felicitations', 'F\u00C9LICITATIONS', 'congratulations'],
+    ['word-adios', 'ADI\u00D3S', 'goodbye'], ['word-tschuss', 'TSCH\u00DCSS', 'bye'], ['word-citta', 'CITT\u00C0', 'city'], ['word-coracao', 'CORA\u00C7\u00C3O', 'heart']]) {
+    assert.equal(SHAPE_BY_ID[id].label, label);
+    assert.ok(SHAPE_BY_ID[id].tags.includes(meaning), `${label} means ${meaning}`);
+  }
+});
+
+test('words: a long word breaks between two syllables, as well as a rule can tell', () => {
+  assert.deepEqual(['CHRISTOPHER', 'ELIZABETH', 'BIENVENUE', 'SEBASTIAN', 'MAXIMILIAN', 'CHARLOTTE', 'WILLKOMMEN'].map((word) => `${word.slice(0, breakAt(word))}-${word.slice(breakAt(word))}`),
+    ['CHRIS-TOPHER', 'ELIZA-BETH', 'BIEN-VENUE', 'SEBAS-TIAN', 'MAXI-MILIAN', 'CHAR-LOTTE', 'WILL-KOMMEN']);
+  assert.equal(breakAt('SHORT'), -1);
+  for (const s of SHAPES.filter((x) => x.cat === 'words' || x.cat === 'names')) {
+    for (const word of (s.label || '').split(/[\s'-]+/)) {
+      const letters = [...word.replace(/[^\p{L}]/gu, '')];
+      if (letters.length < 9) continue;
+      const parts = shapeCaption({ label: word }).split('\u00AD');
+      assert.equal(parts.length, 2, `${word} (${s.id}) breaks once`);
+      assert.ok(parts.every((part) => [...part.replace(/[^\p{L}]/gu, '')].length >= 3 && [...part].length <= 9), `${word} breaks into ${parts.join(' + ')}`);
+    }
+  }
+  // the words that say where they break do break there
+  assert.equal(shapeCaption(SHAPE_BY_ID['word-checkpoint']), 'CHECK\u00ADPOINT');
+  assert.equal(shapeCaption(SHAPE_BY_ID['word-joyeux-anniversaire']), 'JOYEUX ANNIVER\u00ADSAIRE');
+  assert.equal(shapeCaption(SHAPE_BY_ID['word-felicitations']), 'F\u00C9LICI\u00ADTATIONS');
+});
+
+test('names: 1300 first names, each once, under their first letter', () => {
+  const names = SHAPES.filter((s) => s.cat === 'names');
+  assert.equal(names.length, 1300);
+  const labels = names.map((s) => s.label);
+  assert.equal(new Set(labels).size, labels.length);
+  assert.deepEqual(labels, labels.slice().sort((a, b) => (a < b ? -1 : 1)), 'in the order of the alphabet');
+  const words = new Set(SHAPES.filter((s) => s.cat === 'words').map((s) => s.label));
+  for (const s of names) {
+    assert.match(s.label, /^[A-Z]{2,12}$/, s.id);
+    assert.equal(s.sub, s.label[0], `${s.label} stands under ${s.label[0]}`);
+    assert.equal(s.name, `The name ${s.label}`);
+    assert.equal(s.id, `name-${s.label.toLowerCase()}`);
+    assert.ok(!words.has(s.label), `${s.label} is a word of the Words tab already`);
+  }
+  assert.deepEqual(CATEGORIES.find((c) => c.id === 'names').subs, [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']);
+  for (const name of ['EMMA', 'LIAM', 'MOHAMED', 'SOFIA', 'YUKI', 'ZOE', 'INES', 'ARJUN', 'OLGA', 'KWAME']) assert.ok(labels.includes(name), name);
+});
+
+test('bent words: an arch, a wave, a column, and a ring in 3D', () => {
+  for (const [kind, sub] of [['arch', 'Words on an arch'], ['valley', 'Words in a valley'], ['wavy', 'Words on a wave'], ['down', 'Words written downwards']]) {
+    const list = under('words', sub);
+    assert.ok(list.length > 50 && list.every((s) => s.id.startsWith(`${kind}-word-`) && s.group === 'flat'), sub);
+  }
+  // the middle of a word on an arch is higher than its ends; in a valley it is lower
+  const middleAndEnds = (id) => {
+    const pts = points(id);
+    const mean = (list) => list.reduce((sum, p) => sum + p[1], 0) / list.length;
+    return [mean(pts.filter((p) => Math.abs(p[0]) < 0.25)), mean(pts.filter((p) => Math.abs(p[0]) > 0.75))];
+  };
+  const [archMiddle, archEnds] = middleAndEnds('arch-word-welcome');
+  const [valleyMiddle, valleyEnds] = middleAndEnds('valley-word-welcome');
+  assert.ok(archMiddle > archEnds + 0.1 && valleyMiddle < valleyEnds - 0.05, `${archMiddle} ${archEnds} ${valleyMiddle} ${valleyEnds}`);
+  // written downwards: taller than wide, one letter under the other
+  const down = points('down-word-lobby');
+  assert.ok(Math.max(...down.map((p) => Math.abs(p[0]))) < 0.2 && groups(down.map((p) => p[1]), 0.07) === 5, 'five letters, one under the other');
+  // around a ring: every particle is as far from the upright axis, and the word goes nearly all the way round
+  const rings = under('solid', 'Words around a ring');
+  assert.ok(rings.length > 70 && rings.every((s) => s.group === 'solid'));
+  for (const s of rings.filter((_, i) => i % 9 === 0)) {
+    const pts = points(s.id);
+    // (between two points of a stroke a particle lies on the straight line, a hair inside the ring)
+    for (const [x, , z] of pts) assert.ok(Math.abs(Math.hypot(x, z) - 0.97) < 0.003, `${s.id}: on the ring`);
+    assert.ok(pts.some((p) => p[2] < -0.9) && pts.some((p) => p[2] > 0.9) && pts.some((p) => p[0] < -0.9) && pts.some((p) => p[0] > 0.9), `${s.id}: all the way round`);
+  }
+});
+
+// ---------------------------------------------------------------- combos and badges
+
+test('combos: every little picture stands in every formation, and the sliders set the copies', () => {
+  const tab = CATEGORIES.find((c) => c.id === 'combos');
+  const pictures = tab.subs.filter((sub) => sub !== 'Made of little shapes');
+  assert.equal(pictures.length, 66);
+  for (const sub of pictures) {
+    const list = under('combos', sub);
+    assert.ok(list.length >= 25 && list.length <= 27, `${sub}: ${list.length} formations`);
+    const many = sub.toLowerCase();
+    assert.ok(list.every((s) => s.name.toLowerCase().includes(many)), `${sub}: every name says what it is made of`);
+    // (a picture that needs many particles is left out of the formations with the most copies)
+    const deep = list.filter((s) => s.group === 'solid').length;
+    assert.ok(deep >= 8 && deep <= 10, `${sub}: ${deep} formations in 3D`);
+  }
+  // the particles come copy by copy, and copies of one size share them evenly: the middle of every copy is where it should be
+  const middles = (pts, copies) => range(0, copies - 1).map((i) => {
+    const part = pts.slice(Math.floor((pts.length * i) / copies), Math.floor((pts.length * (i + 1)) / copies));
+    return [0, 1, 2].map((axis) => part.reduce((sum, p) => sum + p[axis], 0) / part.length);
+  });
+  const near = (a, b, eps = 0.03) => Math.abs(a - b) < eps;
+  // a row of five stands side by side, a row of three too: the slider sets the copies
+  // (with a number of particles that the copies can share evenly)
+  const some = (id, n, params = {}) => shapePoints(id, n, { ...defaultParams(id), ...params });
+  // a row of five stands side by side, a row of three too: the slider sets the copies
+  assert.ok(middles(some('row-of-squares', 60), 5).every(([x, y], i) => near(x, -0.8 + 0.4 * i) && near(y, 0)), 'a row of five');
+  assert.ok(middles(some('row-of-squares', 60, { copies: 3 }), 3).every(([x, y], i) => near(x, -2 / 3 + (2 / 3) * i) && near(y, 0)), 'a row of three');
+  assert.ok(middles(some('column-of-squares', 60, { copies: 6 }), 6).every(([x, y], i) => near(x, 0) && near(y, 1 - (2 * i + 1) / 6)), 'a column of six');
+  assert.ok(middles(some('grid-of-squares', 72), 9).every(([x, y], i) => near(x, -2 / 3 + (2 / 3) * (i % 3)) && near(y, 2 / 3 - (2 / 3) * Math.floor(i / 3))), 'a grid of three by three');
+  // a ring: the copies are all as far from the middle
+  for (const [x, y] of middles(some('ring-of-squares', 64), 8)) assert.ok(near(Math.hypot(x, y), 0.75, 0.02), `a copy at ${x}, ${y}`);
+  // every particle of every copy: the copies share the particles, each keeps its corners
+  assert.equal(points('ring-of-diamonds').length, SHAPE_BY_ID['ring-of-diamonds'].count);
+  assert.equal(shapePoints('ring-of-diamonds', 9, defaultParams('ring-of-diamonds')).length, SHAPE_BY_ID['ring-of-diamonds'].min, 'never fewer than its least');
+  // in 3D: a halo lies flat, a sphere is round, a tunnel goes into the depth
+  const halo = points('halo-of-hearts');
+  assert.ok(Math.max(...halo.map((p) => Math.abs(p[1]))) < 0.36 && Math.max(...halo.map((p) => Math.hypot(p[0], p[2]))) > 0.9);
+  const sphere = points('sphere-of-stars');
+  assert.ok(sphere.every((p) => Math.hypot(...p) > 0.8 && Math.hypot(...p) < 1), 'on a ball');
+  assert.equal(groups(points('tunnel-of-squares').map((p) => p[2]), 0.1), 5);
+  // a big picture made of little ones
+  const built = under('combos', 'Made of little shapes');
+  assert.equal(built.length, 9 * 22);
+  assert.ok(SHAPE_BY_ID['heart-made-of-stars'] && SHAPE_BY_ID['star-made-of-hearts'] && SHAPE_BY_ID['moon-made-of-sparkles']);
+  // what was in the library before is not made a second time
+  for (const [id, cat] of [['ring-of-stars', 'basic'], ['ring-of-circles', 'basic'], ['nested-hearts', 'basic'], ['nested-stars', 'basic']]) assert.equal(SHAPE_BY_ID[id].cat, cat, id);
+});
+
+test('badges, speech bubbles and magic circles: a frame, and something inside it', () => {
+  const badges = under('symbols', 'Badges');
+  assert.ok(badges.length > 380, `${badges.length} badges`);
+  // the frame is the outermost line; the picture stays well inside it
+  for (const id of ['badge-circle-skulls', 'badge-medal-crowns']) {
+    const far = points(id).map((p) => Math.hypot(p[0], p[1]));
+    assert.ok(far.filter((r) => r > 0.99).length > 20, `${id}: the frame`);
+    assert.ok(far.filter((r) => r < 0.82).length > 10, `${id}: the picture`);
+    assert.equal(far.filter((r) => r > 0.84 && r < 0.99 && !(id.includes('medal') && Math.abs(r - 0.82) < 0.01)).length, 0, `${id}: nothing between them`);
+  }
+  assert.equal(under('letters', 'Letter badges').length, 5 * 26);
+  assert.equal(under('numbers', 'Number badges').length, 5 * 20);
+  assert.equal(under('symbols', 'Shields').length, 71);
+  assert.equal(under('effects', 'Magic circles').length, 50 + 4 * 24);
+  assert.ok(under('symbols', 'Speech bubbles').length >= 30 && SHAPE_BY_ID['speech-hi'] && SHAPE_BY_ID['speech-hearts']);
+  // the same gap between particles on the frame and inside it (as far as whole particles allow)
+  const pts = points('badge-square-skulls');
+  const gapOf = (list) => {
+    const nearest = list.map((p, i) => Math.min(...list.map((q, j) => (i === j ? Infinity : Math.hypot(p[0] - q[0], p[1] - q[1])))));
+    return nearest.sort((a, b) => a - b)[nearest.length >> 1];
+  };
+  const frame = gapOf(pts.filter((p) => Math.max(Math.abs(p[0]), Math.abs(p[1])) > 0.99));
+  const picture = gapOf(pts.filter((p) => Math.max(Math.abs(p[0]), Math.abs(p[1])) < 0.8));
+  assert.ok(picture / frame > 0.7 && picture / frame < 1.4, `the frame ${frame}, the picture ${picture}`);
+});
+
+// ---------------------------------------------------------------- ornaments and solids
+
+test('ornaments: no two snowflakes are alike, nor two mandalas', () => {
+  for (const [cat, sub, size] of [['nature', 'Snowflakes', 63], ['patterns', 'Mandalas', 100], ['nature', 'Flowers', 47], ['nature', 'Suns', 14], ['patterns', 'Frames', 26]]) {
+    const list = under(cat, sub);
+    assert.equal(list.length, size, sub);
+    const looks = new Set(list.map((s) => points(s.id).map((p) => p.map((v) => v.toFixed(3)).join(',')).sort().join(';')));
+    assert.equal(looks.size, size, `${sub}: every one is different`);
+  }
+  // a snowflake has six arms: turned by a sixth of a circle, its particles lie where particles were (give or take the gap between two)
+  const flake = points('snowflake-20');
+  const turned = flake.map(([x, y]) => [x * 0.5 - y * Math.sqrt(0.75), x * Math.sqrt(0.75) + y * 0.5]);
+  const off = turned.map((p) => Math.min(...flake.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1]))));
+  assert.ok(off.sort((a, b) => a - b)[Math.floor(off.length * 0.9)] < 0.07, 'six-fold');
+});
+
+test('solids: each has the corners it should have', () => {
+  const corners = {
+    'truncated-dodecahedron': 60, rhombicuboctahedron: 24, 'truncated-cuboctahedron': 48, 'snub-cube': 24, rhombicosidodecahedron: 60,
+    'triakis-tetrahedron': 8, 'triakis-octahedron': 14, 'tetrakis-hexahedron': 14, 'deltoidal-icositetrahedron': 26, 'disdyakis-dodecahedron': 26,
+    'pentagonal-icositetrahedron': 38, 'rhombic-triacontahedron': 32, 'triakis-icosahedron': 32, 'pentakis-dodecahedron': 32, 'deltoidal-hexecontahedron': 62,
+    'small-stellated-dodecahedron': 12, 'great-stellated-dodecahedron': 20, 'five-cubes': 20, 'ten-tetrahedra': 20, 'dodecahedron-icosahedron': 32,
+    'geodesic-ball': 42, 'triangular-cupola': 9, 'pentagonal-cupola': 15, 'pentagonal-rotunda': 20, pentachoron: 5, hexadecachoron: 8, icositetrachoron: 24,
+  };
+  assert.deepEqual(under('solid', 'Polyhedra').map((s) => s.id).sort(), Object.keys(corners).sort());
+  // edges: corners + faces - 2 (Euler), for the ones that are one solid without dents or crossings
+  const edges = {
+    'truncated-dodecahedron': 90, rhombicuboctahedron: 48, 'truncated-cuboctahedron': 72, 'snub-cube': 60, rhombicosidodecahedron: 120,
+    'triakis-tetrahedron': 18, 'triakis-octahedron': 36, 'tetrakis-hexahedron': 36, 'deltoidal-icositetrahedron': 48, 'disdyakis-dodecahedron': 72,
+    'pentagonal-icositetrahedron': 60, 'rhombic-triacontahedron': 60, 'triakis-icosahedron': 90, 'pentakis-dodecahedron': 90, 'deltoidal-hexecontahedron': 120,
+    'geodesic-ball': 120, 'triangular-cupola': 15, 'pentagonal-cupola': 25, 'pentagonal-rotunda': 35,
+  };
+  for (const [id, count] of Object.entries(corners)) {
+    const shape = SHAPE_BY_ID[id];
+    assert.equal(shape.min, count, `${id}: corners`);
+    // with only its corners asked for, a solid gives its corners: all different, the farthest 1 from the middle
+    const pts = shapePoints(id, count, {});
+    assert.equal(new Set(pts.map((p) => p.map((v) => v.toFixed(6)).join(','))).size, count);
+    assert.ok(Math.abs(Math.max(...pts.map((p) => Math.hypot(...p))) - 1) < 1e-9, `${id} fills the box`);
+    if (edges[id]) {
+      // one particle more than corners and edges: with every edge given one particle, the extra one is the second on some edge
+      const all = shapePoints(id, count + edges[id], {});
+      assert.equal(all.length, count + edges[id]);
+      // an edge joins two corners: so every particle that is not a corner lies between two corners, on the line from one to the other
+      const onAnEdge = (p) => pts.some((a, i) => pts.some((b, j) => j > i && Math.abs(Math.hypot(...a.map((v, k) => v - p[k])) + Math.hypot(...b.map((v, k) => v - p[k])) - Math.hypot(...a.map((v, k) => v - b[k]))) < 1e-9));
+      for (const p of all.slice(count, count + 6)) assert.ok(onAnEdge(p), `${id}: a particle off its edges`);
+    }
+  }
+  // the snub cube: every corner has five neighbours at the length of an edge (the others have three or four)
+  const snub = shapePoints('snub-cube', 24, {});
+  const nearest = Math.min(...snub.slice(1).map((p) => Math.hypot(...p.map((v, k) => v - snub[0][k]))));
+  for (const p of snub) assert.equal(snub.filter((q) => Math.abs(Math.hypot(...q.map((v, k) => v - p[k])) - nearest) < 1e-6).length, 5);
+  // letters with depth: a front and a back, the same letter twice
+  const deep = points('letter3d-a');
+  const front = deep.filter((p) => p[2] > 0.2).length;
+  const back = deep.filter((p) => p[2] < -0.2).length;
+  assert.ok(front > 20 && Math.abs(front - back) <= 2 && deep.length - front - back >= 5, `${front} in front, ${back} behind, ${deep.length - front - back} between`);
+  assert.equal(under('solid', 'Letters in 3D').length, 36);
+});
+
+// ---------------------------------------------------------------- pixel art made from parts
+
+test('pixel art: words in one or two lines, numbers and faces', () => {
+  const words = SHAPES.filter((s) => s.id.startsWith('px-word-'));
+  assert.equal(words.length, 501);
+  for (const s of words) {
+    assert.ok(s.count <= 300 && s.count >= 12, `${s.id}: ${s.count} dots`);
+    const rows = new Set(points(s.id).map((p) => p[1].toFixed(4))).size;
+    assert.equal(rows, s.label.includes(' ') ? 14 : 7, `${s.label}: ${rows} rows of dots`);
+  }
+  for (const n of range(10, 99)) assert.equal(SHAPE_BY_ID[`px-number-${n}`].label, String(n));
+  const faces = SHAPES.filter((s) => s.id.startsWith('px-face-'));
+  assert.equal(faces.length, 79);
+  assert.equal(new Set(faces.map((s) => s.count)).size > 10, true, 'eyes and mouths take different numbers of dots out of the face');
+});
+
+// ---------------------------------------------------------------- the page
+
+test('the page: a big tab is folded, and a search shows what it found a few hundred at a time', () => {
+  const app = fs.readFileSync(new URL('js/app.js', root), 'utf8');
+  const css = fs.readFileSync(new URL('css/style.css', root), 'utf8');
+  assert.ok(app.includes('const FOLD_FROM = 900;') && app.includes('const FOUND_AT_ONCE = 200;'));
+  // so many shapes under each heading of a big tab that all its headings are a short scroll apart, in whole rows of four
+  assert.ok(app.includes('const most = list.length > FOLD_FROM ? Math.max(8, Math.floor(480 / kinds.length / 4) * 4) : Infinity;'));
+  assert.ok(app.includes('const folded = size > most + 8 && !unfolded.has(key);'));
+  assert.ok(app.includes('`Show all ${size}`') && app.includes('`Show ${some} more`'));
+  // the button that was pressed is gone: the first of the shapes it brought is where the keyboard is
+  assert.ok(app.includes('if (next && made.has(next.id)) made.get(next.id).focus({ preventScroll: true });'));
+  assert.ok(app.includes('list.slice(0, found).forEach(add);'));
+  assert.match(css, /\.shape-grid \.shape-more \{\s*grid-column: 1 \/ -1;/);
+  // with these numbers no tab shows more than a few hundred buttons at once, whatever it holds
+  for (const tab of CATEGORIES) {
+    const list = SHAPES.filter((s) => s.cat === tab.id);
+    const kinds = [...new Set(list.map((s) => s.sub || ''))].map((name) => list.filter((s) => (s.sub || '') === name).length);
+    const most = list.length > 900 ? Math.max(8, Math.floor(480 / kinds.length / 4) * 4) : Infinity;
+    const shown = kinds.reduce((sum, size) => sum + (size > most + 8 ? most : size), 0);
+    assert.ok(shown <= 900, `the ${tab.name} tab shows ${shown} buttons when it opens`);
+    // (the Letters tab is not folded: an alphabet is looked at as a whole)
+    if (tab.id === 'letters') assert.equal(shown, list.length);
+  }
+  // the tabs: 19 names that fit a button of the narrow panel
+  assert.deepEqual(CATEGORIES.map((c) => c.name), ['Basic', '3D', 'Letters', 'Words', 'Names', 'Numbers', 'Symbols', 'Faces', 'Nature', 'Animals', 'Food', 'Things',
+    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos']);
+  for (const c of CATEGORIES) assert.ok(c.name.length <= 9, c.name);
+});

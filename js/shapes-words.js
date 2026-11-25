@@ -64,8 +64,11 @@ const WORDS = [
   ['BLOXD', 'game name'], ['SECRET', 'hidden'], ['QUEST', 'mission task'], ['GOAL', 'target finish'],
 ];
 
+/** The words that are shapes here, as they are written: shapes-vocab.js has many more, and leaves these out. */
+export const WORD_TEXTS = WORDS.map(([word]) => word);
+
 const words = WORDS.map(([word, more]) => drawnShape({
-  id: `word-${word.toLowerCase()}`, name: `The word ${word}`, cat: 'letters', sub: 'Words', label: word,
+  id: `word-${word.toLowerCase()}`, name: `The word ${word}`, cat: 'words', sub: 'Game words', label: word,
   tags: `${word} text writing ${more}`, draw: () => wordDrawing(word), count: Math.max(60, Math.min(160, 20 * word.length)),
 }));
 
@@ -78,9 +81,10 @@ const words = WORDS.map(([word, more]) => drawnShape({
 const THICK = 0.9;
 const CELL = 0.3;
 
-function outline(d) {
+/** The line around a thick version of a drawing. `d` is the text of a drawing, or a drawing. */
+export function outline(d) {
   const strokes = [];
-  for (const poly of parsePath(d).polys) {
+  for (const poly of (typeof d === 'string' ? parsePath(d) : d).polys) {
     for (let i = 1; i < poly.length; i++) strokes.push([poly[i - 1][0], poly[i - 1][1], poly[i][0], poly[i][1]]);
   }
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;

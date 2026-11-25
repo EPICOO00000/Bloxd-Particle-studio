@@ -34,7 +34,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 3190 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 13190 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -79,47 +79,85 @@ file and **Open** loads one, to keep a copy or to take it to another computer.
 
 ### Shapes
 
-There are 3190 shapes in 16 tabs. Click a tab to see its shapes. A tab is
+There are 13190 shapes in 19 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
-scroll through its shapes. Or type in the search box above the tabs to look
-through all of them at once: a name ("star", "dragon"), a letter, a number or a
-sign ("A", "é", "7", "?"), the name of a tab ("animals") or a heading
-("weapons"). Enter adds the first shape found.
+scroll through its shapes. A big tab shows the first rows under each heading,
+so that all its headings are a short scroll apart: **Show all** under the rows
+opens the rest of that heading.
 
-![The Add panel: the 16 tabs, and the Animals tab with its headings](docs/shapes.png)
+Or type in the search box above the tabs to look through all of them at once:
+a name ("star", "dragon"), a letter, a number or a sign ("A", "é", "7", "?"),
+the name of a tab ("animals") or a heading ("weapons"). A number is found by
+typing it ("437"), a word of another language by its meaning too ("welcome"
+finds BIENVENUE and WILLKOMMEN). Enter adds the first shape found. A search
+that finds very many shapes shows 200 at a time.
+
+![The Add panel: the 19 tabs, and the Combos tab with its headings and the Show all buttons](docs/shapes.png)
 
 | Tab | How many | Under these headings |
 |---|---|---|
 | Basic | 159 | 34 at the top; More outlines 36; Shapes in shapes 29; More filled shapes 50; Lines 10 |
-| 3D | 195 | 31 at the top; More solids 29; Round things 14; Buildings 28; Things 67; Plants and animals 26 |
-| Letters | 755 | Capital letters 26; Small letters 26; Words 80; Outline letters 26; Accented capitals 56; Accented small letters 58; Greek letters 49; Cyrillic capitals 37; Cyrillic small letters 37; Hiragana 46; Katakana 46; Kanji 47; Hangul 40; Hebrew letters 27; Runes 20; Ogham 20; Morse code 36; Braille 26; Flag signals 26; Pigpen cipher 26 |
-| Numbers | 335 | Numbers 10; Bigger numbers 30; Digital numbers 16; Outline numbers 10; Circled numbers 20; Roman numerals 20; Mayan numbers 20; Scores 22; Dice 6; Dominoes 28; Playing cards 54; Clock times 12; Signs 17; Punctuation 18; Money 18; Maths 34 |
-| Symbols | 202 | Arrows 34; Signs 92; Hearts and sparkles 24; Music 15; Star signs 12; People and body 25 |
+| 3D | 335 | 31 at the top; More solids 29; Polyhedra 27; Round things 14; Buildings 28; Things 67; Plants and animals 26; Letters in 3D 36; Words around a ring 77 |
+| Letters | 857 | Capital letters 26; Small letters 26; Outline letters 26; Accented capitals 56; Accented small letters 58; Greek letters 49; Cyrillic capitals 37; Cyrillic small letters 37; Hiragana 46; Katakana 46; Kanji 47; Hangul 40; Hebrew letters 27; Runes 20; Ogham 20; Morse code 36; Braille 26; Flag signals 26; Pigpen cipher 26; Slanted letters 52; Letter badges 130 |
+| Words | 2970 | Game words 344; Signs and orders 219; Places 198; People and teams 170; Games and sports 109; Wishes and days 108; Words for things 217; Levels and rounds 457; French words 179; Spanish words 154; German words 142; Italian words 132; Portuguese words 109; Words in outline letters 80; Words on an arch 104; Words in a valley 94; Words on a wave 94; Words round a circle 7; Words written downwards 53 |
+| Names | 1300 | A 112; B 42; C 64; D 58; E 61; F 36; G 41; H 45; I 31; J 85; K 56; L 78; M 112; N 55; O 25; P 46; Q 3; R 76; S 107; T 61; U 9; V 26; W 25; X 5; Y 19; Z 22 |
+| Numbers | 2329 | Numbers 10; Bigger numbers 30; Numbers up to 999 961; Big numbers 42; Digital numbers 116; Digital clock 96; Outline numbers 10; Slanted numbers 10; Circled numbers 99; Number badges 100; Roman numerals 102; Mayan numbers 20; Scores 69; Percentages 99; Rankings 97; Prices 39; Results 49; Times tables 100; Tally marks 20; Binary numbers 16; Dice 27; Dominoes 28; Playing cards 54; Clock times 48; Signs 17; Punctuation 18; Money 18; Maths 34 |
+| Symbols | 764 | Arrows 74; Signs 92; Hearts and sparkles 24; Music 15; Star signs 12; People and body 25; Speech bubbles 34; Keys and mouse 14; Shields 71; Badges 403 |
 | Faces | 109 | Smileys 47; Characters 38; Text faces 24 |
-| Nature | 109 | Sky and weather 38; Plants 44; Land and sea 27 |
+| Nature | 233 | Sky and weather 38; Suns 14; Snowflakes 63; Plants 44; Flowers 47; Land and sea 27 |
 | Animals | 160 | Pets and farm 31; Wild animals 36; Birds 24; Sea animals 26; Bugs 22; Dinosaurs and dragons 21 |
 | Food | 74 | Fruit and vegetables 24; Meals 21; Sweets 17; Drinks 12 |
 | Things | 164 | Tools 29; Weapons 18; Treasure and magic 20; Games and sport 29; Music 16; Home 30; Party and holidays 22 |
 | Travel | 75 | Vehicles 37; Buildings 38 |
 | Costume | 53 | Wings 7; On the head 22; Clothes 24 |
-| Pixel art | 457 | Game items 100; Creatures 60; Faces 14; Nature and food 73; Signs and things 92; Pixel letters 26; Pixel small letters 26; Pixel numbers 30; Pixel words 36 |
-| Curves | 82 | 17 at the top; More flat curves 46; More curves in 3D 19 |
-| Patterns | 101 | Tilings 37; Borders 33; Fractals 31 |
-| Effects | 160 | 21 at the top; Magic circles 50; Rings and shields 17; Elements 26; Floating things 46 |
+| Pixel art | 1093 | Game items 100; Creatures 60; Faces 93; Nature and food 73; Signs and things 92; Pixel letters 26; Pixel small letters 26; Pixel numbers 122; Pixel words 501 |
+| Curves | 114 | 17 at the top; More flat curves 46; Famous curves 32; More curves in 3D 19 |
+| Patterns | 227 | Tilings 37; Borders 33; Frames 26; Fractals 31; Mandalas 100 |
+| Effects | 256 | 21 at the top; Magic circles 146; Rings and shields 17; Elements 26; Floating things 46 |
+| Combos | 1918 | Hearts 26; Stars 25; Diamonds 27; Triangles 27; Squares 27; Circles 26; Hexagons 27; Pluses 26; Crosses 26; Ticks 26; Moons 26; Suns 25; Clouds 26; Drops 27; Flames 26; Snowflakes 26; Lightning bolts 26; Leaves 27; Flowers 25; Trees 26; Mushrooms 26; Music notes 26; Arrows 26; Sparkles 27; Bubbles 26; Rings 27; Gems 27; Coins 26; Crowns 26; Shields 27; Swords 25; Skulls 26; Ghosts 26; Eyes 26; Smileys 26; Fish 26; Birds 25; Butterflies 25; Paw prints 25; Balloons 26; Houses 27; Flags 26; Rockets 26; Trophies 26; Clovers 26; Bats 25; Pumpkins 26; Keys 26; Bells 26; Anchors 26; Apples 26; Sweets 26; Eggs 27; Padlocks 26; Bombs 26; Potions 26; Witch hats 26; Ice creams 26; Umbrellas 26; Cat faces 26; Presents 26; Candles 26; Snowmen 26; Dice 26; Cactuses 26; Mountains 26; Made of little shapes 198 |
 
-[All 3190 shapes by name](docs/shapes.md).
+[All 13190 shapes by name](docs/shapes.md).
 
-Every shape has a "How many" slider for the number of particles. 228 of them
+Every shape has a "How many" slider for the number of particles. 1342 of them
 have settings of their own, such as the points of a star, the petals of a
-flower or the turns of a helix. A Pixel art picture has one particle for every
-dot, so its "How many" goes in steps: with 4 times as many, every dot is a
-block of 2 by 2 particles, with 9 times as many a block of 3 by 3.
+flower, the turns of a helix or the number of hearts in a ring. A Pixel art
+picture has one particle for every dot, so its "How many" goes in steps: with 4
+times as many, every dot is a block of 2 by 2 particles, with 9 times as many a
+block of 3 by 3.
 
-To write a word, add its letters one after the other. Each new shape takes the
-next free place in a row, so the letters line up by themselves. Letters with an
-accent (é, à, ç, ñ, ü, ø and more) are in the Letters tab under their own
-headings. Commas, full stops and the other marks are in the Numbers tab under
-Punctuation.
+What is in the tabs that are made from parts:
+
+- **Words** has what a map maker hangs in the air: game words, signs and
+  orders ("KEEP OUT"), places, teams, games, wishes ("HAPPY BIRTHDAY"), labels
+  with a number ("LEVEL 12", "CHECKPOINT 3"), and words in French, Spanish,
+  German, Italian and Portuguese, with their accents. Some words also come in
+  thick outline letters, on an arch, in a valley, on a wave, round a circle and
+  written downwards. In the 3D tab the same words go around a ring.
+- **Names** has 1300 first names from many countries, sorted by their first
+  letter.
+- **Numbers** has every number up to 999, percentages, rankings ("4th"),
+  prices, scores, results, times tables, numbers on a badge, a digital clock
+  for every quarter of an hour, and more Roman, circled and digital numbers.
+- **Combos** has one little picture many times, set out in a formation: a ring
+  of hearts, a spiral of stars, a sphere of skulls, a tornado of bats, a heart
+  made of stars. There are 66 little pictures, each in about 26 formations, 10
+  of them in 3D. The sliders set how many copies there are.
+- **Symbols** has the same little pictures as badges (in a circle, on a
+  shield), shields with their divisions, speech bubbles with a word, and the
+  keys of a keyboard for "press E" signs. **Letters** has every letter on a
+  badge, slanted letters, and in the 3D tab letters with depth.
+- **Nature** has 63 snowflakes, no two alike, flowers by the shape and the
+  number of their petals, and suns by their rays. **Patterns** has 100
+  mandalas and frames to put around a word. **Effects** has magic circles with
+  a picture in the middle. **3D** has 27 more solids, among them the Catalan
+  solids and three shadows of solids with four dimensions. **Curves** has 32
+  curves with a name, from the Witch of Agnesi to the Flower of life.
+
+To write a word that is not in the Words tab, add its letters one after the
+other. Each new shape takes the next free place in a row, so the letters line
+up by themselves. Letters with an accent (é, à, ç, ñ, ü, ø and more) are in the
+Letters tab under their own headings. Commas, full stops and the other marks
+are in the Numbers tab under Punctuation.
 
 ### Timing
 
@@ -779,6 +817,13 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes-count.js` | Bigger numbers, circled numbers, scores, dominoes, playing cards, clock times, Mayan numbers, more signs |
 | `js/shapes-forms.js`, `js/shapes-space.js`, `js/shapes-models.js`, `js/shapes-magic.js` | Still more shapes made from formulas: basic shapes, curves and patterns; 3D solids and buildings; 3D things; effects |
 | `js/shapes-emblems.js`, `js/shapes-outdoors.js` | Still more pictures: symbols and faces, nature and animals |
+| `js/shapes-numbers.js` | Two thousand more numbers: every number up to 999, percentages, rankings, prices, badges, results, times tables, a digital clock |
+| `js/shapes-vocab.js`, `js/shapes-names.js` | The Words tab and the Names tab: lists of words (also in five other languages) and of first names, written with the stroke letters |
+| `js/shapes-bent.js`, `js/shapes-labels.js` | Words on an arch, on a wave, round a circle and around a ring in 3D; words in outline letters, speech bubbles, keys, arrows for every direction, slanted letters |
+| `js/shapes-combos.js`, `js/shapes-badges.js` | The Combos tab: little pictures and the formations they are set out in. And the same pictures, and the letters, inside a frame |
+| `js/shapes-ornaments.js` | Snowflakes, flowers, suns, mandalas, shields, frames and magic circles, each kind put together from a few parts |
+| `js/shapes-solids2.js`, `js/shapes-famous.js` | More solids, found from their corners, and letters with depth; curves with a name |
+| `js/shapes-pixel3.js` | More pixel art put together from parts: words in one or two lines, numbers, faces |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
@@ -804,8 +849,9 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `tests/studio.test.mjs` | Tests for the Shape Studio, Morph and the Code window. The one that checks the TypeScript needs `npm install` and is skipped without it |
 | `tests/share.test.mjs` | Tests for share links: every scene comes back as it was, old links keep working, and no link can harm the studio |
 | `tests/library.test.mjs` | Tests for My scenes: what is kept comes back, whatever the browser's store does; the scene from before there was a list is not lost; nothing read from the store is trusted |
+| `tests/shapes.test.mjs`, `tests/shape-digests.json` | Tests for the shapes that are made from parts, and a fingerprint of every heading of the library: a shape must go on giving the points it gave |
 | `tests/babylon-sim.mjs` | A copy of how Babylon.js, the 3D engine behind the game, updates a particle each frame. The tests play timed exports in it at 12 to 144 frames per second, and with the particles of a click made one after the other instead of all at once |
-| `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), and `shape-list.mjs`, which writes the list of shapes |
+| `tools/` | Local server, the single-file build, the versions of the files (`sources.mjs`), `shape-list.mjs`, which writes the list of shapes, and `shape-digests.mjs`, which writes their fingerprints |
 | `textures/` | Particle pictures used for the preview |
 | `vendor/` | three.js, the 3D library |
 | `examples/` | The scripts that write the examples, and the dragon as a scene file |
@@ -830,13 +876,19 @@ corner. Search words go in a fourth place: `{ tags: 'fruit red' }`.
 A pixel art picture is one line in `js/shapes-pixel.js`: its rows from top to
 bottom with `/` between them, `#` for a dot and `.` for none.
 
+A word is one more word in a list of `js/shapes-vocab.js`, a name one more name
+in `js/shapes-names.js`. A little picture for the Combos tab is one line in
+`MINIS` in `js/shapes-combos.js`, and gives a whole row of shapes: every
+formation is made for it.
+
 A new heading is a name in the `subs` of its tab, in `CATEGORIES` in
 `js/shapes.js`. The headings show in that order. A name with a word of nine
 letters or more also needs a place where that word may break under its picture:
 add it to `BREAKS` in the same file ("screw|driver").
 
 Then run `node tools/shape-list.mjs`, which writes `docs/shapes.md` again and
-prints the table above, `npm test`, which checks every shape, and
+prints the table above, `node tools/shape-digests.mjs`, which notes the
+fingerprints of the new shapes, `npm test`, which checks every shape, and
 `npm run build`. The tests know how many shapes there are, so update the number
 there and in the three places in this file.
 

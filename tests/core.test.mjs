@@ -41,12 +41,12 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v)
   && v <= 1.0001 + (axis === 1 ? shape.rise || 0 : 0) && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
 
-test('there are 3190 shapes, each made of dozens of particles, in 16 tabs', () => {
-  assert.equal(SHAPES.length, 3190);
+test('there are 13190 shapes, each made of dozens of particles, in 19 tabs', () => {
+  assert.equal(SHAPES.length, 13190);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
   assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
   const tabs = CATEGORIES.map((c) => c.id);
-  assert.equal(tabs.length, 16);
+  assert.equal(tabs.length, 19);
   for (const tab of tabs) assert.ok(SHAPES.some((s) => s.cat === tab), `tab ${tab} is empty`);
   // the picker shows the shapes tab by tab, in this order
   assert.deepEqual([...new Set(SHAPES.map((s) => s.cat))], tabs);
@@ -419,13 +419,21 @@ test('the 700 shapes added in the round after that are exactly what they were, l
   }
 });
 
-test('letters and pictures have no clumps of particles', () => {
-  const tabs = ['letters', 'numbers', 'symbols', 'faces', 'nature', 'animals', 'food', 'things', 'travel', 'costume'];
+test('letters, words and pictures have no clumps of particles', () => {
+  const tabs = ['letters', 'words', 'names', 'numbers', 'symbols', 'faces', 'nature', 'animals', 'food', 'things', 'travel', 'costume'];
   const drawn = SHAPES.filter((s) => tabs.includes(s.cat));
-  assert.equal(drawn.length, 2036);
+  assert.equal(drawn.length, 9088);
   for (const s of drawn) {
     const pts = shapePoints(s.id, s.count, defaultParams(s.id));
-    const nearest = pts.map((p, i) => Math.min(...pts.map((q, j) => (i === j ? Infinity : Math.hypot(p[0] - q[0], p[1] - q[1])))));
+    const nearest = pts.map((p, i) => {
+      let least = Infinity;
+      for (let j = 0; j < pts.length; j++) {
+        if (j === i) continue;
+        const gap = Math.hypot(p[0] - pts[j][0], p[1] - pts[j][1]);
+        if (gap < least) least = gap;
+      }
+      return least;
+    });
     const usual = nearest.slice().sort((a, b) => a - b)[nearest.length >> 1];
     assert.ok(Math.min(...nearest) >= 0.5 * usual, `${s.id}: two particles ${Math.min(...nearest).toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
   }
@@ -438,7 +446,7 @@ test('the search box finds shapes by name, sign and other words', () => {
   assert.deepEqual(ids('no such shape'), []);
   assert.equal(ids('a')[0], 'letter-a');
   assert.equal(ids('7')[0], 'digit-7');
-  assert.deepEqual(ids('?'), ['sign-question']);
+  assert.deepEqual(ids('?'), ['sign-question', 'speech-q', 'speech-q-x'], 'the sign itself, then the speech bubbles that say it');
   assert.equal(ids('STAR')[0], 'star');
   assert.ok(ids('star').includes('pentagram'), 'search words count');
   // the shape of that very name first, then the others in the order of the tabs
@@ -448,25 +456,40 @@ test('the search box finds shapes by name, sign and other words', () => {
   for (const id of ['notes', 'note-quarter', 'px-note']) assert.ok(ids('music note').includes(id), `"music note" finds ${id}`);
   assert.deepEqual(ids('letter').slice(0, 26), [...'abcdefghijklmnopqrstuvwxyz'].map((c) => `letter-${c}`));
   assert.ok(ids('letter').includes('small-g') && ids('letter').includes('envelope'), 'the name of the tab and search words count');
-  assert.deepEqual(ids('small letter g'), ['small-g', 'px-small-g', 'small-gbreve']);
+  assert.deepEqual(ids('small letter g'), ['small-g', 'slanted-small-g', 'px-small-g', 'small-gbreve']);
   // a letter with an accent is found by typing it, the capital first; so are the other signs
-  assert.deepEqual(ids('é'), ['letter-eacute', 'small-eacute']);
-  assert.deepEqual(ids('É'), ['letter-eacute', 'small-eacute']);
+  assert.deepEqual(ids('é').slice(0, 2), ['letter-eacute', 'small-eacute']);
+  assert.deepEqual(ids('É').slice(0, 2), ['letter-eacute', 'small-eacute']);
+  assert.ok(ids('é').slice(2).every((id) => id.startsWith('word-')) && ids('é').includes('word-etoile'), 'after the two letters, the words that begin with it');
   assert.deepEqual(ids('ß'), ['small-szlig']);
   assert.deepEqual(ids('Ω'), ['greek-omega', 'greek-cap-omega']);
   assert.deepEqual(ids(';'), ['sign-semicolon', 'px-semicolon', 'typed-wink']);
-  assert.deepEqual(ids('xii'), ['roman-12', 'roman-13']);
+  assert.deepEqual(ids('xii').slice(0, 2), ['roman-12', 'roman-13']);
+  assert.ok(ids('xii').every((id) => id.startsWith('roman-')) && ids('xii').includes('roman-62'), 'and the other Roman numbers that have XII in them');
   assert.deepEqual(ids('6').slice(0, 3), ['digit-6', 'digital-6', 'px-digit-6']);
   for (const id of ['roman-6', 'dice-6', 'circled-6', 'card-6-hearts', 'domino-6-6', 'clock-6', 'morse-6']) assert.ok(ids('6').includes(id), `"6" finds ${id}`);
   // the name of a tab finds the tab; a heading finds what stands under it, wherever that is
   const tab = (id) => SHAPES.filter((s) => s.cat === id).map((s) => s.id);
   const under = (sub) => SHAPES.filter((s) => s.sub === sub).map((s) => s.id);
   assert.deepEqual(ids('pixel art'), tab('pixel'));
-  assert.deepEqual(ids('nature'), [...tab('nature'), ...under('Nature and food')]);
-  assert.deepEqual(ids('weapons'), under('Weapons'));
+  // (the word itself comes first, written in strokes and in pixels: it is what was typed)
+  assert.deepEqual(ids('nature'), ['word-nature', 'px-word-nature', ...tab('nature'), ...under('Nature and food')]);
+  assert.deepEqual(ids('weapons'), ['word-weapons', 'px-word-weapons', ...under('Weapons')]);
   assert.equal(under('Weapons').length, 18);
   for (const c of CATEGORIES) for (const sub of c.subs) for (const id of under(sub)) assert.ok(ids(sub).includes(id), `"${sub}" finds ${id}`);
-  assert.ok(ids('x').length < 40 && ids('x')[0] === 'letter-x', 'one letter only matches the start of a word');
+  assert.equal(ids('x')[0], 'letter-x');
+  assert.ok(ids('x').length < 300 && ids('x').includes('xmark'), 'one letter only matches the start of a word');
+  assert.ok(!ids('x').includes('fox') && !ids('x').includes('word-exit') && ids('x').includes('name-xavier'), 'a word that only has the letter inside it is not found');
+  // a word under a picture that is what was typed comes right after the shape of that name: the plain word first
+  assert.deepEqual(ids('cat').slice(0, 3), ['cat', 'word-cat', 'px-word-cat']);
+  assert.deepEqual(ids('win').slice(0, 2), ['word-win', 'outline-word-win']);
+  assert.deepEqual(ids('shop').slice(0, 4), ['shop', 'word-shop', 'px-word-shop', 'arch-word-shop'], 'the picture, then the plain word, then the same word in pixels and on an arch: the shorter name first');
+  assert.equal(ids('welcome')[0], 'word-welcome');
+  for (const id of ['word-bienvenue', 'word-bienvenido', 'word-willkommen', 'word-benvenuto', 'word-bem-vindo']) assert.ok(ids('welcome').includes(id), `"welcome" finds ${id}: a word of another language is found by its meaning`);
+  assert.equal(ids('437')[0], 'number-437');
+  assert.equal(ids('forty two')[0], 'number-42');
+  assert.equal(ids('emma')[0], 'name-emma');
+  assert.equal(ids('ring of hearts')[0], 'ring-of-hearts');
   // every shape can be found by its own name, and comes first
   for (const s of SHAPES) assert.equal(ids(s.name)[0], s.id, `searching "${s.name}"`);
 });
@@ -825,16 +848,22 @@ test('one particle: the smallest export is correct and complete', () => {
 });
 
 test('every texture and every shape exports correctly', () => {
-  const objects = SHAPES.map((s, i) => createObject(s.id, {
+  const object = (s, i) => createObject(s.id, {
     pos: [i % 5 * 3 - 6, 1 + Math.floor(i / 5) * 3, (i % 3) * 2.5 - 2],
     rot: [i * 17, i * 31, i * 7],
     scale: [1 + (i % 3) * 0.5, 1, 0.75],
     texture: TEXTURES[i % TEXTURES.length],
     color: rgbToHex([i * 10, 255 - i * 9, (i * 53) % 256]),
-  }));
-  for (const t of TEXTURES) objects.push(createObject('point', { texture: t, pos: [TEXTURES.indexOf(t), 9, 0] }));
-  const { calls } = verifyExport(objects);
-  assert.deepEqual(new Set(calls.map((c) => c.texture)), new Set(TEXTURES));
+  });
+  // (a few hundred shapes at a time: all 13190 in one scene are more than a million particles to hold at once)
+  const textures = new Set();
+  for (let from = 0; from < SHAPES.length; from += 400) {
+    const objects = SHAPES.slice(from, from + 400).map((s, k) => object(s, from + k));
+    if (!from) for (const t of TEXTURES) objects.push(createObject('point', { texture: t, pos: [TEXTURES.indexOf(t), 9, 0] }));
+    const { calls } = verifyExport(objects);
+    for (const c of calls) textures.add(c.texture);
+  }
+  assert.deepEqual(textures, new Set(TEXTURES));
 });
 
 test('every option reaches the game call', () => {

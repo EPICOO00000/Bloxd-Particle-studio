@@ -2924,12 +2924,18 @@ function loadImage(src) {
 }
 
 const SHOWN_AT_ONCE = 40; // about as many shape buttons as are in view without scrolling
+const FOLD_FROM = 900; // a tab with more shapes than this shows the beginning of each long heading, and a button for the rest
+const FOUND_AT_ONCE = 200; // of what a search finds, so many at a time
 
 /**
  * The shape library: tabs, a search box and a grid of buttons. Inside a tab the
  * shapes stand under headings. Only the shapes on show are in the page; a button
  * is made the first time it is needed and kept, and its picture is drawn when it
  * first comes into view, so a long tab or a wide search stays quick.
+ *
+ * The library has thousands of shapes. A big tab shows the first rows under
+ * each heading with a "Show all" button, so that every heading of the tab is
+ * in reach; a search shows what it found a few hundred at a time.
  */
 function bindShapePicker() {
   const search = $('#shape-search');
@@ -2938,7 +2944,9 @@ function bindShapePicker() {
   const hint = $('#shape-note');
   const made = new Map();
   const blank = new Map(); // picture (canvas) -> its shape, until it is drawn
+  const unfolded = new Set(); // 'tab/Heading': the headings that were opened with "Show all"
   let tab = CATEGORIES[0].id;
+  let found = FOUND_AT_ONCE; // how many of the shapes a search found are on show
 
   const draw = (canvas) => {
     const shape = blank.get(canvas);
@@ -2968,7 +2976,12 @@ function bindShapePicker() {
     return made.get(s.id);
   };
 
-  const show = () => {
+  /**
+   * Draws the grid. `next`: more shapes were asked for with a "Show" button; this is the first of them. The grid
+   * stays scrolled to where it is, and that shape is where the keyboard is (the button that was pressed is gone).
+   */
+  const show = (next = null) => {
+    const stay = !!next;
     const typed = search.value.trim();
     const list = typed ? searchShapes(typed) : SHAPES.filter((s) => s.cat === tab);
     for (const b of tabs.children) {
@@ -2976,21 +2989,47 @@ function bindShapePicker() {
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));
     }
+    const at = grid.scrollTop;
     const cells = [];
-    let under = '';
-    list.forEach((s, i) => {
-      // in a tab, a heading stands before the first shape of each kind (SHAPES is in that order)
-      if (!typed && (s.sub || '') !== under) {
-        under = s.sub || '';
-        const size = list.filter((x) => x.sub === under).length;
-        cells.push(h('h4', { class: 'shape-sub', 'aria-label': `${under}: ${size} shapes` }, under, h('small', {}, String(size))));
-      }
+    let shown = 0;
+    const add = (s) => {
       const b = button(s);
-      if (i < SHOWN_AT_ONCE) draw(b.firstChild); // what is in view at once has its picture straight away
+      if (shown++ < SHOWN_AT_ONCE) draw(b.firstChild); // what is in view at once has its picture straight away
       cells.push(b);
-    });
+    };
+    const more = (label, title, act) => h('button', { class: 'shape-more', title, onclick: act }, label);
+    if (typed) {
+      list.slice(0, found).forEach(add);
+      if (list.length > found) {
+        const some = Math.min(FOUND_AT_ONCE, list.length - found);
+        const first = list[found];
+        cells.push(more(`Show ${some} more`, `${list.length - found} more shapes were found`, () => { found += FOUND_AT_ONCE; show(first); }));
+      }
+    } else {
+      // in a tab, a heading stands before the first shape of each kind (SHAPES is in that order)
+      const kinds = [];
+      for (const s of list) {
+        if (!kinds.length || kinds[kinds.length - 1].name !== (s.sub || '')) kinds.push({ name: s.sub || '', shapes: [] });
+        kinds[kinds.length - 1].shapes.push(s);
+      }
+      // a big tab: so many shapes under each heading that all its headings are a short scroll apart (whole rows of four)
+      const most = list.length > FOLD_FROM ? Math.max(8, Math.floor(480 / kinds.length / 4) * 4) : Infinity;
+      for (const kind of kinds) {
+        const size = kind.shapes.length;
+        if (kind.name) cells.push(h('h4', { class: 'shape-sub', 'aria-label': `${kind.name}: ${size} shapes` }, kind.name, h('small', {}, String(size))));
+        const key = `${tab}/${kind.name}`;
+        // (a heading with only a few more than fit is shown whole: a button that hides one row saves nothing)
+        const folded = size > most + 8 && !unfolded.has(key);
+        (folded ? kind.shapes.slice(0, most) : kind.shapes).forEach(add);
+        if (folded) {
+          const first = kind.shapes[most];
+          cells.push(more(`Show all ${size}`, `${size - most} more under \u201c${kind.name || 'the first shapes'}\u201d`, () => { unfolded.add(key); show(first); }));
+        }
+      }
+    }
     grid.replaceChildren(...cells);
-    grid.scrollTop = 0;
+    grid.scrollTop = stay ? at : 0;
+    if (next && made.has(next.id)) made.get(next.id).focus({ preventScroll: true });
     hint.hidden = !typed;
     if (typed) {
       hint.textContent = list.length
@@ -3007,7 +3046,7 @@ function bindShapePicker() {
     }, c.name);
   }));
   search.placeholder = `Search ${SHAPES.length} shapes`;
-  search.oninput = show;
+  search.oninput = () => { found = FOUND_AT_ONCE; show(); };
   search.onkeydown = (e) => {
     if (e.key === 'Enter') {
       const first = searchShapes(search.value)[0];
