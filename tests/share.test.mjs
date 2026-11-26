@@ -102,7 +102,8 @@ function scenes() {
     createObject('own:path', { id: 'l2', count: 30, path: { nodes: [[0, 0, 0], [0.3333, 1.25, -0.5]], closed: false, smooth: false, mode: 'spin' } }),
     createObject('own:cloud', { id: 'q', points: Array.from({ length: 200 }, (_, i) => [Math.round(Math.cos(i) * 2e4) / 1e4, Math.round(Math.sin(i * 1.7) * 2e4) / 1e4, (i % 7) / 8]) }),
   ] }]);
-  list.push(['one of every 60th shape of the library', { objects: SHAPES.filter((_, i) => i % 60 === 0).map((def, i) => createObject(def.id, { pos: [i % 9, 2, Math.floor(i / 9)] })) }]);
+  // (as many of them as a link opens: see MAX_LOAD in js/share.js)
+  list.push(['one of every 105th shape of the library', { objects: SHAPES.filter((_, i) => i % 105 === 0).map((def, i) => createObject(def.id, { pos: [i % 9, 2, Math.floor(i / 9)] })) }]);
   list.push(['groups in groups, eight deep', { objects: [
     ...Array.from({ length: 8 }, (_, i) => createGroup({ id: `g${i}`, name: `Level ${i}`, parent: i ? `g${i - 1}` : null, pos: [i, 0, 0] })),
     createObject('circle', { id: 'in', parent: 'g7' }), createObject('circle', { id: 'out' }),

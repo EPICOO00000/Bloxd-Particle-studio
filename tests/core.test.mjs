@@ -41,12 +41,12 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v)
   && v <= 1.0001 + (axis === 1 ? shape.rise || 0 : 0) && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
 
-test('there are 13190 shapes, each made of dozens of particles, in 19 tabs', () => {
-  assert.equal(SHAPES.length, 13190);
+test('there are 23190 shapes, each made of dozens of particles, in 21 tabs', () => {
+  assert.equal(SHAPES.length, 23190);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
   assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
   const tabs = CATEGORIES.map((c) => c.id);
-  assert.equal(tabs.length, 19);
+  assert.equal(tabs.length, 21);
   for (const tab of tabs) assert.ok(SHAPES.some((s) => s.cat === tab), `tab ${tab} is empty`);
   // the picker shows the shapes tab by tab, in this order
   assert.deepEqual([...new Set(SHAPES.map((s) => s.cat))], tabs);
@@ -476,7 +476,12 @@ test('the search box finds shapes by name, sign and other words', () => {
   assert.deepEqual(ids('nature'), ['word-nature', 'px-word-nature', ...tab('nature'), ...under('Nature and food')]);
   assert.deepEqual(ids('weapons'), ['word-weapons', 'px-word-weapons', ...under('Weapons')]);
   assert.equal(under('Weapons').length, 18);
-  for (const c of CATEGORIES) for (const sub of c.subs) for (const id of under(sub)) assert.ok(ids(sub).includes(id), `"${sub}" finds ${id}`);
+  for (const c of CATEGORIES) {
+    for (const sub of c.subs) {
+      const found = new Set(ids(sub));
+      for (const id of under(sub)) assert.ok(found.has(id), `"${sub}" finds ${id}`);
+    }
+  }
   assert.equal(ids('x')[0], 'letter-x');
   assert.ok(ids('x').length < 300 && ids('x').includes('xmark'), 'one letter only matches the start of a word');
   assert.ok(!ids('x').includes('fox') && !ids('x').includes('word-exit') && ids('x').includes('name-xavier'), 'a word that only has the letter inside it is not found');
@@ -855,7 +860,7 @@ test('every texture and every shape exports correctly', () => {
     texture: TEXTURES[i % TEXTURES.length],
     color: rgbToHex([i * 10, 255 - i * 9, (i * 53) % 256]),
   });
-  // (a few hundred shapes at a time: all 13190 in one scene are more than a million particles to hold at once)
+  // (a few hundred shapes at a time: all 23190 in one scene are more than two million particles to hold at once)
   const textures = new Set();
   for (let from = 0; from < SHAPES.length; from += 400) {
     const objects = SHAPES.slice(from, from + 400).map((s, k) => object(s, from + k));

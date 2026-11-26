@@ -107,7 +107,7 @@ export function pictureOf(d) {
   };
 }
 
-export const minis = MINIS.map(([id, one, many, d, needs, tags, round]) => ({ id, one, many, needs, tags, round: round === 'round', ...pictureOf(d) }));
+export const minis = MINIS.map(([id, one, many, d, needs, tags, round]) => ({ id, one, many, d, needs, tags, round: round === 'round', ...pictureOf(d) }));
 
 // ---------------------------------------------------------------- formations
 
