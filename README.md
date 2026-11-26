@@ -34,7 +34,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 13190 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 23190 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -79,7 +79,7 @@ file and **Open** loads one, to keep a copy or to take it to another computer.
 
 ### Shapes
 
-There are 13190 shapes in 19 tabs. Click a tab to see its shapes. A tab is
+There are 23190 shapes in 21 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
 scroll through its shapes. A big tab shows the first rows under each heading,
 so that all its headings are a short scroll apart: **Show all** under the rows
@@ -92,7 +92,7 @@ typing it ("437"), a word of another language by its meaning too ("welcome"
 finds BIENVENUE and WILLKOMMEN). Enter adds the first shape found. A search
 that finds very many shapes shows 200 at a time.
 
-![The Add panel: the 19 tabs, and the Combos tab with its headings and the Show all buttons](docs/shapes.png)
+![The Add panel with its 21 tabs, the Framed tab open, and eight shapes of the Framed and the Decorated tab in the view](docs/shapes.png)
 
 | Tab | How many | Under these headings |
 |---|---|---|
@@ -115,8 +115,10 @@ that finds very many shapes shows 200 at a time.
 | Patterns | 227 | Tilings 37; Borders 33; Frames 26; Fractals 31; Mandalas 100 |
 | Effects | 256 | 21 at the top; Magic circles 146; Rings and shields 17; Elements 26; Floating things 46 |
 | Combos | 1918 | Hearts 26; Stars 25; Diamonds 27; Triangles 27; Squares 27; Circles 26; Hexagons 27; Pluses 26; Crosses 26; Ticks 26; Moons 26; Suns 25; Clouds 26; Drops 27; Flames 26; Snowflakes 26; Lightning bolts 26; Leaves 27; Flowers 25; Trees 26; Mushrooms 26; Music notes 26; Arrows 26; Sparkles 27; Bubbles 26; Rings 27; Gems 27; Coins 26; Crowns 26; Shields 27; Swords 25; Skulls 26; Ghosts 26; Eyes 26; Smileys 26; Fish 26; Birds 25; Butterflies 25; Paw prints 25; Balloons 26; Houses 27; Flags 26; Rockets 26; Trophies 26; Clovers 26; Bats 25; Pumpkins 26; Keys 26; Bells 26; Anchors 26; Apples 26; Sweets 26; Eggs 27; Padlocks 26; Bombs 26; Potions 26; Witch hats 26; Ice creams 26; Umbrellas 26; Cat faces 26; Presents 26; Candles 26; Snowmen 26; Dice 26; Cactuses 26; Mountains 26; Made of little shapes 198 |
+| Framed | 5191 | In a circle 914; In a square 914; In a hexagon 914; On a shield 914; In a speech bubble 961; On a banner 312; On a sign 262 |
+| Decorated | 4809 | With sparkles 962; With hearts 962; With stars 962; With a crown 961; With a halo 962 |
 
-[All 13190 shapes by name](docs/shapes.md).
+[All 23190 shapes by name](docs/shapes.md).
 
 Every shape has a "How many" slider for the number of particles. 1342 of them
 have settings of their own, such as the points of a star, the petals of a
@@ -142,10 +144,18 @@ What is in the tabs that are made from parts:
   of hearts, a spiral of stars, a sphere of skulls, a tornado of bats, a heart
   made of stars. There are 66 little pictures, each in about 26 formations, 10
   of them in 3D. The sliders set how many copies there are.
-- **Symbols** has the same little pictures as badges (in a circle, on a
-  shield), shields with their divisions, speech bubbles with a word, and the
-  keys of a keyboard for "press E" signs. **Letters** has every letter on a
-  badge, slanted letters, and in the 3D tab letters with depth.
+- **Framed** has the pictures of the picture tabs (Animals, Faces, Food,
+  Nature, Things, Travel, Costume and Symbols) in a frame: in a circle, in a
+  square, in a hexagon, on a shield and in a speech bubble. The highest
+  pictures also hang on a banner, the widest ones stand on a sign. The picture
+  is as big as its frame allows.
+- **Decorated** has the same pictures with something around them: with
+  sparkles, with hearts, with three stars, with a crown, with a halo. The
+  picture moves and shrinks to make room.
+- **Symbols** has the little pictures of the Combos tab as badges (in a
+  circle, on a shield), shields with their divisions, speech bubbles with a
+  word, and the keys of a keyboard for "press E" signs. **Letters** has every
+  letter on a badge, slanted letters, and in the 3D tab letters with depth.
 - **Nature** has 63 snowflakes, no two alike, flowers by the shape and the
   number of their petals, and suns by their rays. **Patterns** has 100
   mandalas and frames to put around a word. **Effects** has magic circles with
@@ -821,6 +831,7 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes-vocab.js`, `js/shapes-names.js` | The Words tab and the Names tab: lists of words (also in five other languages) and of first names, written with the stroke letters |
 | `js/shapes-bent.js`, `js/shapes-labels.js` | Words on an arch, on a wave, round a circle and around a ring in 3D; words in outline letters, speech bubbles, keys, arrows for every direction, slanted letters |
 | `js/shapes-combos.js`, `js/shapes-badges.js` | The Combos tab: little pictures and the formations they are set out in. And the same pictures, and the letters, inside a frame |
+| `js/shapes-framed.js` | The Framed tab and the Decorated tab: every picture of the picture tabs in a frame, and with little things around it |
 | `js/shapes-ornaments.js` | Snowflakes, flowers, suns, mandalas, shields, frames and magic circles, each kind put together from a few parts |
 | `js/shapes-solids2.js`, `js/shapes-famous.js` | More solids, found from their corners, and letters with depth; curves with a name |
 | `js/shapes-pixel3.js` | More pixel art put together from parts: words in one or two lines, numbers, faces |
@@ -875,6 +886,12 @@ corner. Search words go in a fourth place: `{ tags: 'fruit red' }`.
 
 A pixel art picture is one line in `js/shapes-pixel.js`: its rows from top to
 bottom with `/` between them, `#` for a dot and `.` for none.
+
+A picture in the Animals, Faces, Food, Nature, Things, Travel, Costume or
+Symbols tab also gets its shapes in the Framed tab and the Decorated tab by
+itself: `js/shapes-framed.js` puts every picture in every frame. A new frame is
+one line in `FRAMES` there, a new thing to put around a picture one line in
+`AROUND`.
 
 A word is one more word in a list of `js/shapes-vocab.js`, a name one more name
 in `js/shapes-names.js`. A little picture for the Combos tab is one line in

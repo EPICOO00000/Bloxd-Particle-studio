@@ -238,6 +238,113 @@ test('badges, speech bubbles and magic circles: a frame, and something inside it
   assert.ok(picture / frame > 0.7 && picture / frame < 1.4, `the frame ${frame}, the picture ${picture}`);
 });
 
+// ---------------------------------------------------------------- pictures in a frame, pictures with things around them
+
+test('framed and decorated: a picture in a frame, or with little things around it', () => {
+  const sizes = (cat) => CATEGORIES.find((c) => c.id === cat).subs.map((sub) => [sub, under(cat, sub).length]);
+  assert.deepEqual(sizes('framed'), [['In a circle', 914], ['In a square', 914], ['In a hexagon', 914], ['On a shield', 914], ['In a speech bubble', 961], ['On a banner', 312], ['On a sign', 262]]);
+  assert.deepEqual(sizes('decorated'), [['With sparkles', 962], ['With hearts', 962], ['With stars', 962], ['With a crown', 961], ['With a halo', 962]]);
+  const made = SHAPES.filter((s) => s.cat === 'framed' || s.cat === 'decorated');
+  assert.equal(made.length, 10000);
+
+  // each is made from a picture of the picture tabs: its id and its name say which one, and what is around it
+  const pictureTabs = ['animals', 'faces', 'food', 'nature', 'things', 'travel', 'costume', 'symbols'];
+  const baseOf = (s) => {
+    const how = s.sub.toLowerCase();
+    assert.ok(s.name.endsWith(` ${how}`) && s.id.endsWith(`-${how.replace(/ /g, '-')}`), `${s.id}: "${s.name}" under ${s.sub}`);
+    const base = SHAPE_BY_ID[s.id.slice(0, -how.length - 1)];
+    assert.ok(base && s.name === `${base.name} ${how}` && pictureTabs.includes(base.cat) && base.group === 'flat', `${s.id}: its picture`);
+    return base;
+  };
+  const pictures = new Set(made.map((s) => baseOf(s).id));
+  assert.equal(pictures.size, 962);
+  // every picture has sparkles, hearts and stars around it and a halo over it; and a crown, but the speech bubble,
+  // for "Speech bubble with a crown" is a bubble with a crown in it
+  for (const how of ['with-sparkles', 'with-hearts', 'with-stars', 'with-a-halo']) for (const id of pictures) assert.ok(SHAPE_BY_ID[`${id}-${how}`], `${id}-${how}`);
+  assert.ok(SHAPE_BY_ID['cat-with-a-crown'] && !SHAPE_BY_ID['speech-with-a-crown'] && SHAPE_BY_ID['speech-crowns'].name === 'Speech bubble with a crown');
+  // a frame: every picture but the ones that are a badge in that frame already (a plainer drawing, in the Symbols tab)
+  assert.ok(SHAPE_BY_ID['cat-in-a-circle'] && SHAPE_BY_ID['dragon-head-on-a-shield'] && SHAPE_BY_ID['pizza-in-a-speech-bubble']);
+  assert.ok(!SHAPE_BY_ID['skull-in-a-circle'] && SHAPE_BY_ID['badge-circle-skulls'].name === 'Skull in a circle' && SHAPE_BY_ID['skull-in-a-speech-bubble']);
+  // a banner is for the pictures that are high, a sign for the ones that are wide: no picture has both
+  const stretch = (id) => {
+    const pts = points(id);
+    return (Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1]))) / (Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])));
+  };
+  for (const s of under('framed', 'On a banner')) assert.ok(stretch(baseOf(s).id) > 1.1 && !SHAPE_BY_ID[`${baseOf(s).id}-on-a-sign`], `${s.id}: a high picture`);
+  for (const s of under('framed', 'On a sign')) assert.ok(stretch(baseOf(s).id) < 1 / 1.1, `${s.id}: a wide picture`);
+
+  // The particles of the picture come first, then the ones of what is around it. The picture keeps away from that:
+  // 0.18 from a frame, 0.13 from a little thing. (Every seventh shape: they are all made the same way.)
+  const some = made.filter((_, i) => i % 7 === 0);
+  let alone = 0;
+  for (const s of some) {
+    const base = baseOf(s);
+    const pts = points(s.id);
+    const own = s.shares(s.count)[0];
+    const picture = pts.slice(0, own);
+    const rest = pts.slice(own);
+    assert.ok(own >= base.count && rest.length >= 8, `${s.id}: ${own} particles for the picture, ${rest.length} around it`);
+    let gap = Infinity;
+    for (const p of picture) for (const q of rest) gap = Math.min(gap, Math.hypot(p[0] - q[0], p[1] - q[1]));
+    assert.ok(gap > (s.cat === 'framed' ? 0.177 : 0.129), `${s.id}: the picture is ${gap} from what is around it`);
+    // with the usual number of particles the picture is the picture alone, only smaller and somewhere else: it has
+    // the same particles (more of them when the little things would be too coarse to be read otherwise)
+    const box = (list) => [0, 1].map((axis) => [Math.min(...list.map((p) => p[axis])), Math.max(...list.map((p) => p[axis]))]);
+    const [to, from] = [box(picture), box(points(base.id))];
+    const long = from[0][1] - from[0][0] > from[1][1] - from[1][0] ? 0 : 1;
+    const scale = (to[long][1] - to[long][0]) / (from[long][1] - from[long][0]);
+    if (s.cat === 'framed') {
+      assert.equal(own, base.count, `${s.id}: the picture has the particles it has alone`);
+      // and it is as big as the frame allows: nowhere less than half its own size
+      assert.ok(scale > 0.49 && scale <= 1.0001, `${s.id}: the picture is ${scale} of its size`);
+    }
+    if (own !== base.count) continue;
+    alone++;
+    points(base.id).forEach((p, i) => {
+      for (const axis of [0, 1]) assert.ok(Math.abs((picture[i][axis] - to[axis][0]) - (p[axis] - from[axis][0]) * scale) < 1e-9, `${s.id}: particle ${i} of the picture`);
+    });
+  }
+  assert.ok(alone > some.length * 0.7, `${alone} of ${some.length} pictures are as they are alone`);
+
+  // No clumps, by the rule of the picture tabs: no two particles are nearer than half the usual distance to the
+  // nearest one. Five shapes miss it by a little, and it can be seen why. The towers of the suspension bridge have two
+  // particles close together where the cable is hung, as they have in the picture alone (which keeps the rule: the
+  // frame, with its even particles, makes the usual distance longer). And the fireworks are so few particles, far
+  // apart, that the little sparkles beside them are finer than they are.
+  const tight = new Set(['suspension-bridge-in-a-circle', 'suspension-bridge-in-a-square', 'suspension-bridge-on-a-shield', 'suspension-bridge-on-a-sign', 'fireworks-with-sparkles']);
+  for (const s of made) {
+    const pts = points(s.id);
+    const xs = Float64Array.from(pts, (p) => p[0]);
+    const ys = Float64Array.from(pts, (p) => p[1]);
+    const near = new Float64Array(pts.length).fill(Infinity); // (the square of the distance to the nearest one)
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const gap = (xs[i] - xs[j]) * (xs[i] - xs[j]) + (ys[i] - ys[j]) * (ys[i] - ys[j]);
+        if (gap < near[i]) near[i] = gap;
+        if (gap < near[j]) near[j] = gap;
+      }
+    }
+    const nearest = Array.from(near, Math.sqrt).sort((x, y) => x - y);
+    const usual = nearest[nearest.length >> 1];
+    const least = nearest[0];
+    if (tight.has(s.id)) assert.ok(least >= 0.45 * usual && least < 0.5 * usual, `${s.id} is one of the five: two particles ${least.toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
+    else assert.ok(least >= 0.5 * usual, `${s.id}: two particles ${least.toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
+  }
+
+  // the frame itself: a circle is round, a square has its four corners, and a shape never has fewer particles than it asks for
+  const ring = points('cat-in-a-circle').slice(SHAPE_BY_ID['cat-in-a-circle'].shares(SHAPE_BY_ID['cat-in-a-circle'].count)[0]);
+  assert.ok(ring.length > 40 && ring.every((p) => Math.abs(Math.hypot(p[0], p[1]) - 1) < 0.002));
+  const square = points('cat-in-a-square');
+  for (const [x, y] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) assert.ok(square.some((p) => p[0] === x && p[1] === y), `a corner at ${x}, ${y}`);
+  for (const id of ['cat-in-a-circle', 'sword-on-a-banner', 'fish-on-a-sign', 'cat-with-stars', 'dog-with-a-halo']) {
+    const s = SHAPE_BY_ID[id];
+    for (const n of [s.min, s.count, 300]) assert.equal(shapePoints(id, n, defaultParams(id)).length, n, `${id} with ${n}`);
+  }
+  // little things made of equal runs get whole rounds of particles: a star its ten corners, or twenty, never eleven
+  const stars = SHAPE_BY_ID['cat-with-stars'];
+  for (const n of [stars.count, 150, 220, 300]) for (const k of stars.shares(n).slice(1)) assert.equal(k % 10, 0, `a star of ${k} particles`);
+});
+
 // ---------------------------------------------------------------- ornaments and solids
 
 test('ornaments: no two snowflakes are alike, nor two mandalas', () => {
@@ -338,8 +445,8 @@ test('the page: a big tab is folded, and a search shows what it found a few hund
     // (the Letters tab is not folded: an alphabet is looked at as a whole)
     if (tab.id === 'letters') assert.equal(shown, list.length);
   }
-  // the tabs: 19 names that fit a button of the narrow panel
+  // the tabs: 21 names that fit a button of the narrow panel
   assert.deepEqual(CATEGORIES.map((c) => c.name), ['Basic', '3D', 'Letters', 'Words', 'Names', 'Numbers', 'Symbols', 'Faces', 'Nature', 'Animals', 'Food', 'Things',
-    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos']);
+    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos', 'Framed', 'Decorated']);
   for (const c of CATEGORIES) assert.ok(c.name.length <= 9, c.name);
 });

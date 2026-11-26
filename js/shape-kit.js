@@ -971,12 +971,13 @@ export function drawnShape({
   id, name, cat, draw, params, box = null, turn = 0, lift, group = 'flat', count, min, label, tags, spacing = 0.13, sub, drop, rise,
 }) {
   const keys = (params || []).map((p) => p.key);
-  const build = memo((...values) => {
+  const fitted = (values) => {
     let drawing = typeof draw === 'function' ? draw(Object.fromEntries(keys.map((k, i) => [k, values[i]]))) : draw;
     if (typeof drawing === 'string') drawing = parsePath(drawing);
     if (turn) drawing = placeDrawing(drawing, { turn });
-    return drawingNet(box === false ? drawing : fitDrawing(drawing, box), lift);
-  });
+    return box === false ? drawing : fitDrawing(drawing, box);
+  };
+  const build = memo((...values) => drawingNet(fitted(values), lift));
   const netFor = (p) => build(...keys.map((k) => p[k]));
   let measured = null;
   const measure = () => {
@@ -997,5 +998,8 @@ export function drawnShape({
   if (rise) shape.rise = rise;
   Object.defineProperty(shape, 'min', { enumerable: true, get: () => min ?? measure().min });
   Object.defineProperty(shape, 'count', { enumerable: true, get: () => count ?? measure().count });
+  // The drawing itself, as it lies in the box with the sliders where they stand at first: other shapes are put
+  // together from it (a picture in a frame, a picture with stars over it). It is not listed with the shape's own fields.
+  Object.defineProperty(shape, 'drawing', { value: () => fitted((params || []).map((p) => p.default)) });
   return shape;
 }

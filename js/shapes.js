@@ -48,6 +48,8 @@
 //   shapes-solids2.js   more solids, found from their corners; letters with depth
 //   shapes-famous.js    curves with a name
 //   shapes-pixel3.js    more pixel art: words, numbers and faces
+// and, since it grew to 23,190:
+//   shapes-framed.js    the Framed tab and the Decorated tab: every picture in a frame, and with things around it
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -88,6 +90,7 @@ import { ORNAMENT_SHAPES } from './shapes-ornaments.js';
 import { SOLID2_SHAPES } from './shapes-solids2.js';
 import { FAMOUS_SHAPES } from './shapes-famous.js';
 import { LABEL_SHAPES } from './shapes-labels.js';
+import { framedShapes, FRAMED_HEADINGS, AROUND_HEADINGS } from './shapes-framed.js';
 
 export { resample };
 
@@ -119,6 +122,8 @@ export const CATEGORIES = [
   { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Frames', 'Fractals', 'Mandalas'] },
   { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
   { id: 'combos', name: 'Combos', subs: COMBO_HEADINGS },
+  { id: 'framed', name: 'Framed', subs: FRAMED_HEADINGS },
+  { id: 'decorated', name: 'Decorated', subs: AROUND_HEADINGS },
 ];
 
 /**
@@ -375,7 +380,7 @@ const PLACES = {
 
 /** Every shape, grouped by tab in the order of CATEGORIES, and by heading inside a tab. */
 export const SHAPES = (() => {
-  const all = [
+  const drawn = [
     ...FIRST_SHAPES, ...GEO_SHAPES, ...TEXT_SHAPES, ...ICON_SHAPES,
     ...FLAT_SHAPES, ...SOLID_SHAPES, ...CURVE_SHAPES, ...EFFECT_SHAPES,
     ...SIGN_SHAPES, ...LIVING_SHAPES, ...STUFF_SHAPES, ...PIXEL_SHAPES,
@@ -383,11 +388,13 @@ export const SHAPES = (() => {
     ...SCRIPT_SHAPES, ...WORD_SHAPES, ...COUNT_SHAPES, ...PIXEL2_SHAPES, ...FORM_SHAPES, ...SPACE_SHAPES, ...MODEL_SHAPES, ...MAGIC_SHAPES, ...EMBLEM_SHAPES, ...OUTDOOR_SHAPES,
     ...NUMBER_SHAPES, ...VOCAB_SHAPES, ...NAME_SHAPES, ...COMBO_SHAPES, ...BADGE_SHAPES, ...BENT_SHAPES, ...PIXEL3_SHAPES, ...ORNAMENT_SHAPES, ...SOLID2_SHAPES, ...FAMOUS_SHAPES, ...LABEL_SHAPES,
   ];
-  const byId = new Map(all.map((s) => [s.id, s]));
+  const byId = new Map(drawn.map((s) => [s.id, s]));
   for (const [place, ids] of Object.entries(PLACES)) {
     const [cat, sub] = place.split('/');
     for (const id of ids.split(' ')) Object.assign(byId.get(id), { cat, sub });
   }
+  // (the pictures in frames are made from the pictures above, so they come once every picture is in its place)
+  const all = [...drawn, ...framedShapes(drawn)];
   return CATEGORIES.flatMap((c) => {
     const mine = all.filter((s) => s.cat === c.id);
     const stray = mine.find((s) => s.sub && !c.subs.includes(s.sub));

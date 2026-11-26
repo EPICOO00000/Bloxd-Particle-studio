@@ -237,5 +237,17 @@
  "combos/Dice": "26 3612a644",
  "combos/Cactuses": "26 803cb092",
  "combos/Mountains": "26 02f578bc",
- "combos/Made of little shapes": "198 5732bd11"
+ "combos/Made of little shapes": "198 5732bd11",
+ "framed/In a circle": "914 255d384b",
+ "framed/In a square": "914 508e1523",
+ "framed/In a hexagon": "914 071a1d18",
+ "framed/On a shield": "914 7cba4fb0",
+ "framed/In a speech bubble": "961 d8033f54",
+ "framed/On a banner": "312 13fb4a55",
+ "framed/On a sign": "262 0639133a",
+ "decorated/With sparkles": "962 0db44f80",
+ "decorated/With hearts": "962 5f30c169",
+ "decorated/With stars": "962 d45d89ba",
+ "decorated/With a crown": "961 95e2d3a4",
+ "decorated/With a halo": "962 4a76bd03"
 }
