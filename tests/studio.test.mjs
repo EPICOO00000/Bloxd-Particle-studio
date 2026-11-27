@@ -360,7 +360,7 @@ test('shape studio: every shape of the library is what it was, in objects and in
   for (const id of [PATH, CLOUD]) assert.ok(!/^[a-z0-9-]+$/.test(id) && !SHAPE_BY_ID[id], `"${id}" is not an id of the library`);
   for (const def of SHAPES) assert.match(def.id, /^[a-z0-9-]+$/, `the id of ${def.name}`);
   assert.ok(SHAPE_BY_ID.cloud && SHAPE_BY_ID.line, 'the library has a cloud and a line');
-  assert.equal(SHAPES.length, 33190);
+  assert.equal(SHAPES.length, 53190);
   let points = 0;
   for (const def of SHAPES) {
     // as a file from before the Shape Studio has it: the shape, how many, and nothing about tools, lines or points

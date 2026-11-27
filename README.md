@@ -34,7 +34,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 33190 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 53190 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -79,7 +79,7 @@ file and **Open** loads one, to keep a copy or to take it to another computer.
 
 ### Shapes
 
-There are 33190 shapes in 28 tabs. Click a tab to see its shapes. A tab is
+There are 53190 shapes in 32 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
 scroll through its shapes. A big tab shows the first rows under each heading,
 so that all its headings are a short scroll apart: **Show all** under the rows
@@ -92,7 +92,7 @@ typing it ("437"), a word of another language by its meaning too ("welcome"
 finds BIENVENUE and WILLKOMMEN). Enter adds the first shape found. A search
 that finds very many shapes shows 200 at a time.
 
-![The Add panel with its 28 tabs, the Monsters tab open, and eight shapes of the Monsters, Robots, Items, Space, Mandalas, Buildings and Sea tabs in the view](docs/shapes.png)
+![The Add panel with its 32 tabs, the 3D gear tab open, and five of the new shapes in the view: a goblet and a helmet as flat pictures, a chest, a sword and a potion in 3D](docs/shapes.png)
 
 | Tab | How many | Under these headings |
 |---|---|---|
@@ -124,8 +124,12 @@ that finds very many shapes shows 200 at a time.
 | Mandalas | 840 | Snow crystals 280; Flowers 280; Rosettes 280 |
 | Buildings | 840 | Houses 280; Castles 280; Towers 280 |
 | Sea | 840 | Fish 280; Jellyfish 280; Boats 280 |
+| Loot | 5000 | Goblets 500; Pots 500; Barrels 500; Chests 500; Game pieces 500; Mushrooms 500; Rings 500; Coins 500; Scrolls 500; Spell books 500 |
+| Gear | 5000 | Helmets 500; Lanterns 500; Bombs 500; Hats 500; Bows 500; Arrows 500; Boots 500; Armour 500; Amulets 500; Torches 500 |
+| 3D loot | 5000 | 3D potions 500; 3D goblets 500; 3D pots 500; 3D barrels 500; 3D chests 500; 3D gems 500; 3D crowns 500; 3D game pieces 500; 3D mushrooms 500; 3D rings 500 |
+| 3D gear | 5000 | 3D swords 500; 3D axes 500; 3D hammers 500; 3D shields 500; 3D helmets 500; 3D keys 500; 3D staffs 500; 3D lanterns 500; 3D bombs 500; 3D hats 500 |
 
-[All 33190 shapes by name](docs/shapes.md).
+[All 53190 shapes by name](docs/shapes.md).
 
 Every shape has a "How many" slider for the number of particles. 1342 of them
 have settings of their own, such as the points of a star, the petals of a
@@ -175,6 +179,20 @@ What is in the tabs that are made from parts:
     rosettes inside a rim.
   - Buildings: houses, castles, towers.
   - Sea: fish, jellyfish, boats.
+- **Loot**, **Gear**, **3D loot** and **3D gear** hold game items, made the
+  same way: 20 kinds as flat pictures and 20 kinds in 3D, 500 of each. A thing
+  in 3D is built in space, not drawn: a potion, a goblet or a hat is a profile
+  spun around its axis, a sword or a key is a drawing with thickness, a chest
+  is a box with a lid, a crown is a strip bent into a ring. Turn the view and
+  it is a thing from every side.
+  - Loot: goblets, pots, barrels, chests, game pieces, mushrooms, rings, coins,
+    scrolls, spell books.
+  - Gear: helmets, lanterns, bombs, hats, bows, arrows, boots, armour, amulets,
+    torches.
+  - 3D loot: potions, goblets, pots, barrels, chests, gems, crowns, game
+    pieces, mushrooms, rings.
+  - 3D gear: swords, axes, hammers, shields, helmets, keys, staffs, lanterns,
+    bombs, hats.
 - **Pixel art** has 840 creatures made the same way: invaders, heroes and
   starfighters. **Curves** has 70 spirographs: what a pen draws on a small
   wheel that rolls inside or around a big one. They are curves that the
@@ -866,6 +884,9 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes-monsters.js`, `js/shapes-robots.js`, `js/shapes-items.js`, `js/shapes-cosmos.js` | The Monsters, Robots, Items and Space tabs: each kind is a few lists of parts |
 | `js/shapes-mandalas.js`, `js/shapes-buildings.js`, `js/shapes-sea.js` | The Mandalas, Buildings and Sea tabs, made the same way |
 | `js/shapes-sprites.js`, `js/shapes-spiro.js` | Pixel invaders, heroes and starfighters, put together from rows of dots; spirographs, each from four numbers |
+| `js/shape-build.js` | For things in 3D that are put together by rule: `turned()` spins a profile around an axis, `thick()` gives a drawing depth, `plate()` lays a drawing in space; `solidFamily()` and `flatFamily()` deal the parts out |
+| `js/shapes-loot3d.js`, `js/shapes-gear3d.js` | The 3D loot and 3D gear tabs: each kind is a few lists of parts, built in space |
+| `js/shapes-loot.js`, `js/shapes-gear.js` | The Loot and Gear tabs: flat pictures; the turned things are the profiles of the 3D files seen from the front |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
@@ -929,9 +950,11 @@ in `js/shapes-names.js`. A little picture for the Combos tab is one line in
 `MINIS` in `js/shapes-combos.js`, and gives a whole row of shapes: every
 formation is made for it.
 
-A picture of the Monsters, Robots, Items, Space, Mandalas, Buildings or Sea tab
+A picture of the Monsters, Robots, Items, Space, Mandalas, Buildings, Sea,
+Loot, Gear, 3D loot or 3D gear tab
 is not written down anywhere: its kind has a few lists of parts, and `family()`
-in `js/shape-mix.js` gives member 1 the first part of every list, member 2 the
+in `js/shape-mix.js` (`solidFamily()` and `flatFamily()` in `js/shape-build.js`
+for the last four) gives member 1 the first part of every list, member 2 the
 second, and so on round each list. The lists of a kind have lengths that share
 no divisor (such as 5, 7, 8 and 9), which is why no two members are alike. So a list
 cannot get one more part later: every member after the first few would change,
@@ -939,7 +962,9 @@ and with it the scenes that use it. More pictures are a new kind, with lists of
 its own, under a new heading.
 
 A new heading is a name in the `subs` of its tab, in `CATEGORIES` in
-`js/shapes.js`. The headings show in that order. A name with a word of nine
+`js/shapes.js`. The headings show in that order. A new tab is a new entry in
+`CATEGORIES`; the page measures how much room the rows of tabs take, so the
+panel needs no other change. A name with a word of nine
 letters or more also needs a place where that word may break under its picture:
 add it to `BREAKS` in the same file ("screw|driver").
 

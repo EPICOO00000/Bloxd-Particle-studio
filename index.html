@@ -6,7 +6,7 @@
 <title>Bloxd Particle Studio</title>
 <meta name="description" content="Place and colour Bloxd particles in 3D, build shapes out of them, group and animate them, and export code for a code block.">
 <link rel="icon" type="image/png" href="textures/glint.png">
-<link rel="stylesheet" href="css/style.css?v=6e884b6d">
+<link rel="stylesheet" href="css/style.css?v=cdbdf715">
 <!-- web only: start. "npm run build" writes the versions in here (tools/sources.mjs). START-HERE.html, the single file, has none of this. -->
 <!--
   Every script is asked for with its version in its address. A browser keeps the files of a page
@@ -15,7 +15,7 @@
 -->
 <script type="importmap" id="versions">
 {"imports": {
-  "./js/app.js": "./js/app.js?v=c110e434",
+  "./js/app.js": "./js/app.js?v=7c7c2887",
   "./js/assets.js": "./js/assets.js?v=034af7d6",
   "./js/code-ui.js": "./js/code-ui.js?v=8bfbde2f",
   "./js/codegen.js": "./js/codegen.js?v=8bcb01b8",
@@ -30,6 +30,7 @@
   "./js/moves.js": "./js/moves.js?v=65b3b429",
   "./js/nodes.js": "./js/nodes.js?v=b894d335",
   "./js/scene.js": "./js/scene.js?v=a2193768",
+  "./js/shape-build.js": "./js/shape-build.js?v=07688cf6",
   "./js/shape-kit.js": "./js/shape-kit.js?v=9baf0241",
   "./js/shape-mix.js": "./js/shape-mix.js?v=3f746196",
   "./js/shapes-badges.js": "./js/shapes-badges.js?v=3fb96e9d",
@@ -46,12 +47,16 @@
   "./js/shapes-flat.js": "./js/shapes-flat.js?v=8c4c65d9",
   "./js/shapes-forms.js": "./js/shapes-forms.js?v=2c89112a",
   "./js/shapes-framed.js": "./js/shapes-framed.js?v=55704ba5",
+  "./js/shapes-gear.js": "./js/shapes-gear.js?v=518bf400",
+  "./js/shapes-gear3d.js": "./js/shapes-gear3d.js?v=eb73655c",
   "./js/shapes-geo.js": "./js/shapes-geo.js?v=18acba7d",
   "./js/shapes-goods.js": "./js/shapes-goods.js?v=d59fbc0e",
   "./js/shapes-icons.js": "./js/shapes-icons.js?v=94ad530d",
   "./js/shapes-items.js": "./js/shapes-items.js?v=984b631b",
   "./js/shapes-labels.js": "./js/shapes-labels.js?v=58157431",
   "./js/shapes-living.js": "./js/shapes-living.js?v=96d8f550",
+  "./js/shapes-loot.js": "./js/shapes-loot.js?v=c896bc0e",
+  "./js/shapes-loot3d.js": "./js/shapes-loot3d.js?v=69b88a8b",
   "./js/shapes-magic.js": "./js/shapes-magic.js?v=4d5f20ec",
   "./js/shapes-mandalas.js": "./js/shapes-mandalas.js?v=cf8193f4",
   "./js/shapes-marks.js": "./js/shapes-marks.js?v=32579b50",
@@ -78,7 +83,7 @@
   "./js/shapes-vocab.js": "./js/shapes-vocab.js?v=2e2ec5cc",
   "./js/shapes-wild.js": "./js/shapes-wild.js?v=c6eb32f0",
   "./js/shapes-words.js": "./js/shapes-words.js?v=a7c55c9e",
-  "./js/shapes.js": "./js/shapes.js?v=5b969b38",
+  "./js/shapes.js": "./js/shapes.js?v=d02afd3c",
   "./js/share-ui.js": "./js/share-ui.js?v=71d552d1",
   "./js/share.js": "./js/share.js?v=dfc76e88",
   "./js/timeline.js": "./js/timeline.js?v=3ca37f7c",
@@ -96,7 +101,7 @@
 -->
 <script id="newest">
 (function () {
-  var mine = '1c86710e67b1';
+  var mine = 'cd356d42e264';
   if (!mine || !window.fetch || !/^https?:$/.test(location.protocol)) return;
   var asked = Date.now();
   fetch('version.txt', { cache: 'no-store' }).then(function (answer) {

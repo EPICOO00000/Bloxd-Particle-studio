@@ -133,13 +133,23 @@ input[type="color"] {
   #left > .cat > .cat-head, #left > .cat > .cat-bar { flex: none; }
   #left > .cat.open > .cat-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   #left > .cat.open > .cat-body > * { flex: none; }
-  /* the shapes: never less than a row of them under its heading (--one-row and --two-rows: the height of the category then) */
-  #left { --one-row: 377px; --two-rows: 449px; }
-  #left > #cat-add.open { flex: 1 1 auto; min-height: var(--one-row); }
-  #left > #cat-add.open > .cat-body > .shape-grid { flex: 1 1 0; min-height: 0; max-height: none; }
+  /*
+   * The shapes: never less than a row of them under its heading (--shape-row:
+   * a heading, and buttons with a name of two lines). The Add part is as high
+   * as its buttons, the search box, all the tabs and that one row, and does
+   * not shrink below that. So it needs more with every row of tabs, and a
+   * window too low for it scrolls the whole panel.
+   */
+  #left { --shape-row: 113px; --add-rest: 396px; --one-row: calc(var(--add-rest) + var(--shape-row)); --two-rows: calc(var(--one-row) + 83px); }
+  #left > #cat-add.open { flex: 1 0 auto; }
+  #left > #cat-add.open > .cat-body > .shape-grid { flex: 1 1 var(--shape-row); min-height: var(--shape-row); max-height: none; }
   /*
    * The scene: what it needs. A long one gets room for five rows before the
    * shapes get their second row, and after that up to 45% of the panel.
+   * (--one-row and --two-rows: how high the Add part is with one row of shapes
+   * and with two. --add-rest is all of the Add part but its shapes: the page
+   * measures it, see measureAddPart in app.js, because it grows with the tabs
+   * and with the notes that come and go. The number here is where it starts.)
    */
   #left > #cat-scene.open { max-height: max(124px, min(100% - var(--one-row), max(222px, min(45%, 100% - var(--two-rows))))); }
   #left > #cat-add:not(.open) + #cat-scene.open { flex: 1 1 auto; max-height: none; }
@@ -274,8 +284,9 @@ input[type="color"] {
 .fatal { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--bg); }
 
 /* ---------- shape library ---------- */
-.shape-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 6px 0; }
-.shape-tabs button { padding: 4px 1px; font-size: 12px; min-width: 0; }
+/* (rows as low as they can be read: there are many of them, and every row of tabs is room the shapes do not have) */
+.shape-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 6px 0; }
+.shape-tabs button { padding: 2px 1px; font-size: 12px; line-height: 16px; min-width: 0; }
 /* The grid scrolls by itself, so the scene list below stays in reach however many shapes there are. */
 .shape-grid {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-content: start;
@@ -535,7 +546,8 @@ dialog::backdrop { background: #000a; }
   #left { order: 3; }
   #inspector { order: 4; }
   #left, #inspector { flex: none; width: auto; border: 0; border-top: 1px solid var(--line); overflow: visible; }
-  .shape-tabs { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); }
+  .shape-tabs { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 4px; }
+  .shape-tabs button { padding: 4px 1px; } /* (a finger needs more than a mouse) */
   .shape-grid { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); max-height: 300px; }
   .actions { margin-left: 0; }
   .tl-scroll { height: 106px; }
