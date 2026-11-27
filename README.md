@@ -34,7 +34,7 @@ have. It was tested in Chromium, the engine of Chrome and Edge.
 
 ## Make something
 
-1. Press **+ Add** and pick a single particle or one of the 23190 shapes. Pick a
+1. Press **+ Add** and pick a single particle or one of the 33190 shapes. Pick a
    tab, or type in the search box. Or start from one of the
    [Examples](#examples) at the top.
 2. **Click** it in the 3D view. Drag the arrows to move it. Switch to Rotate or
@@ -79,7 +79,7 @@ file and **Open** loads one, to keep a copy or to take it to another computer.
 
 ### Shapes
 
-There are 23190 shapes in 21 tabs. Click a tab to see its shapes. A tab is
+There are 33190 shapes in 28 tabs. Click a tab to see its shapes. A tab is
 sorted under headings, and a heading stays at the top of the list while you
 scroll through its shapes. A big tab shows the first rows under each heading,
 so that all its headings are a short scroll apart: **Show all** under the rows
@@ -92,7 +92,7 @@ typing it ("437"), a word of another language by its meaning too ("welcome"
 finds BIENVENUE and WILLKOMMEN). Enter adds the first shape found. A search
 that finds very many shapes shows 200 at a time.
 
-![The Add panel with its 21 tabs, the Framed tab open, and eight shapes of the Framed and the Decorated tab in the view](docs/shapes.png)
+![The Add panel with its 28 tabs, the Monsters tab open, and eight shapes of the Monsters, Robots, Items, Space, Mandalas, Buildings and Sea tabs in the view](docs/shapes.png)
 
 | Tab | How many | Under these headings |
 |---|---|---|
@@ -110,15 +110,22 @@ that finds very many shapes shows 200 at a time.
 | Things | 164 | Tools 29; Weapons 18; Treasure and magic 20; Games and sport 29; Music 16; Home 30; Party and holidays 22 |
 | Travel | 75 | Vehicles 37; Buildings 38 |
 | Costume | 53 | Wings 7; On the head 22; Clothes 24 |
-| Pixel art | 1093 | Game items 100; Creatures 60; Faces 93; Nature and food 73; Signs and things 92; Pixel letters 26; Pixel small letters 26; Pixel numbers 122; Pixel words 501 |
-| Curves | 114 | 17 at the top; More flat curves 46; Famous curves 32; More curves in 3D 19 |
+| Pixel art | 1933 | Game items 100; Creatures 60; Faces 93; Nature and food 73; Signs and things 92; Pixel letters 26; Pixel small letters 26; Pixel numbers 122; Pixel words 501; Pixel invaders 280; Pixel heroes 280; Pixel starfighters 280 |
+| Curves | 184 | 17 at the top; More flat curves 46; Famous curves 32; More curves in 3D 19; Spirographs 70 |
 | Patterns | 227 | Tilings 37; Borders 33; Frames 26; Fractals 31; Mandalas 100 |
 | Effects | 256 | 21 at the top; Magic circles 146; Rings and shields 17; Elements 26; Floating things 46 |
 | Combos | 1918 | Hearts 26; Stars 25; Diamonds 27; Triangles 27; Squares 27; Circles 26; Hexagons 27; Pluses 26; Crosses 26; Ticks 26; Moons 26; Suns 25; Clouds 26; Drops 27; Flames 26; Snowflakes 26; Lightning bolts 26; Leaves 27; Flowers 25; Trees 26; Mushrooms 26; Music notes 26; Arrows 26; Sparkles 27; Bubbles 26; Rings 27; Gems 27; Coins 26; Crowns 26; Shields 27; Swords 25; Skulls 26; Ghosts 26; Eyes 26; Smileys 26; Fish 26; Birds 25; Butterflies 25; Paw prints 25; Balloons 26; Houses 27; Flags 26; Rockets 26; Trophies 26; Clovers 26; Bats 25; Pumpkins 26; Keys 26; Bells 26; Anchors 26; Apples 26; Sweets 26; Eggs 27; Padlocks 26; Bombs 26; Potions 26; Witch hats 26; Ice creams 26; Umbrellas 26; Cat faces 26; Presents 26; Candles 26; Snowmen 26; Dice 26; Cactuses 26; Mountains 26; Made of little shapes 198 |
 | Framed | 5191 | In a circle 914; In a square 914; In a hexagon 914; On a shield 914; In a speech bubble 961; On a banner 312; On a sign 262 |
 | Decorated | 4809 | With sparkles 962; With hearts 962; With stars 962; With a crown 961; With a halo 962 |
+| Monsters | 1840 | Round monsters 180; Tall monsters 180; Wide monsters 180; Square monsters 180; Furry monsters 180; Bumpy monsters 180; Pear monsters 180; Rock monsters 180; Slimes 200; Ghosts 200 |
+| Robots | 1120 | Walking robots 280; Rolling robots 280; Hovering robots 280; Tank robots 280 |
+| Items | 2210 | Swords 250; Potions 280; Keys 280; Shields 280; Gems 280; Wands and staffs 280; Axes and hammers 280; Crowns 280 |
+| Space | 1400 | Rockets 280; Flying saucers 280; Starships 280; Planets 280; Aliens 280 |
+| Mandalas | 840 | Snow crystals 280; Flowers 280; Rosettes 280 |
+| Buildings | 840 | Houses 280; Castles 280; Towers 280 |
+| Sea | 840 | Fish 280; Jellyfish 280; Boats 280 |
 
-[All 23190 shapes by name](docs/shapes.md).
+[All 33190 shapes by name](docs/shapes.md).
 
 Every shape has a "How many" slider for the number of particles. 1342 of them
 have settings of their own, such as the points of a star, the petals of a
@@ -152,6 +159,26 @@ What is in the tabs that are made from parts:
 - **Decorated** has the same pictures with something around them: with
   sparkles, with hearts, with three stars, with a crown, with a halo. The
   picture moves and shrinks to make room.
+- **Monsters**, **Robots**, **Items**, **Space**, **Mandalas**, **Buildings**
+  and **Sea** hold pictures that are put together from parts. A monster is a
+  body, eyes, a mouth, something on its head, and arms and legs; a castle is
+  two towers, a wall, a gate and what flies over it. Each kind has between
+  four and thirteen of every part, and they are dealt out so that no two
+  pictures of a kind are alike: any two differ in two parts or more.
+  - Monsters: round, tall, wide, square, furry, bumpy, pear and rock monsters,
+    slimes and ghosts.
+  - Robots: walking, rolling, hovering and tank robots.
+  - Items: swords, potions, keys, shields, gems, wands and staffs, axes and
+    hammers, crowns.
+  - Space: rockets, flying saucers, starships, planets, aliens.
+  - Mandalas: snow crystals with six arms, flowers with four to eight petals,
+    rosettes inside a rim.
+  - Buildings: houses, castles, towers.
+  - Sea: fish, jellyfish, boats.
+- **Pixel art** has 840 creatures made the same way: invaders, heroes and
+  starfighters. **Curves** has 70 spirographs: what a pen draws on a small
+  wheel that rolls inside or around a big one. They are curves that the
+  sliders of the Spirograph shape cannot make.
 - **Symbols** has the little pictures of the Combos tab as badges (in a
   circle, on a shield), shields with their divisions, speech bubbles with a
   word, and the keys of a keyboard for "press E" signs. **Letters** has every
@@ -835,6 +862,10 @@ and what is in it names the group as its `parent`. `sceneTree()` in
 | `js/shapes-ornaments.js` | Snowflakes, flowers, suns, mandalas, shields, frames and magic circles, each kind put together from a few parts |
 | `js/shapes-solids2.js`, `js/shapes-famous.js` | More solids, found from their corners, and letters with depth; curves with a name |
 | `js/shapes-pixel3.js` | More pixel art put together from parts: words in one or two lines, numbers, faces |
+| `js/shape-mix.js` | For the pictures that are put together by rule: short ways to write strokes, where a stroke meets an outline, and `family()`, which deals the parts out so that no two pictures are alike |
+| `js/shapes-monsters.js`, `js/shapes-robots.js`, `js/shapes-items.js`, `js/shapes-cosmos.js` | The Monsters, Robots, Items and Space tabs: each kind is a few lists of parts |
+| `js/shapes-mandalas.js`, `js/shapes-buildings.js`, `js/shapes-sea.js` | The Mandalas, Buildings and Sea tabs, made the same way |
+| `js/shapes-sprites.js`, `js/shapes-spiro.js` | Pixel invaders, heroes and starfighters, put together from rows of dots; spirographs, each from four numbers |
 | `js/scene.js` | Scene data, groups and repeats, checks for loaded files, the preview maths |
 | `js/motion.js` | Timing: where an object is at a time, and the plan each particle gets for the game. The top of the file explains how |
 | `js/codegen.js` | Turns a scene into Bloxd code, split to fit code blocks |
@@ -897,6 +928,15 @@ A word is one more word in a list of `js/shapes-vocab.js`, a name one more name
 in `js/shapes-names.js`. A little picture for the Combos tab is one line in
 `MINIS` in `js/shapes-combos.js`, and gives a whole row of shapes: every
 formation is made for it.
+
+A picture of the Monsters, Robots, Items, Space, Mandalas, Buildings or Sea tab
+is not written down anywhere: its kind has a few lists of parts, and `family()`
+in `js/shape-mix.js` gives member 1 the first part of every list, member 2 the
+second, and so on round each list. The lists of a kind have lengths that share
+no divisor (such as 5, 7, 8 and 9), which is why no two members are alike. So a list
+cannot get one more part later: every member after the first few would change,
+and with it the scenes that use it. More pictures are a new kind, with lists of
+its own, under a new heading.
 
 A new heading is a name in the `subs` of its tab, in `CATEGORIES` in
 `js/shapes.js`. The headings show in that order. A name with a word of nine
