@@ -8,8 +8,9 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import * as THREE from '../vendor/three.module.min.js';
-import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, shapeCaption, MAX_COUNT } from '../js/shapes.js';
+import { SHAPES, CATEGORIES, shapePoints, defaultParams, searchShapes, prepareSearch, shapeCaption, MAX_COUNT } from '../js/shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, HIDDEN_TEXELS, createObject, sanitizeScene, objectPoints, rotationMatrix,
   computeParticles, sceneDuration, LIFE_PER_SECOND, hexToRgb, rgbToHex, localPoints, posedPoints, poseAtTime, GHOST,
@@ -41,12 +42,12 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 const inBox = (shape, point) => point.every((v, axis) => Number.isFinite(v)
   && v <= 1.0001 + (axis === 1 ? shape.rise || 0 : 0) && v >= -1.0001 - (axis === 1 ? shape.drop || 0 : 0));
 
-test('there are 33190 shapes, each made of dozens of particles, in 28 tabs', () => {
-  assert.equal(SHAPES.length, 33190);
+test('there are 53190 shapes, each made of dozens of particles, in 32 tabs', () => {
+  assert.equal(SHAPES.length, 53190);
   assert.equal(new Set(SHAPES.map((s) => s.id)).size, SHAPES.length, 'duplicate shape id');
   assert.equal(new Set(SHAPES.map((s) => s.name)).size, SHAPES.length, 'duplicate shape name');
   const tabs = CATEGORIES.map((c) => c.id);
-  assert.equal(tabs.length, 28);
+  assert.equal(tabs.length, 32);
   for (const tab of tabs) assert.ok(SHAPES.some((s) => s.cat === tab), `tab ${tab} is empty`);
   // the picker shows the shapes tab by tab, in this order
   assert.deepEqual([...new Set(SHAPES.map((s) => s.cat))], tabs);
@@ -499,6 +500,98 @@ test('the search box finds shapes by name, sign and other words', () => {
   for (const s of SHAPES) assert.equal(ids(s.name)[0], s.id, `searching "${s.name}"`);
 });
 
+// The search goes through a list of the words of the library, not through the shapes: with tens of
+// thousands of shapes that is what keeps it quick. What it has to find is said here in the plain way,
+// shape by shape, and the two are held against each other.
+test('the search finds what looking at every shape finds, in the same order', () => {
+  const tabName = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.name.toLowerCase()]));
+  const texts = SHAPES.map((s) => {
+    const name = s.name.toLowerCase();
+    const label = (s.label || '').toLowerCase();
+    const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${tabName[s.cat]} ${s.id}`;
+    return { name, label, all, parts: all.split(/[\s-]+/), words: name.split(' '), heading: (s.sub || '').toLowerCase() };
+  });
+  const plain = (text) => {
+    const words = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const typed = words.join(' ');
+    const found = [];
+    texts.forEach((x, order) => {
+      // every word is somewhere in the text or the heading; a single letter has to begin a word of the text
+      if (!words.every((w) => (w.length > 1 ? x.all.includes(w) || x.heading.includes(w) : x.parts.some((part) => part.startsWith(w))))) return;
+      let rank = 5;
+      if (x.name === typed || (x.label === typed && typed.length <= 2)) rank = 0;
+      else if (x.label === typed) rank = 0.5 + Math.min(400, x.name.length) / 1000;
+      else if (x.name.startsWith(typed)) rank = 1;
+      else if (x.words.some((w) => w.startsWith(typed))) rank = 2;
+      else if (x.name.includes(typed)) rank = 3;
+      else if (x.parts.some((w) => w.startsWith(typed))) rank = 4;
+      found.push([rank, order]);
+    });
+    return found.sort((p, q) => p[0] - q[0] || p[1] - q[1]).map((f) => SHAPES[f[1]].id);
+  };
+  const asked = new Set([
+    'sword', 'goblet 12', '3d', '3D', 'a', 'é', '?', '+', '7', '437', 'forty two', 'ring of hearts', 'welcome', 'cat', 'win', 'gg', ' Star ', 'star star', 'in a circle', 'q z', 'x',
+    '3d sword 77', '3D game piece 499', 'spell book 300', 'lantern', 'wizard hat', 'pixel art', 'weapons', 'game pieces', 'no such thing', '', ' ', 'a\tb', '🙂',
+    // a hyphen: a word of its own, at an end, twice, and with pieces that are in a shape but not side by side
+    '-', '--', 't-rex', 't-re', '-rex', 't-', 'tic-tac-toe', 'ic-ta', '3d-sword-77', 'd-sword-7', 'sword-', '-77', 'px-word-cat', 'letter-a', 'a--b', 'sword-3d', 'rex-t', '3d sword-7', 'game-piece-3', 'e-piece',
+    // a heading: whole, in part, and with a single letter (for which the headings do not count)
+    '3d swords', 'swor', 'spell books', 'books s', 'pieces g', 'mushrooms 3', 'rings r', 'helmets h', 'h', 'g', '3',
+  ]);
+  const letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  for (const c of letters) asked.add(c);
+  for (let i = 0; i < letters.length; i++) asked.add(letters[i] + letters[(i * 7 + 3) % letters.length]);
+  for (const c of CATEGORIES) {
+    asked.add(c.name);
+    if (c.subs.length) asked.add(c.subs[c.subs.length >> 1]);
+  }
+  // of every 400th shape: its name, a beginning and a middle of it, its id, a search word, and two things together
+  for (let i = 0; i < SHAPES.length; i += 400) {
+    const s = SHAPES[i];
+    const name = s.name.toLowerCase();
+    const word = (s.tags || s.id).split(/\s+/)[i % 3] || s.id;
+    for (const text of [name, name.slice(0, 2 + (i % 5)), name.slice(1 + (i % 4), 4 + (i % 7)), s.id, s.id.slice(i % 6), word, `${word} ${name.split(' ')[0]}`, `${name[0]} ${word.slice(0, 3)}`]) asked.add(text);
+  }
+  let found = 0;
+  for (const text of asked) {
+    const want = plain(text);
+    assert.deepEqual(searchShapes(text).map((s) => s.id), want, `searching "${text}"`);
+    found += want.length;
+  }
+  assert.ok(asked.size > 1000 && found > 500000, `${asked.size} searches found ${found} shapes`);
+});
+
+test('the search can be made ready a little at a time, and a search that comes before that is right all the same', () => {
+  // (in a run of its own: here the search has been used, so it is ready)
+  assert.equal(prepareSearch(), false);
+  const script = `
+    import { SHAPES, searchShapes, prepareSearch } from './js/shapes.js';
+    const out = { steps: [prepareSearch(), prepareSearch(1000), prepareSearch(1)] };
+    // most of the library is not looked through yet: a search does the rest first
+    out.early = ['3d sword 77', 'sea', 'x', 't-rex'].map((text) => searchShapes(text).map((s) => s.id));
+    out.after = prepareSearch();
+    // and a library that is made ready to the end, piece by piece
+    out.shapes = SHAPES.length;
+    console.log(JSON.stringify(out));`;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: fileURLToPath(root), encoding: 'utf8', maxBuffer: 1 << 26 }));
+  assert.deepEqual(out.steps, [true, true, true], 'there is more to do after 2500, 3500 and 3501 shapes');
+  assert.equal(out.shapes, SHAPES.length);
+  assert.deepEqual(out.early, ['3d sword 77', 'sea', 'x', 't-rex'].map((text) => searchShapes(text).map((s) => s.id)));
+  assert.equal(out.early[0][0], '3d-sword-77');
+  assert.equal(out.after, false, 'a search made all of it ready');
+  const pieces = Math.ceil(SHAPES.length / 2500);
+  const counted = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { searchShapes, prepareSearch } from './js/shapes.js';
+    let pieces = 0;
+    while (prepareSearch()) pieces++;
+    console.log(JSON.stringify([pieces + 1, prepareSearch(), searchShapes('goblet 12')[0].id]));`], { cwd: fileURLToPath(root), encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(counted), [pieces, false, 'goblet-12']);
+  // the page does that while it has nothing else to do, so that the first letter typed is answered at once
+  const app = fs.readFileSync(new URL('js/app.js', root), 'utf8');
+  assert.ok(app.includes('const getReady = () => { if (prepareSearch()) whenIdle(getReady); };') && app.includes('whenIdle(getReady);\n}'));
+  assert.ok(app.includes('window.requestIdleCallback ? (act) => window.requestIdleCallback(act) : (act) => setTimeout(act, 60)'), 'and in a browser without requestIdleCallback too');
+});
+
 test('a long word under a picture has a place to break', () => {
   const soft = '\u00AD';
   for (const s of SHAPES) {
@@ -860,7 +953,7 @@ test('every texture and every shape exports correctly', () => {
     texture: TEXTURES[i % TEXTURES.length],
     color: rgbToHex([i * 10, 255 - i * 9, (i * 53) % 256]),
   });
-  // (a few hundred shapes at a time: all 33190 in one scene are more than three million particles to hold at once)
+  // (a few hundred shapes at a time: all 53190 in one scene are more than five million particles to hold at once)
   const textures = new Set();
   for (let from = 0; from < SHAPES.length; from += 400) {
     const objects = SHAPES.slice(from, from + 400).map((s, k) => object(s, from + k));

@@ -3,7 +3,7 @@
 // edits.js and moves.js, the code generator in codegen.js and the 3D view in
 // viewport.js.
 
-import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, shapeCaption, MAX_COUNT } from './shapes.js';
+import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, searchShapes, prepareSearch, shapeCaption, MAX_COUNT } from './shapes.js';
 import {
   TEXTURES, PLACEHOLDER_TEXTURES, BLEND_MODES, LIFE_PER_SECOND, createObject, sanitizeScene,
   computeParticles, sceneDuration, sceneTree, isGroup, rgbToHex, localPoints,
@@ -1968,11 +1968,15 @@ function pickShapeFor(index) {
   $('#pick-text').textContent = `Click the shape ${node.name} turns into at key ${index + 1}.`;
   $('#pick-note').hidden = false;
   showPanel('add', true);
+  measureAddPart(); // (the note takes room from the shapes, or gives it back)
 }
 
 function endPick() {
   state.pickFor = null;
-  $('#pick-note').hidden = true;
+  const note = $('#pick-note');
+  if (note.hidden) return; // (this runs with every click on an object: nothing to do, nothing to measure)
+  note.hidden = true;
+  measureAddPart();
 }
 
 /** A shape was clicked in Add: a new object, or the shape a key was waiting for. */
@@ -3036,6 +3040,7 @@ function bindShapePicker() {
         ? `${list.length} of ${SHAPES.length} shapes. Enter adds the first one.`
         : `No shape matches \u201c${typed.slice(0, 30)}\u201d. Try a shorter word or pick a kind above.`;
     }
+    measureAddPart(); // (the note takes room, or gives it back)
   };
 
   tabs.replaceChildren(...CATEGORIES.map((c) => {
@@ -3057,6 +3062,11 @@ function bindShapePicker() {
     }
   };
   show();
+  // The search gets ready while the page has nothing else to do, a few thousand shapes at a time:
+  // the first letter that is typed is then answered at once.
+  const whenIdle = window.requestIdleCallback ? (act) => window.requestIdleCallback(act) : (act) => setTimeout(act, 60);
+  const getReady = () => { if (prepareSearch()) whenIdle(getReady); };
+  whenIdle(getReady);
 }
 
 function bindTimeline() {
@@ -3126,6 +3136,7 @@ function bindTimeline() {
     keyPressed = e.target instanceof Element && !!e.target.closest('.tl-key:not(.first)');
   }, true);
   window.addEventListener('resize', renderTimeline);
+  window.addEventListener('resize', measureAddPart);
   renderTimeline();
 }
 
@@ -3159,6 +3170,22 @@ function applyPanels() {
   }
   // nothing open: on a small screen the 3D view takes the whole height
   document.body.classList.toggle('bare', !PANELS.some((p) => shown[p.id]));
+  measureAddPart();
+}
+
+/**
+ * The left panel shares its height between the shapes and the scene list, and the scene list may
+ * take only what the shapes can spare: a row of shapes always stays in view (see "#cat-scene.open"
+ * in style.css). For that the style sheet has to know how high the Add part is without its shapes.
+ * That grows with every row of tabs, and with the notes that come and go, so it is measured here:
+ * when the part opens, when a note shows or goes, and when the window changes.
+ */
+function measureAddPart() {
+  const part = $('#cat-add');
+  if (isSmall() || !part.offsetHeight) return; // one column, where nothing is shared; or shut
+  const rest = Math.ceil(part.getBoundingClientRect().height - $('#shapes').getBoundingClientRect().height);
+  const left = $('#left');
+  if (left.style.getPropertyValue('--add-rest') !== `${rest}px`) left.style.setProperty('--add-rest', `${rest}px`);
 }
 
 /** Open or close a part of the page (no `on`: the other way round). */

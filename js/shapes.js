@@ -61,6 +61,12 @@
 //   shapes-sea.js       the Sea tab: fish, jellyfish, boats
 //   shapes-sprites.js   pixel art: invaders, heroes, starfighters
 //   shapes-spiro.js     curves: spirographs
+// and, since it grew to 53,190 (game items, each kind as flat pictures and in 3D):
+//   shape-build.js      the tools for things in 3D: a profile spun around an axis, a drawing given thickness or laid in space
+//   shapes-loot3d.js    the 3D loot tab: potions, goblets, pots, barrels, chests, gems, crowns, game pieces, mushrooms, rings
+//   shapes-gear3d.js    the 3D gear tab: swords, axes, hammers, shields, helmets, keys, staffs, lanterns, bombs, hats
+//   shapes-loot.js      the Loot tab: goblets, pots, barrels, chests, game pieces, mushrooms, rings, coins, scrolls, spell books
+//   shapes-gear.js      the Gear tab: helmets, lanterns, bombs, hats, bows, arrows, boots, armour, amulets, torches
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -111,6 +117,10 @@ import { BUILDING_SHAPES, BUILDING_HEADINGS } from './shapes-buildings.js';
 import { SEA_SHAPES, SEA_HEADINGS } from './shapes-sea.js';
 import { SPRITE_SHAPES, SPRITE_HEADINGS } from './shapes-sprites.js';
 import { SPIRO_SHAPES, SPIRO_HEADINGS } from './shapes-spiro.js';
+import { LOOT_SHAPES, LOOT_HEADINGS } from './shapes-loot.js';
+import { GEAR_SHAPES, GEAR_HEADINGS } from './shapes-gear.js';
+import { LOOT3D_SHAPES, LOOT3D_HEADINGS } from './shapes-loot3d.js';
+import { GEAR3D_SHAPES, GEAR3D_HEADINGS } from './shapes-gear3d.js';
 
 export { resample };
 
@@ -151,6 +161,10 @@ export const CATEGORIES = [
   { id: 'mandalas', name: 'Mandalas', subs: MANDALA_HEADINGS },
   { id: 'buildings', name: 'Buildings', subs: BUILDING_HEADINGS },
   { id: 'sea', name: 'Sea', subs: SEA_HEADINGS },
+  { id: 'loot', name: 'Loot', subs: LOOT_HEADINGS },
+  { id: 'gear', name: 'Gear', subs: GEAR_HEADINGS },
+  { id: 'loot3d', name: '3D loot', subs: LOOT3D_HEADINGS },
+  { id: 'gear3d', name: '3D gear', subs: GEAR3D_HEADINGS },
 ];
 
 /**
@@ -409,6 +423,7 @@ const PLACES = {
 const NEW_SHAPES = [
   ...MONSTER_SHAPES, ...ROBOT_SHAPES, ...ITEM_SHAPES, ...COSMOS_SHAPES, ...MANDALA_SHAPES, ...BUILDING_SHAPES, ...SEA_SHAPES,
   ...SPRITE_SHAPES, ...SPIRO_SHAPES,
+  ...LOOT_SHAPES, ...GEAR_SHAPES, ...LOOT3D_SHAPES, ...GEAR3D_SHAPES,
 ];
 
 /** Every shape, grouped by tab in the order of CATEGORIES, and by heading inside a tab. */
@@ -448,18 +463,113 @@ export function defaultParams(shapeId) {
   return out;
 }
 
-// What the search looks through, per shape, made the first time something is typed.
-let lookup = null;
-function searchIndex() {
-  if (!lookup) {
-    lookup = SHAPES.map((s) => {
-      const name = s.name.toLowerCase();
-      const label = (s.label || '').toLowerCase();
-      const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${TAB_NAME[s.cat]} ${s.id}`;
-      return { name, label, all, parts: all.split(/[\s-]+/), words: name.split(' '), heading: (s.sub || '').toLowerCase() };
-    });
+// ---- the search
+//
+// What the search looks at, shape by shape in the order of SHAPES: the name, the sign, and all the text
+// of the shape (name, sign, search words, the name of its tab, its id) in small letters.
+const lookup = [];
+// A word of that text -> the shapes that have it (their places in SHAPES). The library has some ten
+// thousand different words, a million in all: a search goes through the words, not through the shapes.
+const partsOf = new Map();
+// A heading -> the shapes that stand under it.
+const underHeading = new Map();
+const BETWEEN = /[\s-]/; // what stands between two words of a text
+
+/** Writes down what the search needs, up to the shape at `upTo` (left out: all of them). */
+function searchIndex(upTo = SHAPES.length) {
+  for (let order = lookup.length; order < upTo; order++) {
+    const s = SHAPES[order];
+    const name = s.name.toLowerCase();
+    const label = (s.label || '').toLowerCase();
+    const all = `${name} ${label} ${(s.tags || '').toLowerCase()} ${TAB_NAME[s.cat]} ${s.id}`;
+    const heading = (s.sub || '').toLowerCase();
+    for (const part of all.split(/[\s-]+/)) {
+      const list = partsOf.get(part);
+      if (!list) partsOf.set(part, [order]);
+      else if (list[list.length - 1] !== order) list.push(order);
+    }
+    if (heading) {
+      if (underHeading.has(heading)) underHeading.get(heading).push(order);
+      else underHeading.set(heading, [order]);
+    }
+    lookup.push({ name, label, all, heading });
   }
   return lookup;
+}
+
+/**
+ * Gets the search ready, `some` shapes at a time. The page calls it again and again while it has nothing
+ * else to do, so that the first letter typed is answered at once. True as long as there is more to do.
+ */
+export function prepareSearch(some = 2500) {
+  searchIndex(Math.min(SHAPES.length, lookup.length + some));
+  return lookup.length < SHAPES.length;
+}
+
+// Which shapes were met in the search that is running (a number per search, so that nothing has to be wiped).
+let met = null;
+let round = 0;
+
+/** The shapes (their places) with a word that `fits`; `headings`: and those under a heading that fits. */
+function shapesThat(fits, headings) {
+  round++;
+  const out = [];
+  const take = (orders) => {
+    for (const order of orders) {
+      if (met[order] !== round) {
+        met[order] = round;
+        out.push(order);
+      }
+    }
+  };
+  for (const [part, orders] of partsOf) if (fits(part)) take(orders);
+  if (headings) for (const [heading, orders] of underHeading) if (fits(heading)) take(orders);
+  return out;
+}
+
+/** Of the shapes in `some`, those that are in `others` too. */
+function inBoth(some, others) {
+  round++;
+  for (const order of others) met[order] = round;
+  return some.filter((order) => met[order] === round);
+}
+
+// The words that were typed last, each with its shapes: while a name is typed, and when one name after
+// another of a family is looked for, most of the words are the same again.
+const WORDS_KEPT = 16;
+const lately = new Map();
+
+/** The shapes (their places) that one word of what was typed finds. */
+function shapesWith(word) {
+  let found = lately.get(word);
+  if (found) return found;
+  if (word.length === 1) {
+    // a single letter has to start a word, or "a" would find nearly everything (and the headings do not count for it)
+    found = shapesThat((part) => part.startsWith(word), false);
+  } else if (!word.includes('-')) {
+    found = shapesThat((text) => text.includes(word), true);
+  } else {
+    // A hyphen stands between two words of a shape ("t-rex", an id like "3d-sword-7"). Each piece of what
+    // was typed is in one of them: only the shapes that have them all are looked at for the whole of it.
+    const pieces = word.split('-').filter(Boolean);
+    let some = pieces.length ? null : lookup.map((_, order) => order);
+    for (const piece of pieces) {
+      const having = shapesThat((text) => text.includes(piece), true);
+      some = some ? inBoth(some, having) : having;
+    }
+    found = some.filter((order) => lookup[order].all.includes(word) || lookup[order].heading.includes(word));
+  }
+  if (lately.size >= WORDS_KEPT) lately.delete(lately.keys().next().value);
+  lately.set(word, found);
+  return found;
+}
+
+/** Does a word of `whole` begin with `text`? `between`: what stands between two words of it. */
+function startsWord(whole, text, between) {
+  for (let at = whole.indexOf(text); at >= 0; at = whole.indexOf(text, at + 1)) {
+    if (at === 0 || between.test(whole[at - 1])) return true;
+  }
+  return false;
 }
 
 /**
@@ -471,10 +581,15 @@ export function searchShapes(text) {
   const words = String(text || '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const typed = words.join(' ');
-  const found = [];
-  searchIndex().forEach((x, order) => {
-    // a single letter has to start a word, or "a" would find nearly everything (and the headings do not count for it)
-    if (!words.every((w) => (w.length > 1 ? x.all.includes(w) || x.heading.includes(w) : x.parts.some((part) => part.startsWith(w))))) return;
+  const index = searchIndex();
+  if (!met) met = new Int32Array(SHAPES.length);
+  // the shapes that have every word: the word that the fewest have first
+  const lists = [...new Set(words)].map(shapesWith).sort((a, b) => a.length - b.length);
+  let orders = lists[0];
+  for (let i = 1; i < lists.length && orders.length; i++) orders = inBoth(orders, lists[i]);
+  const oneWord = words.length === 1; // (more words than one are not the beginning of any single word)
+  const found = orders.map((order) => {
+    const x = index[order];
     // The shape of that very name comes first, and so does a sign ("A", "7", "GG"). A word under a picture that is
     // what was typed comes right after: "cat" finds the cat before the word CAT, and "win" the word WIN first of all
     // (the plain word before the same word on an arch or in pixels: the shorter name first).
@@ -482,12 +597,12 @@ export function searchShapes(text) {
     if (x.name === typed || (x.label === typed && typed.length <= 2)) rank = 0;
     else if (x.label === typed) rank = 0.5 + Math.min(400, x.name.length) / 1000;
     else if (x.name.startsWith(typed)) rank = 1;
-    else if (x.words.some((w) => w.startsWith(typed))) rank = 2;
+    else if (oneWord && startsWord(x.name, typed, / /)) rank = 2; // a word of the name begins with it
     else if (x.name.includes(typed)) rank = 3;
-    else if (x.parts.some((w) => w.startsWith(typed))) rank = 4;
-    found.push([rank, order, SHAPES[order]]);
+    else if (oneWord && !typed.includes('-') && startsWord(x.all, typed, BETWEEN)) rank = 4; // a word of its text does
+    return [rank, order];
   });
-  return found.sort((p, q) => p[0] - q[0] || p[1] - q[1]).map((f) => f[2]);
+  return found.sort((p, q) => p[0] - q[0] || p[1] - q[1]).map((f) => SHAPES[f[1]]);
 }
 
 // Where a long word under a picture may break. On a narrow button it then breaks there, with a

@@ -506,6 +506,82 @@ test('families: monsters, robots, items and the others are dealt out so that no 
   assert.equal(SHAPE_BY_ID['mandala-1'].cat, 'patterns');
 });
 
+test('families: loot and gear, each kind as flat pictures and in 3D, and no two alike', () => {
+  const headings = {
+    loot: ['Goblets', 'Pots', 'Barrels', 'Chests', 'Game pieces', 'Mushrooms', 'Rings', 'Coins', 'Scrolls', 'Spell books'],
+    gear: ['Helmets', 'Lanterns', 'Bombs', 'Hats', 'Bows', 'Arrows', 'Boots', 'Armour', 'Amulets', 'Torches'],
+    loot3d: ['3D potions', '3D goblets', '3D pots', '3D barrels', '3D chests', '3D gems', '3D crowns', '3D game pieces', '3D mushrooms', '3D rings'],
+    gear3d: ['3D swords', '3D axes', '3D hammers', '3D shields', '3D helmets', '3D keys', '3D staffs', '3D lanterns', '3D bombs', '3D hats'],
+  };
+  let all = 0;
+  for (const [cat, subs] of Object.entries(headings)) {
+    assert.deepEqual(CATEGORIES.find((c) => c.id === cat).subs, subs);
+    assert.equal(SHAPES.filter((s) => s.cat === cat).length, 5000, `the ${cat} tab`);
+    const solid = cat.endsWith('3d');
+    for (const sub of subs) {
+      const list = under(cat, sub);
+      assert.equal(list.length, 500, sub);
+      all += list.length;
+      const kinds = new Set();
+      const looks = new Set();
+      list.forEach((s, i) => {
+        // a name is a kind and a number, and the id says the same; what is in 3D says so in its name
+        const [, kind, number] = /^(.+) (\d+)$/.exec(s.name) || [];
+        assert.ok(kind, `${s.id}: "${s.name}" is a kind and a number`);
+        kinds.add(kind);
+        assert.equal(Number(number), i + 1, `${s.name} is number ${i + 1} of its kind`);
+        assert.equal(s.id, s.name.toLowerCase().replace(/ /g, '-'), `the id of ${s.name}`);
+        assert.equal(kind.startsWith('3D '), solid, s.name);
+        assert.equal(s.group, solid ? 'solid' : 'flat', s.id);
+        assert.equal((s.params || []).length, 0, `${s.id} has no sliders`);
+        assert.ok(s.count >= 20 && s.count <= (solid ? 160 : 140), `${s.id}: ${s.count} particles`);
+
+        // no clumps: no two particles nearer than half the usual gap (measured in space: a thing in 3D has particles behind particles)
+        const pts = points(s.id);
+        const nearest = new Float64Array(pts.length).fill(Infinity);
+        for (let a = 0; a < pts.length; a++) {
+          for (let b = 0; b < a; b++) {
+            const d = Math.sqrt((pts[a][0] - pts[b][0]) ** 2 + (pts[a][1] - pts[b][1]) ** 2 + (pts[a][2] - pts[b][2]) ** 2);
+            if (d < nearest[a]) nearest[a] = d;
+            if (d < nearest[b]) nearest[b] = d;
+          }
+        }
+        const usual = Float64Array.from(nearest).sort()[pts.length >> 1];
+        const least = nearest.reduce((m, d) => Math.min(m, d), Infinity);
+        assert.ok(least >= 0.5 * usual, `${s.id}: two particles ${least.toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
+        // a thing in 3D has depth, whichever side it is seen from; a flat picture has none
+        const reach = [0, 1, 2].map((axis) => pts.reduce((m, p) => Math.max(m, p[axis]), -Infinity) - pts.reduce((m, p) => Math.min(m, p[axis]), Infinity));
+        if (solid) assert.ok(Math.min(...reach) >= 0.1, `${s.id} is ${reach.map((v) => v.toFixed(2)).join(' by ')}`);
+        else assert.equal(reach[2], 0, `${s.id} is flat`);
+        looks.add(pts.map((p) => p.map((v) => v.toFixed(3)).join(',')).sort().join(';'));
+        assert.ok(Array.isArray(s.variants) && s.variants.length >= 4, `${s.id} knows its parts`);
+      });
+      assert.equal(kinds.size, 1, `${sub} are one kind`);
+      assert.equal(looks.size, list.length, `${sub}: every one is different`);
+      // a member is given by which variant of each part it has: any two differ in two parts or more
+      for (let i = 0; i < list.length; i++) {
+        for (let j = 0; j < i; j++) {
+          const differ = list[i].variants.filter((v, k) => v !== list[j].variants[k]).length;
+          assert.ok(differ >= 2, `${list[i].id} and ${list[j].id} differ in ${differ} part only`);
+        }
+      }
+    }
+  }
+  assert.equal(all, 20000);
+  // a kind that there is flat and in 3D is two families, each numbered from 1
+  for (const kind of ['goblet', 'pot', 'barrel', 'chest', 'game-piece', 'mushroom', 'ring', 'helmet', 'lantern', 'bomb', 'hat']) {
+    assert.equal(SHAPE_BY_ID[`${kind}-1`].group, 'flat');
+    assert.equal(SHAPE_BY_ID[`3d-${kind}-1`].group, 'solid');
+    assert.ok(SHAPE_BY_ID[`${kind}-500`] && SHAPE_BY_ID[`3d-${kind}-500`] && !SHAPE_BY_ID[`${kind}-501`] && !SHAPE_BY_ID[`3d-${kind}-501`], kind);
+  }
+  // the older shapes of the same names are still there, and still themselves
+  for (const id of ['goblet', 'barrel', 'lantern', 'mushroom', 'bomb', 'scroll', 'spell-book', 'bow', 'arrow', 'boot', 'amulet', 'dagger', 'sword3d', 'key3d', 'shield3d', 'hammer3d', 'bomb3d',
+    'sword-1', 'potion-1', 'key-1', 'shield-1', 'gem-1', 'crown-1']) assert.ok(SHAPE_BY_ID[id], `${id} is gone`);
+  assert.equal(SHAPE_BY_ID['sword-1'].cat, 'items');
+  assert.equal(SHAPE_BY_ID['3d-sword-1'].cat, 'gear3d');
+  assert.equal(SHAPE_BY_ID.lantern.cat, 'solid');
+});
+
 // ---------------------------------------------------------------- pixel art made from parts
 
 test('pixel art: words in one or two lines, numbers and faces', () => {
@@ -546,8 +622,41 @@ test('the page: a big tab is folded, and a search shows what it found a few hund
     // (the Letters tab is not folded: an alphabet is looked at as a whole)
     if (tab.id === 'letters') assert.equal(shown, list.length);
   }
-  // the tabs: 28 names that fit a button of the narrow panel (seven full rows of four)
+  // the tabs: 32 names that fit a button of the narrow panel (eight full rows of four)
   assert.deepEqual(CATEGORIES.map((c) => c.name), ['Basic', '3D', 'Letters', 'Words', 'Names', 'Numbers', 'Symbols', 'Faces', 'Nature', 'Animals', 'Food', 'Things',
-    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos', 'Framed', 'Decorated', 'Monsters', 'Robots', 'Items', 'Space', 'Mandalas', 'Buildings', 'Sea']);
+    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos', 'Framed', 'Decorated', 'Monsters', 'Robots', 'Items', 'Space', 'Mandalas', 'Buildings', 'Sea',
+    'Loot', 'Gear', '3D loot', '3D gear']);
   for (const c of CATEGORIES) assert.ok(c.name.length <= 9, c.name);
+});
+
+test('the page: a row of shapes stays in view, however many rows of tabs there are', () => {
+  const app = fs.readFileSync(new URL('js/app.js', root), 'utf8');
+  const css = fs.readFileSync(new URL('css/style.css', root), 'utf8');
+  // The Add part of the left panel does not shrink below its buttons, its tabs and one row of shapes.
+  // That is said by what is in it: no height is written down that one more row of tabs would make wrong
+  // (as it was: with seven rows of tabs and a long scene list, not one shape was left in view).
+  assert.match(css, /#left > #cat-add\.open \{ flex: 1 0 auto; \}/);
+  assert.match(css, /#left > #cat-add\.open > \.cat-body > \.shape-grid \{ flex: 1 1 var\(--shape-row\); min-height: var\(--shape-row\); max-height: none; \}/);
+  assert.doesNotMatch(css, /#cat-add\.open \{[^}]*min-height: var\(--one-row\)/);
+  // a row of shapes: a heading, and buttons with a name of two lines
+  assert.match(css, /#left \{ --shape-row: 113px; /);
+  // What the scene list may take is what the Add part can spare, with one row of shapes and with two. For
+  // that the page measures the rest of the Add part: it grows with the tabs, and with the notes that come and go.
+  assert.match(css, /--one-row: calc\(var\(--add-rest\) \+ var\(--shape-row\)\); --two-rows: calc\(var\(--one-row\) \+ 83px\);/);
+  assert.match(css, /#left > #cat-scene\.open \{ max-height: max\(124px, min\(100% - var\(--one-row\), max\(222px, min\(45%, 100% - var\(--two-rows\)\)\)\)\); \}/);
+  const measure = /function measureAddPart\(\) \{[\s\S]*?\n\}/.exec(app)[0];
+  assert.ok(measure.includes("if (isSmall() || !part.offsetHeight) return;"), 'not in one column, and not while the part is shut');
+  assert.ok(measure.includes("part.getBoundingClientRect().height - $('#shapes').getBoundingClientRect().height"));
+  assert.ok(measure.includes("left.style.setProperty('--add-rest', `${rest}px`)"));
+  // measured when a part opens or shuts, when a search shows its note, when the note of a pick comes and goes, when the window changes
+  const callers = ['function applyPanels() {', 'function pickShapeFor(index) {', 'function endPick() {'];
+  for (const head of callers) {
+    const body = app.slice(app.indexOf(head), app.indexOf('\n}\n', app.indexOf(head)));
+    assert.ok(app.includes(head) && body.includes('measureAddPart();'), head);
+  }
+  assert.ok(app.includes('measureAddPart(); // (the note takes room, or gives it back)'));
+  assert.ok(app.includes("window.addEventListener('resize', measureAddPart);"));
+  // the tabs themselves: rows as low as they can be read, and of the old height where a finger presses them
+  assert.match(css, /\.shape-tabs button \{ padding: 2px 1px; font-size: 12px; line-height: 16px; min-width: 0; \}/);
+  assert.match(css, /\.shape-tabs button \{ padding: 4px 1px; \}/);
 });
