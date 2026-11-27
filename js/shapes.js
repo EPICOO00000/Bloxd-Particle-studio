@@ -50,6 +50,17 @@
 //   shapes-pixel3.js    more pixel art: words, numbers and faces
 // and, since it grew to 23,190:
 //   shapes-framed.js    the Framed tab and the Decorated tab: every picture in a frame, and with things around it
+// and, since it grew to 33,190 (shapes that are put together by rule, each from a few parts):
+//   shape-mix.js        the tools for these: writing strokes, and dealing the parts out so that no two shapes are alike
+//   shapes-monsters.js  the Monsters tab
+//   shapes-robots.js    the Robots tab
+//   shapes-items.js     the Items tab: swords, potions, keys, shields, gems, wands, axes, crowns
+//   shapes-cosmos.js    the Space tab: rockets, flying saucers, starships, planets, aliens
+//   shapes-mandalas.js  the Mandalas tab: snow crystals, flowers, rosettes
+//   shapes-buildings.js the Buildings tab: houses, castles, towers
+//   shapes-sea.js       the Sea tab: fish, jellyfish, boats
+//   shapes-sprites.js   pixel art: invaders, heroes, starfighters
+//   shapes-spiro.js     curves: spirographs
 
 import {
   TAU, GOLDEN, P, resample, apportion, wire, loopEdges, polygon, curve, ring,
@@ -91,6 +102,15 @@ import { SOLID2_SHAPES } from './shapes-solids2.js';
 import { FAMOUS_SHAPES } from './shapes-famous.js';
 import { LABEL_SHAPES } from './shapes-labels.js';
 import { framedShapes, FRAMED_HEADINGS, AROUND_HEADINGS } from './shapes-framed.js';
+import { MONSTER_SHAPES, MONSTER_HEADINGS } from './shapes-monsters.js';
+import { ROBOT_SHAPES, ROBOT_HEADINGS } from './shapes-robots.js';
+import { ITEM_SHAPES, ITEM_HEADINGS } from './shapes-items.js';
+import { COSMOS_SHAPES, COSMOS_HEADINGS } from './shapes-cosmos.js';
+import { MANDALA_SHAPES, MANDALA_HEADINGS } from './shapes-mandalas.js';
+import { BUILDING_SHAPES, BUILDING_HEADINGS } from './shapes-buildings.js';
+import { SEA_SHAPES, SEA_HEADINGS } from './shapes-sea.js';
+import { SPRITE_SHAPES, SPRITE_HEADINGS } from './shapes-sprites.js';
+import { SPIRO_SHAPES, SPIRO_HEADINGS } from './shapes-spiro.js';
 
 export { resample };
 
@@ -117,13 +137,20 @@ export const CATEGORIES = [
   { id: 'things', name: 'Things', subs: ['Tools', 'Weapons', 'Treasure and magic', 'Games and sport', 'Music', 'Home', 'Party and holidays'] },
   { id: 'travel', name: 'Travel', subs: ['Vehicles', 'Buildings'] },
   { id: 'costume', name: 'Costume', subs: ['Wings', 'On the head', 'Clothes'] },
-  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel small letters', 'Pixel numbers', 'Pixel words'] },
-  { id: 'curves', name: 'Curves', subs: ['More flat curves', 'Famous curves', 'More curves in 3D'] },
+  { id: 'pixel', name: 'Pixel art', subs: ['Game items', 'Creatures', 'Faces', 'Nature and food', 'Signs and things', 'Pixel letters', 'Pixel small letters', 'Pixel numbers', 'Pixel words', ...SPRITE_HEADINGS] },
+  { id: 'curves', name: 'Curves', subs: ['More flat curves', 'Famous curves', 'More curves in 3D', ...SPIRO_HEADINGS] },
   { id: 'patterns', name: 'Patterns', subs: ['Tilings', 'Borders', 'Frames', 'Fractals', 'Mandalas'] },
   { id: 'effects', name: 'Effects', subs: ['Magic circles', 'Rings and shields', 'Elements', 'Floating things'] },
   { id: 'combos', name: 'Combos', subs: COMBO_HEADINGS },
   { id: 'framed', name: 'Framed', subs: FRAMED_HEADINGS },
   { id: 'decorated', name: 'Decorated', subs: AROUND_HEADINGS },
+  { id: 'monsters', name: 'Monsters', subs: MONSTER_HEADINGS },
+  { id: 'robots', name: 'Robots', subs: ROBOT_HEADINGS },
+  { id: 'items', name: 'Items', subs: ITEM_HEADINGS },
+  { id: 'space', name: 'Space', subs: COSMOS_HEADINGS },
+  { id: 'mandalas', name: 'Mandalas', subs: MANDALA_HEADINGS },
+  { id: 'buildings', name: 'Buildings', subs: BUILDING_HEADINGS },
+  { id: 'sea', name: 'Sea', subs: SEA_HEADINGS },
 ];
 
 /**
@@ -378,6 +405,12 @@ const PLACES = {
   'travel/Buildings': 'house castle',
 };
 
+// The shapes that are put together by rule (see shape-mix.js). They are not pictures for the frames of shapes-framed.js.
+const NEW_SHAPES = [
+  ...MONSTER_SHAPES, ...ROBOT_SHAPES, ...ITEM_SHAPES, ...COSMOS_SHAPES, ...MANDALA_SHAPES, ...BUILDING_SHAPES, ...SEA_SHAPES,
+  ...SPRITE_SHAPES, ...SPIRO_SHAPES,
+];
+
 /** Every shape, grouped by tab in the order of CATEGORIES, and by heading inside a tab. */
 export const SHAPES = (() => {
   const drawn = [
@@ -394,7 +427,7 @@ export const SHAPES = (() => {
     for (const id of ids.split(' ')) Object.assign(byId.get(id), { cat, sub });
   }
   // (the pictures in frames are made from the pictures above, so they come once every picture is in its place)
-  const all = [...drawn, ...framedShapes(drawn)];
+  const all = [...drawn, ...framedShapes(drawn), ...NEW_SHAPES];
   return CATEGORIES.flatMap((c) => {
     const mine = all.filter((s) => s.cat === c.id);
     const stray = mine.find((s) => s.sub && !c.subs.includes(s.sub));
@@ -485,7 +518,9 @@ const BREAKS = new Map((
   // (the polyhedra of shapes-solids2.js)
   + 'hexa|hedron delto|idal disdy|akis penta|gonal triaconta|hedron hexeconta|hedron stel|lated trian|gular tetra|hedra '
   // (the famous curves of shapes-famous.js)
-  + 'hyper|bolic serpen|tine semi|cubical expo|nential loga|rithm stro|phoid trisec|trix'
+  + 'hyper|bolic serpen|tine semi|cubical expo|nential loga|rithm stro|phoid trisec|trix '
+  // (the pixel art of shapes-sprites.js)
+  + 'star|fighter'
 ).split(' ').map((word) => [word.replace('|', ''), word.indexOf('|')]));
 
 for (const [word, at] of VOCAB_BREAKS) if (!BREAKS.has(word)) BREAKS.set(word, at); // (the long words of the Words and Names tabs)

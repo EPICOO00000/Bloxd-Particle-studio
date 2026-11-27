@@ -11,6 +11,7 @@ import { SHAPES, SHAPE_BY_ID, CATEGORIES, shapePoints, defaultParams, shapeCapti
 import { inWords, romanNumeral } from '../js/shapes-numbers.js';
 import { slug, breakAt, writable, phrase } from '../js/shapes-vocab.js';
 import { shapeDigests } from '../tools/shape-digests.mjs';
+import { WHEELS } from '../js/shapes-spiro.js';
 
 const root = new URL('..', import.meta.url);
 const points = (id, params = {}) => shapePoints(id, SHAPE_BY_ID[id].count, { ...defaultParams(id), ...params });
@@ -405,6 +406,106 @@ test('solids: each has the corners it should have', () => {
   assert.equal(under('solid', 'Letters in 3D').length, 36);
 });
 
+// ---------------------------------------------------------------- shapes put together by rule
+
+test('families: monsters, robots, items and the others are dealt out so that no two are alike', () => {
+  const sizes = (cat) => CATEGORIES.find((c) => c.id === cat).subs.map((sub) => [sub, under(cat, sub).length]);
+  assert.deepEqual(sizes('monsters'), [['Round monsters', 180], ['Tall monsters', 180], ['Wide monsters', 180], ['Square monsters', 180], ['Furry monsters', 180],
+    ['Bumpy monsters', 180], ['Pear monsters', 180], ['Rock monsters', 180], ['Slimes', 200], ['Ghosts', 200]]);
+  assert.deepEqual(sizes('robots'), [['Walking robots', 280], ['Rolling robots', 280], ['Hovering robots', 280], ['Tank robots', 280]]);
+  assert.deepEqual(sizes('items'), [['Swords', 250], ['Potions', 280], ['Keys', 280], ['Shields', 280], ['Gems', 280], ['Wands and staffs', 280], ['Axes and hammers', 280], ['Crowns', 280]]);
+  assert.deepEqual(sizes('space'), [['Rockets', 280], ['Flying saucers', 280], ['Starships', 280], ['Planets', 280], ['Aliens', 280]]);
+  assert.deepEqual(sizes('mandalas'), [['Snow crystals', 280], ['Flowers', 280], ['Rosettes', 280]]);
+  assert.deepEqual(sizes('buildings'), [['Houses', 280], ['Castles', 280], ['Towers', 280]]);
+  assert.deepEqual(sizes('sea'), [['Fish', 280], ['Jellyfish', 280], ['Boats', 280]]);
+  assert.deepEqual(sizes('pixel').slice(-3), [['Pixel invaders', 280], ['Pixel heroes', 280], ['Pixel starfighters', 280]]);
+  assert.deepEqual(sizes('curves').slice(-1), [['Spirographs', 70]]);
+
+  const families = [
+    ...['monsters', 'robots', 'items', 'space', 'mandalas', 'buildings', 'sea'].flatMap((cat) => CATEGORIES.find((c) => c.id === cat).subs.map((sub) => [cat, sub])),
+    ['pixel', 'Pixel invaders'], ['pixel', 'Pixel heroes'], ['pixel', 'Pixel starfighters'], ['curves', 'Spirographs'],
+  ];
+  assert.equal(families.length, 40);
+  assert.equal(families.reduce((sum, [cat, sub]) => sum + under(cat, sub).length, 0), 10000);
+
+  for (const [cat, sub] of families) {
+    const list = under(cat, sub);
+    const numbers = new Map(); // the kinds under a heading ("Axe", "Mallet", "Club") are each numbered from 1
+    for (const s of list) {
+      // a name is a kind and a number, and the id says the same
+      const [, kind, number] = /^(.+) (\d+)$/.exec(s.name) || [];
+      assert.ok(kind, `${s.id}: "${s.name}" is a kind and a number`);
+      numbers.set(kind, (numbers.get(kind) || 0) + 1);
+      assert.equal(Number(number), numbers.get(kind), `${s.name} is number ${numbers.get(kind)} of its kind`);
+      assert.equal(s.id, cat === 'pixel' ? s.name.toLowerCase().replace('pixel ', 'px-').replace(/ /g, '-') : s.name.toLowerCase().replace(/ /g, '-'), `the id of ${s.name}`);
+      assert.equal(s.group, 'flat', s.id);
+      assert.equal((s.params || []).length, 0, `${s.id} has no sliders`);
+      assert.ok(s.count >= 20 && s.count <= 140, `${s.id}: ${s.count} particles`);
+
+      // no clumps: no two particles nearer than half the usual gap
+      const pts = points(s.id);
+      const nearest = pts.map((p, i) => pts.reduce((least, q, j) => (j === i ? least : Math.min(least, Math.hypot(p[0] - q[0], p[1] - q[1]))), Infinity));
+      const usual = nearest.slice().sort((a, b) => a - b)[nearest.length >> 1];
+      assert.ok(Math.min(...nearest) >= 0.5 * usual, `${s.id}: two particles ${Math.min(...nearest).toFixed(3)} apart, the usual gap is ${usual.toFixed(3)}`);
+    }
+    // every one is another picture
+    const looks = new Set(list.map((s) => points(s.id).map((p) => p.map((v) => v.toFixed(3)).join(',')).sort().join(';')));
+    assert.equal(looks.size, list.length, `${sub}: every one is different`);
+    if (sub === 'Spirographs') continue;
+    // a member is given by which variant of each part it has: any two differ in two parts or more
+    for (const s of list) assert.ok(Array.isArray(s.variants) && s.variants.length >= 4, `${s.id} knows its parts`);
+    for (let i = 0; i < list.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const differ = list[i].variants.filter((v, k) => v !== list[j].variants[k]).length;
+        assert.ok(differ >= 2, `${list[i].id} and ${list[j].id} differ in ${differ} part only`);
+      }
+    }
+  }
+
+  // a snow crystal has six arms: turned by a sixth of a circle, its particles lie where particles were
+  for (const id of ['snow-crystal-1', 'snow-crystal-20', 'snow-crystal-140', 'snow-crystal-280']) {
+    const flake = points(id);
+    const turned = flake.map(([x, y]) => [x * 0.5 - y * Math.sqrt(0.75), x * Math.sqrt(0.75) + y * 0.5]);
+    const off = turned.map((p) => Math.min(...flake.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1]))));
+    assert.ok(off.sort((a, b) => a - b)[Math.floor(off.length * 0.9)] < 0.07, `${id} is six-fold`);
+  }
+  // pixel creatures are the same left and right, dot for dot, and a dot is a square of the grid
+  for (const s of SHAPES.filter((x) => /^px-(invader|hero|starfighter)-\d+$/.test(x.id))) {
+    const dots = points(s.id);
+    const spots = new Set(dots.map(([x, y]) => `${x.toFixed(4)},${y.toFixed(4)}`));
+    assert.ok(s.tidy && s.min === s.count && dots.length === s.count, `${s.id}: as many particles as squares`);
+    for (const [x, y] of dots) assert.ok(spots.has(`${(-x || 0).toFixed(4)},${y.toFixed(4)}`), `${s.id}: the dot at ${x}, ${y} has no twin`);
+  }
+  // a spirograph is not a curve that the sliders of the older Spirograph shape can make (a wheel inside a wheel: the
+  // wheel with the other teeth, big minus small, draws the same curve with the pen at 1 / pen), nor a cycloid (the
+  // pen on the rim), nor the Limaçon (a wheel around one of its own size, the pen beyond the rim)
+  const sliders = Object.fromEntries(SHAPE_BY_ID.spirograph.params.map((p) => [p.key, [p.min, p.max]]));
+  assert.deepEqual(sliders, { points: [3, 12], skip: [1, 5], pen: [0.2, 1.6] });
+  const inReach = (big, small, pen) => big <= 12 && small <= 5 && pen >= 0.2 && pen <= 1.6;
+  assert.equal(WHEELS.length, 70);
+  assert.equal(new Set(WHEELS.map((wheel) => wheel.join(' '))).size, 70);
+  for (const [inside, big, small, pen] of WHEELS) {
+    const what = `the wheel ${[inside, big, small, pen]}`;
+    assert.ok(pen !== 1 && small >= 1 && small < 4 && (inside ? big > 2 * small : big >= small), what);
+    if (inside) assert.ok(!inReach(big, small, pen) && !inReach(big, big - small, 1 / pen), `${what} is one the Spirograph shape can draw`);
+    else assert.ok(!(big === 1 && small === 1 && pen > 1) && pen > small / (big + small), `${what} is a Limaçon or an oval`);
+  }
+  // and no two of them look alike: drawn with 240 particles each, the particles of one are on average a third of the
+  // gap between two particles away from the other, or more
+  const drawn = under('curves', 'Spirographs').map((s) => [s.id, shapePoints(s.id, 240, defaultParams(s.id))]);
+  const away = (a, b) => a.reduce((sum, p) => sum + b.reduce((least, q) => Math.min(least, Math.hypot(p[0] - q[0], p[1] - q[1])), Infinity), 0) / a.length;
+  for (let i = 0; i < drawn.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const apart = Math.max(away(drawn[i][1], drawn[j][1]), away(drawn[j][1], drawn[i][1]));
+      assert.ok(apart >= 0.03, `${drawn[i][0]} and ${drawn[j][0]} look alike (${apart.toFixed(3)} apart)`);
+    }
+  }
+  // the older shapes of the same names are still there, and still themselves
+  for (const id of ['snowflake-1', 'mandala-1', 'rocket', 'house', 'castle', 'fish', 'jellyfish', 'robot-face', 'monster', 'alien', 'sword', 'key', 'crown', 'planet']) assert.ok(SHAPE_BY_ID[id], `${id} is gone`);
+  assert.equal(SHAPE_BY_ID['snowflake-1'].cat, 'nature');
+  assert.equal(SHAPE_BY_ID['mandala-1'].cat, 'patterns');
+});
+
 // ---------------------------------------------------------------- pixel art made from parts
 
 test('pixel art: words in one or two lines, numbers and faces', () => {
@@ -445,8 +546,8 @@ test('the page: a big tab is folded, and a search shows what it found a few hund
     // (the Letters tab is not folded: an alphabet is looked at as a whole)
     if (tab.id === 'letters') assert.equal(shown, list.length);
   }
-  // the tabs: 21 names that fit a button of the narrow panel
+  // the tabs: 28 names that fit a button of the narrow panel (seven full rows of four)
   assert.deepEqual(CATEGORIES.map((c) => c.name), ['Basic', '3D', 'Letters', 'Words', 'Names', 'Numbers', 'Symbols', 'Faces', 'Nature', 'Animals', 'Food', 'Things',
-    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos', 'Framed', 'Decorated']);
+    'Travel', 'Costume', 'Pixel art', 'Curves', 'Patterns', 'Effects', 'Combos', 'Framed', 'Decorated', 'Monsters', 'Robots', 'Items', 'Space', 'Mandalas', 'Buildings', 'Sea']);
   for (const c of CATEGORIES) assert.ok(c.name.length <= 9, c.name);
 });
